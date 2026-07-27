@@ -9,6 +9,11 @@ class T {
   static const bg = Color(0xFF0E0E0E);
   static const surface = Color(0xFF191919); // cards, input
   static const surfaceAlt = Color(0xFF222222); // user bubble, chips
+
+  // Conversation surfaces: the message area reads as a soft gray, the input
+  // field sits darker (near-black) for contrast.
+  static const chatBg = Color(0xFF1A1A1A);
+  static const inputBg = Color(0xFF0C0C0C);
   static const border = Color(0xFF2A2A2A); // hairline
   static const borderFaint = Color(0xFF1E1E1E);
 

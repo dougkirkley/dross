@@ -45,88 +45,58 @@ void main() {
     expect(s.currentChat!.messages.last.text, 'hi');
   });
 
-  test('a send during streaming is queued, not sent', () async {
-    final fake = FakeProvider();
-    final s = newState(fake);
-    await s.sendDirect('one');
-    await _tick();
-    await s.sendDirect('two');
-    await _tick();
-
-    expect(s.queue, ['two']);
-    expect(fake.controllers.length, 1); // only the first turn started
-  });
-
-  test('queued message fires when the turn completes', () async {
-    final fake = FakeProvider();
-    final s = newState(fake);
-    await s.sendDirect('one');
-    await _tick();
-    await s.sendDirect('two');
-    await _tick();
-
-    await fake.controllers.first.close(); // finish turn one
-    await _tick();
-
-    expect(s.queue, isEmpty);
-    expect(fake.controllers.length, 2); // turn two auto-started
-    expect(s.streaming, isTrue);
-  });
-
-  test('removeQueued drops a message out and returns its text', () async {
-    final fake = FakeProvider();
-    final s = newState(fake);
-    await s.sendDirect('one');
-    await _tick();
-    await s.sendDirect('two');
-    await s.sendDirect('three');
-    await _tick();
-
-    expect(s.queue, ['two', 'three']);
-    final dropped = s.removeQueued(0);
-    expect(dropped, 'two');
-    expect(s.queue, ['three']);
-  });
-
-  test('promoteQueued interrupts the current turn and runs the queued one',
+  test('direct chat does not queue: a send while streaming is ignored',
       () async {
     final fake = FakeProvider();
     final s = newState(fake);
     await s.sendDirect('one');
     await _tick();
-    fake.controllers.first.add('partial reply');
-    await _tick();
     await s.sendDirect('two');
     await _tick();
 
-    s.promoteQueued(); // Ctrl+C behaviour
-    await _tick();
-
-    expect(s.queue, isEmpty);
-    expect(fake.controllers.length, 2); // second turn started immediately
-    // The interrupted assistant kept its partial text; a new user turn 'two'
-    // and a fresh streaming assistant were appended.
-    final msgs = s.currentChat!.messages;
-    expect(msgs[1].text, 'partial reply');
-    expect(msgs[1].streaming, isFalse);
-    expect(msgs[2].role, 'user');
-    expect(msgs[2].text, 'two');
-    expect(msgs.last.streaming, isTrue);
+    expect(s.queue, isEmpty); // direct mode never queues
+    expect(fake.controllers.length, 1); // no second turn started
+    expect(s.currentChat!.messages.length, 2); // still just turn one
   });
 
-  test('interruptDirect stops streaming without firing the queue', () async {
+  test('a send after the turn completes starts a fresh turn', () async {
     final fake = FakeProvider();
     final s = newState(fake);
     await s.sendDirect('one');
     await _tick();
+    await fake.controllers.first.close(); // finish turn one
+    await _tick();
+    expect(s.streaming, isFalse);
+
     await s.sendDirect('two');
+    await _tick();
+    expect(s.streaming, isTrue);
+    expect(fake.controllers.length, 2);
+  });
+
+  test('removeQueued drops a message out and returns its text', () async {
+    final fake = FakeProvider();
+    final s = newState(fake);
+    // The queue is the remote-session queue; exercise it directly.
+    s.queue.addAll(['two', 'three']);
+
+    final dropped = s.removeQueued(0);
+    expect(dropped, 'two');
+    expect(s.queue, ['three']);
+  });
+
+  test('interruptDirect stops streaming', () async {
+    final fake = FakeProvider();
+    final s = newState(fake);
+    await s.sendDirect('one');
+    await _tick();
+    fake.controllers.first.add('partial');
     await _tick();
 
     s.interruptDirect();
     await _tick();
 
     expect(s.streaming, isFalse);
-    expect(s.queue, ['two']); // still pending, not auto-fired
-    expect(fake.controllers.length, 1);
+    expect(s.currentChat!.messages.last.text, 'partial');
   });
 }

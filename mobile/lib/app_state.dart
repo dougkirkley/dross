@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -245,6 +246,33 @@ class AppState extends ChangeNotifier {
         ProviderKind.anthropic => anthropicModels,
       };
 
+  /// Queries the OpenAI-compatible endpoint (e.g. ollama) for the models it
+  /// actually serves, so the picker never offers unavailable ones. Returns an
+  /// empty list on any error (caller falls back to the configured/preset list).
+  Future<List<String>> availableOpenAIModels() async {
+    if (openaiBaseUrl.isEmpty) return [];
+    try {
+      final r = await http.get(
+        Uri.parse('$openaiBaseUrl/models'),
+        headers: {
+          if (openaiKey.isNotEmpty) 'Authorization': 'Bearer $openaiKey',
+        },
+      ).timeout(const Duration(seconds: 6));
+      if (r.statusCode != 200) return [];
+      final body = jsonDecode(r.body) as Map<String, dynamic>;
+      final data = (body['data'] as List?) ?? const [];
+      final ids = <String>[];
+      for (final m in data) {
+        final id = (m as Map<String, dynamic>)['id'] as String?;
+        if (id != null && id.isNotEmpty) ids.add(id);
+      }
+      ids.sort();
+      return ids;
+    } catch (_) {
+      return [];
+    }
+  }
+
   void setPermissionMode(PermissionMode m) {
     permissionMode = m;
     notifyListeners();
@@ -282,20 +310,16 @@ class AppState extends ChangeNotifier {
     return b.toString().trim();
   }
 
-  /// Sends [text] (plus any pending attachments) in the current chat. If a reply
-  /// is already streaming, the message is queued (visible, removable) and fires
-  /// when the turn completes.
+  /// Sends [text] (plus any pending attachments) in the current chat. Direct
+  /// chat does not queue: while a reply streams, sending is disabled (use the
+  /// stop button), so a send while streaming is a no-op.
   Future<void> sendDirect(String text) async {
+    if (streaming) return;
     final atts = List<Attachment>.from(pending);
     final composed = _composeWithAttachments(text.trim(), atts);
     if (composed.isEmpty) return;
     pending.clear();
     currentChat ??= newChat();
-    if (streaming) {
-      queue.add(composed);
-      notifyListeners();
-      return;
-    }
     await _startTurn(composed);
   }
 
@@ -365,11 +389,6 @@ class AppState extends ChangeNotifier {
     _directSub = null;
     _persistChats();
     notifyListeners();
-    // Fire the next queued message, if any.
-    if (queue.isNotEmpty) {
-      final next = queue.removeAt(0);
-      _startTurn(next);
-    }
   }
 
   void interruptDirect() {
@@ -437,6 +456,7 @@ class AppState extends ChangeNotifier {
     await _sub?.cancel();
     current = s;
     events.clear();
+    queue.clear();
     notifyListeners();
     try {
       events.addAll(await _client.events(s.id));
@@ -456,7 +476,9 @@ class AppState extends ChangeNotifier {
       (ev) {
         if (events.isEmpty || ev.seq > events.last.seq) {
           events.add(ev);
-          if (ev.kind == 'done' || ev.kind == 'error') _refreshCurrent();
+          if (ev.kind == 'done' || ev.kind == 'error') {
+            _refreshCurrent().then((_) => _drainQueue());
+          }
           notifyListeners();
         }
       },
@@ -476,9 +498,17 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Sends [text] to the current remote session. If the session is running the
+  /// message is queued (visible, editable) and fires when the turn completes —
+  /// the queuing UX mirrors the TUI.
   Future<void> sendPrompt(String text) async {
     final s = current;
     if (s == null || text.trim().isEmpty) return;
+    if (s.isRunning) {
+      queue.add(text.trim());
+      notifyListeners();
+      return;
+    }
     try {
       await _client.prompt(s.id, text.trim());
       await _refreshCurrent();
@@ -486,6 +516,33 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       error = e.toString();
       notifyListeners();
+    }
+  }
+
+  /// Fires the head of the queue against the current session once it is idle.
+  Future<void> _drainQueue() async {
+    if (queue.isEmpty) return;
+    final s = current;
+    if (s == null || s.isRunning) return;
+    final next = queue.removeAt(0);
+    notifyListeners();
+    await sendPrompt(next);
+  }
+
+  /// Moves queued item [i] to the front and interrupts the running turn so it
+  /// runs next ("run now"). Mirrors the TUI's promote behaviour.
+  Future<void> promoteRemote(int i) async {
+    if (i < 0 || i >= queue.length) return;
+    if (i != 0) {
+      final t = queue.removeAt(i);
+      queue.insert(0, t);
+    }
+    notifyListeners();
+    final s = current;
+    if (s != null && s.isRunning) {
+      await interrupt(); // the drain on the done/error event runs the head next
+    } else {
+      await _drainQueue();
     }
   }
 
@@ -502,6 +559,7 @@ class AppState extends ChangeNotifier {
     _sub = null;
     current = null;
     events.clear();
+    queue.clear();
   }
 
   @override

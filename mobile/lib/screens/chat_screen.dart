@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
@@ -51,45 +50,31 @@ class _ChatScreenState extends State<ChatScreen> {
     _autoScroll();
     return SelectionArea(
       child: Scaffold(
+      backgroundColor: T.chatBg,
       body: SafeArea(
-        child: Focus(
-          autofocus: true,
-          onKeyEvent: (_, e) {
-            // Ctrl+C promotes the head of the queue to the current turn.
-            if (e is KeyDownEvent &&
-                e.logicalKey == LogicalKeyboardKey.keyC &&
-                HardwareKeyboard.instance.isControlPressed &&
-                s.queue.isNotEmpty) {
-              context.read<AppState>().promoteQueued();
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          child: Column(
-            children: [
-              FlatHeader(
-                title: chat?.title ?? 'New chat',
-                subtitle: s.currentModel,
-                leading: CircleIconButton(
-                    icon: Icons.chevron_left,
-                    onTap: () => Navigator.pop(context)),
-                trailing: CircleIconButton(
-                    icon: Icons.more_horiz, onTap: () {}),
-              ),
-              Expanded(
-                child: (chat == null || chat.messages.isEmpty)
-                    ? _greeting(s)
-                    : ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                        itemCount: chat.messages.length,
-                        itemBuilder: (_, i) => _message(chat.messages[i]),
-                      ),
-              ),
-              if (s.queue.isNotEmpty) _queueStrip(context, s),
-              _inputBar(context, s),
-            ],
-          ),
+        child: Column(
+          children: [
+            FlatHeader(
+              title: chat?.title ?? 'New chat',
+              subtitle: s.currentModel,
+              leading: CircleIconButton(
+                  icon: Icons.chevron_left,
+                  onTap: () => Navigator.pop(context)),
+              trailing: CircleIconButton(
+                  icon: Icons.more_horiz, onTap: () {}),
+            ),
+            Expanded(
+              child: (chat == null || chat.messages.isEmpty)
+                  ? _greeting(s)
+                  : ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      itemCount: chat.messages.length,
+                      itemBuilder: (_, i) => _message(chat.messages[i]),
+                    ),
+            ),
+            _inputBar(context, s),
+          ],
         ),
       ),
     ));
@@ -147,55 +132,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _queueStrip(BuildContext context, AppState s) => Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: T.surface,
-          borderRadius: BorderRadius.circular(T.rCard),
-          border: Border.all(color: T.border),
-        ),
-        child: Column(
-          children: [
-            for (int i = 0; i < s.queue.length; i++)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(children: [
-                  const Icon(Icons.schedule, size: 15, color: T.textDim),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(s.queue[i],
-                        style: T.meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  // Promote to current (interrupt + run now).
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.arrow_upward,
-                        size: 18, color: T.accent),
-                    tooltip: 'Run now',
-                    onPressed: () =>
-                        context.read<AppState>().promoteQueued(i),
-                  ),
-                  // Drop out of the queue back into the input for editing.
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.edit_outlined,
-                        size: 18, color: T.textDim),
-                    tooltip: 'Edit',
-                    onPressed: () {
-                      final text = context.read<AppState>().removeQueued(i);
-                      _input.text = text;
-                      _focus.requestFocus();
-                    },
-                  ),
-                ]),
-              ),
-          ],
-        ),
-      );
-
   Widget _inputBar(BuildContext context, AppState s) => SafeArea(
         top: false,
         child: Padding(
@@ -203,7 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Container(
             padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
             decoration: BoxDecoration(
-              color: T.surface,
+              color: T.inputBg,
               borderRadius: BorderRadius.circular(T.rCard),
               border: Border.all(color: T.border),
             ),
@@ -219,10 +155,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         focusNode: _focus,
                         minLines: 1,
                         maxLines: 6,
+                        enabled: !s.streaming,
                         style: T.body,
                         decoration: InputDecoration.collapsed(
-                          hintText: s.streaming
-                              ? 'Queue after this turn…'
+                          hintText: (s.currentChat?.messages.isNotEmpty ?? false)
+                              ? 'Reply to Holocron'
                               : 'Chat with Holocron',
                           hintStyle: const TextStyle(color: T.textDim),
                         ),
@@ -259,14 +196,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (s.streaming)
-                    IconButton(
-                      icon: const Icon(Icons.stop_circle_outlined,
-                          color: T.textDim),
-                      tooltip: 'Interrupt',
-                      onPressed: () =>
-                          context.read<AppState>().interruptDirect(),
-                    ),
                 ]),
               ],
             ),
@@ -366,13 +295,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _sendButton(BuildContext context, AppState s) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => _send(context),
+        onTap: () => s.streaming
+            ? context.read<AppState>().interruptDirect()
+            : _send(context),
         child: Container(
           width: 40,
           height: 40,
           decoration: const BoxDecoration(
               color: T.accent, shape: BoxShape.circle),
-          child: Icon(s.streaming ? Icons.add : Icons.arrow_upward,
+          child: Icon(s.streaming ? Icons.stop : Icons.arrow_upward,
               size: 20, color: T.bg),
         ),
       );

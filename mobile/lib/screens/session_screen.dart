@@ -44,6 +44,7 @@ class _SessionScreenState extends State<SessionScreen> {
     _autoScroll();
     return SelectionArea(
       child: Scaffold(
+      backgroundColor: T.chatBg,
       body: SafeArea(
         child: Column(
           children: [
@@ -89,12 +90,57 @@ class _SessionScreenState extends State<SessionScreen> {
                   ),
                 ]),
               ),
-            _inputBar(context),
+            if (s.queue.isNotEmpty) _queueStrip(context, s),
+            _inputBar(context, s),
           ],
         ),
       ),
     ));
   }
+
+  Widget _queueStrip(BuildContext context, AppState s) => Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: T.surface,
+          borderRadius: BorderRadius.circular(T.rCard),
+          border: Border.all(color: T.border),
+        ),
+        child: Column(
+          children: [
+            for (int i = 0; i < s.queue.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(children: [
+                  const Icon(Icons.schedule, size: 15, color: T.textDim),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(s.queue[i],
+                        style: T.meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.arrow_upward,
+                        size: 18, color: T.accent),
+                    tooltip: 'Run now',
+                    onPressed: () => context.read<AppState>().promoteRemote(i),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.edit_outlined,
+                        size: 18, color: T.textDim),
+                    tooltip: 'Edit',
+                    onPressed: () {
+                      _input.text = context.read<AppState>().removeQueued(i);
+                    },
+                  ),
+                ]),
+              ),
+          ],
+        ),
+      );
 
   Widget _eventRow(Event e) {
     final indent = e.isWorker ? const EdgeInsets.only(left: 20) : EdgeInsets.zero;
@@ -158,44 +204,49 @@ class _SessionScreenState extends State<SessionScreen> {
         style: T.mono.copyWith(color: color),
       );
 
-  Widget _inputBar(BuildContext context) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
-            decoration: BoxDecoration(
-              color: T.surface,
-              borderRadius: BorderRadius.circular(T.rCard),
-              border: Border.all(color: T.border),
-            ),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _input,
-                  minLines: 1,
-                  maxLines: 5,
-                  style: T.body,
-                  decoration: const InputDecoration.collapsed(
-                      hintText: 'Reply…',
-                      hintStyle: TextStyle(color: T.textDim)),
-                  onSubmitted: (_) => _send(context),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => _send(context),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const BoxDecoration(
-                      color: T.accent, shape: BoxShape.circle),
-                  child: const Icon(Icons.arrow_upward, size: 20, color: T.bg),
-                ),
-              ),
-            ]),
+  Widget _inputBar(BuildContext context, AppState s) {
+    final running = s.current?.isRunning ?? false;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+          decoration: BoxDecoration(
+            color: T.inputBg,
+            borderRadius: BorderRadius.circular(T.rCard),
+            border: Border.all(color: T.border),
           ),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _input,
+                minLines: 1,
+                maxLines: 5,
+                style: T.body,
+                decoration: InputDecoration.collapsed(
+                    hintText:
+                        running ? 'Queue after this turn…' : 'Build anything…',
+                    hintStyle: const TextStyle(color: T.textDim)),
+                onSubmitted: (_) => _send(context),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => _send(context),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                    color: T.accent, shape: BoxShape.circle),
+                child: Icon(running ? Icons.add : Icons.arrow_upward,
+                    size: 20, color: T.bg),
+              ),
+            ),
+          ]),
         ),
-      );
+      ),
+    );
+  }
 
   void _send(BuildContext context) {
     final text = _input.text;

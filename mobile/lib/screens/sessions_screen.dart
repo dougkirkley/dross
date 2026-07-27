@@ -98,45 +98,49 @@ class SessionsScreen extends StatelessWidget {
         ],
       );
 
-  Widget _sessionCard(BuildContext context, Session sess) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () async {
-          await context.read<AppState>().attach(sess);
-          if (context.mounted) {
-            Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const SessionScreen()));
-          }
-        },
-        onLongPress: () => _confirmDelete(context, sess),
-        child: _card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _statusIcon(sess.status),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(sess.displayTitle,
-                              style: T.rowTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 4),
-                          _statusLine(sess),
-                        ],
+  Widget _sessionCard(BuildContext context, Session sess) => Dismissible(
+        key: ValueKey(sess.id),
+        direction: DismissDirection.endToStart,
+        background: _swipeBg(),
+        confirmDismiss: (_) => _confirmDelete(context, sess),
+        child: _openTap(
+          context,
+          sess,
+          _card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _statusIcon(sess.status),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(sess.displayTitle,
+                                style: T.rowTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 4),
+                            _statusLine(sess),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(sess.updated != null ? relTimeLong(sess.updated!) : '',
-                        style: T.metaFaint),
-                  ],
-                ),
+                      const SizedBox(width: 4),
+                      Text(sess.updated != null ? relTimeLong(sess.updated!) : '',
+                          style: T.metaFaint),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            size: 20, color: T.textDim),
+                        tooltip: 'Delete session',
+                        onPressed: () => _confirmDelete(context, sess),
+                      ),
+                    ],
+                  ),
                 if (sess.last.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -157,6 +161,31 @@ class SessionsScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+
+  // Wraps a card so tapping it attaches to the session and opens it.
+  Widget _openTap(BuildContext context, Session sess, Widget child) => InkWell(
+        borderRadius: BorderRadius.circular(T.rCard),
+        onTap: () async {
+          await context.read<AppState>().attach(sess);
+          if (context.mounted) {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SessionScreen()));
+          }
+        },
+        child: child,
+      );
+
+  // Red trailing background revealed while swiping a card to delete.
+  Widget _swipeBg() => Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          color: T.danger.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(T.rCard),
+        ),
+        child: const Icon(Icons.delete_outline, color: T.danger),
       );
 
   // Status label (colored) + workspace, e.g. "running · owner/repo".
@@ -226,7 +255,9 @@ class SessionsScreen extends StatelessWidget {
   void _settings(BuildContext context) => Navigator.push(
       context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
 
-  Future<void> _confirmDelete(BuildContext context, Session sess) async {
+  /// Confirms and (if confirmed) deletes the session. Returns whether it was
+  /// deleted, so it also serves as a Dismissible confirmDismiss callback.
+  Future<bool> _confirmDelete(BuildContext context, Session sess) async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: T.surface,
@@ -236,7 +267,7 @@ class SessionsScreen extends StatelessWidget {
             leading: const Icon(Icons.delete_outline, color: T.danger),
             title:
                 const Text('Delete session', style: TextStyle(color: T.text)),
-            subtitle: Text(sess.model, style: T.metaFaint),
+            subtitle: Text(sess.displayTitle, style: T.metaFaint),
             onTap: () => Navigator.pop(context, true),
           ),
         ]),
@@ -244,7 +275,9 @@ class SessionsScreen extends StatelessWidget {
     );
     if (ok == true && context.mounted) {
       await context.read<AppState>().deleteSession(sess);
+      return true;
     }
+    return false;
   }
 
   Future<void> _create(BuildContext context) async {
