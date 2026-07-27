@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/dougkirkley/holocron/internal/agent"
+import (
+	"time"
+
+	"github.com/dougkirkley/holocron/internal/agent"
+)
 
 // DemoWelcomeView renders the empty-state splash (big logo) for screenshots.
 // variant selects the logo style (see renderLogo).
@@ -77,13 +81,18 @@ func DemoSessionsView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 	m.sessions = []session{
-		{title: "add --json flag to the CLI", cost: 0.0142},
-		{title: "refactor the config loader", cost: 0.0031},
-		{title: "debug the SSE reconnect", cost: 0.0088},
+		{title: "add --json flag to the CLI", cost: 0.0142, lines: []string{"x"},
+			summary: "wired --json + Render()", updated: time.Now().Add(-35 * time.Second)},
+		{title: "refactor the config loader", cost: 0.0031, lines: []string{"x"},
+			summary: "extracted Load() + env", updated: time.Now().Add(-8 * time.Minute)},
+		{title: "debug the SSE reconnect", cost: 0.0088, lines: []string{"x"},
+			summary: "repro'd the drop on ?after", updated: time.Now().Add(-13 * time.Hour)},
 	}
 	m.cur = 0
+	m.running = true // session 0 shows under "Working"
 	m.pickerOpen = true
-	m.pickIdx = 1
+	m.pickOrder = m.buildPickOrder()
+	m.pickIdx = 0
 	return m.View()
 }
 

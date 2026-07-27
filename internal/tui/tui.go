@@ -113,12 +113,14 @@ func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
 // session is a saved conversation, so the TUI can hold several and switch
 // between them (← opens the switcher). Snapshot of the swappable Model fields.
 type session struct {
-	title  string
-	lines  []string
-	turns  int
-	cost   float64
-	inTok  int64
-	outTok int64
+	title   string
+	lines   []string
+	turns   int
+	cost    float64
+	inTok   int64
+	outTok  int64
+	summary string    // last agent line, for the switcher
+	updated time.Time // last activity, for the age column
 }
 
 // Model is the TUI state.
@@ -147,10 +149,12 @@ type Model struct {
 	pendingAsk *askState // set while an ask_user request awaits answers
 
 	title      string    // current session title
+	lastText   string    // last plain agent text, for the switcher summary
 	sessions   []session // saved sessions (current one is snapshotted on switch)
 	cur        int       // index of the current session
 	pickerOpen bool      // session switcher overlay open
 	pickIdx    int
+	pickOrder  []int // session indices in switcher display order
 
 	lines []string // rendered log lines
 
@@ -212,10 +216,43 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 
 func (m *Model) saveCurrent() {
 	if m.cur < len(m.sessions) {
+		up := m.sessions[m.cur].updated
+		if len(m.lines) > 0 {
+			up = time.Now()
+		}
 		m.sessions[m.cur] = session{
 			title: m.title, lines: m.lines, turns: m.turns,
 			cost: m.cost, inTok: m.inTok, outTok: m.outTok,
+			summary: m.lastText, updated: up,
 		}
+	}
+}
+
+// statusOf classifies a session for the switcher's grouping.
+func (m Model) statusOf(i int) string {
+	if i == m.cur && m.running {
+		return "working"
+	}
+	if len(m.sessions[i].lines) > 0 {
+		return "awaiting"
+	}
+	return "new"
+}
+
+func ageString(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
 }
 
@@ -304,19 +341,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.pickIdx--
 				}
 			case "down", "j":
-				if m.pickIdx < len(m.sessions)-1 {
+				if m.pickIdx < len(m.pickOrder)-1 {
 					m.pickIdx++
 				}
 			case "enter", "right", "l":
-				m.loadSession(m.pickIdx)
+				m.loadSession(m.pickOrder[m.pickIdx])
 				m.pickerOpen = false
 			case "n":
 				m.newSession()
 				m.pickerOpen = false
 			case "x", "d":
-				m.removeSession(m.pickIdx)
-				if m.pickIdx >= len(m.sessions) {
-					m.pickIdx = len(m.sessions) - 1
+				m.removeSession(m.pickOrder[m.pickIdx])
+				m.pickOrder = m.buildPickOrder()
+				if m.pickIdx >= len(m.pickOrder) {
+					m.pickIdx = len(m.pickOrder) - 1
 				}
 			}
 			return m, nil
@@ -324,8 +362,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ← opens the session switcher when idle and the input is empty.
 		if msg.String() == "left" && !m.running && m.pendingAsk == nil && m.input.Value() == "" {
 			m.saveCurrent()
+			m.pickOrder = m.buildPickOrder()
 			m.pickerOpen = true
-			m.pickIdx = m.cur
+			m.pickIdx = 0
 			return m, nil
 		}
 		// A multi-question ask_user picker captures keys: ←/→ switch tabs, ↑/↓ or
@@ -563,27 +602,73 @@ func (m *Model) submitAsk() {
 	m.pendingAsk = nil
 }
 
-// renderSessions draws the session switcher overlay.
-func (m Model) renderSessions() string {
-	var b strings.Builder
-	b.WriteString(agentLabel.Render("Sessions") + "\n\n")
-	for i, s := range m.sessions {
-		title := s.title
-		if title == "" {
-			title = fmt.Sprintf("session %d", i+1)
+// buildPickOrder orders sessions for the switcher: working, then awaiting input,
+// then new.
+func (m Model) buildPickOrder() []int {
+	var work, await, neu []int
+	for i := range m.sessions {
+		switch m.statusOf(i) {
+		case "working":
+			work = append(work, i)
+		case "awaiting":
+			await = append(await, i)
+		default:
+			neu = append(neu, i)
 		}
-		cur, style := "  ", resultStyle
-		if i == m.pickIdx {
-			cur, style = promptMark.Render("› "), agentText
-		}
-		line := cur + style.Render(fmt.Sprintf("%d. %s", i+1, title)) +
-			metaStyle.Render(fmt.Sprintf("  · $%.4f", s.cost))
-		if i == m.cur {
-			line += metaStyle.Render("  (current)")
-		}
-		b.WriteString(line + "\n")
 	}
-	b.WriteString("\n" + metaStyle.Render("  ↑↓ move · enter switch · n new · x remove · esc close"))
+	return append(append(work, await...), neu...)
+}
+
+// renderSessions draws the session switcher overlay: sessions grouped by status
+// with a last-message summary and age, like Claude Code's agents dashboard.
+func (m Model) renderSessions() string {
+	counts := map[string]int{}
+	for i := range m.sessions {
+		counts[m.statusOf(i)]++
+	}
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("holocron sessions") + "  " +
+		metaStyle.Render(fmt.Sprintf("%d awaiting · %d working · %d new",
+			counts["awaiting"], counts["working"], counts["new"])) + "\n")
+	b.WriteString(metaStyle.Render("enter opens · n new · x remove · esc closes") + "\n")
+
+	groups := []struct{ key, label string }{
+		{"working", "Working"}, {"awaiting", "Needs input"}, {"new", "New"},
+	}
+	for _, g := range groups {
+		first := true
+		for pos, si := range m.pickOrder {
+			if m.statusOf(si) != g.key {
+				continue
+			}
+			if first {
+				b.WriteString("\n" + metaStyle.Render(g.label) + "\n")
+				first = false
+			}
+			s := m.sessions[si]
+			title := s.title
+			if title == "" {
+				title = fmt.Sprintf("session %d", si+1)
+			}
+			glyph, tstyle := metaStyle.Render("· "), resultStyle
+			if g.key == "working" {
+				glyph = costStyle.Render("* ")
+			} else if g.key == "awaiting" {
+				glyph = doneGlyph.Render("* ")
+			}
+			if pos == m.pickIdx {
+				glyph, tstyle = promptMark.Render("› "), agentText
+			}
+			row := glyph + tstyle.Render(fmt.Sprintf("%-32s", truncate(title, 32)))
+			if s.summary != "" {
+				row += metaStyle.Render("  " + truncate(s.summary, 40))
+			}
+			if age := ageString(s.updated); age != "" {
+				row += metaStyle.Render("  " + age)
+			}
+			b.WriteString(row + "\n")
+		}
+	}
 	return b.String()
 }
 
@@ -692,6 +777,9 @@ func (m *Model) applyEvent(e agent.Event) {
 	}
 	switch kind {
 	case "text":
+		if !worker {
+			m.lastText = truncate(oneLine(e.Data), 70)
+		}
 		width := m.width - 14
 		lines := wrap(e.Data, width)
 		m.append(indent + agentLabel.Render(m.agentName) + "  " + agentText.Render(lines[0]))
