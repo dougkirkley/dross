@@ -27,9 +27,30 @@ type File struct {
 	APIKey    string    `json:"api_key,omitempty"`
 	Style     string    `json:"style,omitempty"`
 	MaxTokens int       `json:"max_tokens,omitempty"`
-	Worker    *Provider `json:"worker,omitempty"`
-	Reviewer  *Provider `json:"reviewer,omitempty"`
-	Phrases   []string  `json:"phrases,omitempty"` // TUI status phrases
+	Worker    *Provider   `json:"worker,omitempty"`
+	Reviewer  *Provider   `json:"reviewer,omitempty"`
+	Phrases   []string    `json:"phrases,omitempty"` // TUI status phrases
+	OAuth     *OAuthLogin `json:"oauth,omitempty"`   // for the claude-sub provider
+}
+
+// OAuthLogin configures the `holocron login` PKCE flow and the claude-sub
+// provider. Every value is user-supplied — holocron ships no OAuth client and
+// impersonates nobody. To use a Claude subscription you must fill these in
+// yourself (client id, endpoints, and the header/system-pin that scope needs).
+type OAuthLogin struct {
+	ClientID     string `json:"client_id"`
+	AuthorizeURL string `json:"authorize_url"`
+	TokenURL     string `json:"token_url"`
+	RedirectURI  string `json:"redirect_uri"`
+	Scope        string `json:"scope"`
+	ShowCode     bool   `json:"show_code"`   // add ?code=true for a paste-code page
+	BetaHeader   string `json:"beta_header"` // anthropic-beta value, if the scope needs one
+	SystemPin    string `json:"system_pin"`  // first system block the scope requires
+	BaseURL      string `json:"base_url"`    // provider endpoint the token is valid for
+}
+
+func (o *OAuthLogin) Configured() bool {
+	return o != nil && o.ClientID != "" && o.AuthorizeURL != "" && o.TokenURL != ""
 }
 
 // SearchPaths returns the config file locations checked, in order. An explicit

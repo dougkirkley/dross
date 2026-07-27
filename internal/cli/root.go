@@ -22,6 +22,7 @@ func NewRootCmd() *cobra.Command {
 		newTUICmd(),
 		newBriefCmd(),
 		newBenchCmd(),
+		newLoginCmd(),
 	)
 	return root
 }

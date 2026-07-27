@@ -71,6 +71,36 @@ Credentials: `ANTHROPIC_API_KEY` (or an `ant auth login` profile) for Anthropic;
 `--api-key` / `--base-url` for OpenAI-compatible; the AWS chain for Bedrock. See
 **Configuration** below for env vars and the config file.
 
+## Subscription (claude-sub) — bring-your-own OAuth
+
+There is **no official way** to use a Claude Pro/Max subscription from a
+third-party app; the supported billing paths are an API key, AWS Bedrock, or
+local models. holocron therefore ships **no OAuth client and impersonates no
+vendor**. It does provide a generic OAuth (PKCE) login and a `claude-sub`
+provider that sends a bearer token — but *you* supply the client id, endpoints,
+and any header/system-pin a given scope requires, in an `[oauth]` config block:
+
+```json
+{
+  "oauth": {
+    "client_id": "<your registered oauth client>",
+    "authorize_url": "https://.../authorize",
+    "token_url": "https://.../oauth/token",
+    "redirect_uri": "https://.../callback",
+    "scope": "…",
+    "show_code": true,
+    "beta_header": "",
+    "system_pin": "",
+    "base_url": "https://api.anthropic.com"
+  }
+}
+```
+
+Then `holocron login` (opens the URL, you paste the returned code; token stored
+in the user config dir) and run with `--provider claude-sub`. Reusing another
+vendor's OAuth client to hit their subscription is ToS-gray and may break —
+that's on you to configure.
+
 ## Configuration
 
 Provider settings resolve from three layers, in increasing precedence: a JSON

@@ -37,9 +37,17 @@ func NewWithClient(client sdk.Client, name string) provider.Provider {
 	return &prov{client: client, name: name}
 }
 
+// NewWithClientPinned is like NewWithClient but prepends pin as the first system
+// block on every request. Some auth scopes (e.g. subscription OAuth) require a
+// specific first system block; the caller supplies it.
+func NewWithClientPinned(client sdk.Client, name, pin string) provider.Provider {
+	return &prov{client: client, name: name, pin: pin}
+}
+
 type prov struct {
 	client sdk.Client
 	name   string
+	pin    string
 }
 
 func (p *prov) Name() string { return p.name }
@@ -53,6 +61,7 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 		client:    p.client,
 		model:     cfg.Model,
 		system:    cfg.System,
+		pin:       p.pin,
 		tools:     convertTools(cfg.Tools),
 		maxTokens: int64(maxTok),
 	}
@@ -62,6 +71,7 @@ type session struct {
 	client    sdk.Client
 	model     string
 	system    string
+	pin       string
 	tools     []sdk.ToolUnionParam
 	maxTokens int64
 	messages  []sdk.MessageParam // provider-native history
@@ -85,12 +95,19 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		Messages:  s.messages,
 		Tools:     s.tools,
 	}
+	var sys []sdk.TextBlockParam
+	if s.pin != "" {
+		sys = append(sys, sdk.TextBlockParam{Text: s.pin})
+	}
 	if s.system != "" {
 		// Cache the (stable) system prompt so repeated turns pay ~0.1x on it.
-		params.System = []sdk.TextBlockParam{{
+		sys = append(sys, sdk.TextBlockParam{
 			Text:         s.system,
 			CacheControl: sdk.NewCacheControlEphemeralParam(),
-		}}
+		})
+	}
+	if len(sys) > 0 {
+		params.System = sys
 	}
 
 	resp, err := s.client.Messages.New(ctx, params)
