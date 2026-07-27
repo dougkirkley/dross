@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../util/file_pick.dart';
 import '../widgets/logo.dart';
 import '../widgets/mode_sheet.dart';
+import '../widgets/model_sheet.dart';
 
 /// Direct-mode conversation. Serif assistant prose, dark right-aligned user
 /// bubbles, and an editable send queue: while a reply streams, new sends stack
@@ -100,8 +101,8 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const HolocronLogo(size: 76, showWordmark: false),
-              const SizedBox(height: 22),
+              const HolocronLogo(size: 84),
+              const SizedBox(height: 20),
               Text('How can I help?',
                   style: T.prose.copyWith(fontSize: 24),
                   textAlign: TextAlign.center),
@@ -250,6 +251,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(width: 8),
                   Flexible(
                     child: OutlineChip(
+                      onTap: () => showModelSheet(context),
                       child: Text(s.currentModel,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

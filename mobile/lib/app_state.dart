@@ -194,6 +194,20 @@ class AppState extends ChangeNotifier {
     if (m == ConnMode.remote && remoteConfigured) refreshSessions();
   }
 
+  /// Sets the model for the active direct provider and persists it.
+  void setModel(String m) {
+    m = m.trim();
+    if (m.isEmpty) return;
+    switch (providerKind) {
+      case ProviderKind.openai:
+        openaiModel = m;
+      case ProviderKind.anthropic:
+        anthropicModel = m;
+    }
+    notifyListeners();
+    saveConfig();
+  }
+
   void setPermissionMode(PermissionMode m) {
     permissionMode = m;
     notifyListeners();
