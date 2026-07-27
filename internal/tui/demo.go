@@ -101,6 +101,33 @@ func DemoSubagentsView(width, height int) string {
 	return m.View()
 }
 
+// DemoSubagentFocusView renders the detail overlay for a selected subagent —
+// what arrow-selecting a worker and pressing enter shows.
+func DemoSubagentFocusView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  migrate the three helm charts to the new values schema")
+	for _, e := range []agent.Event{
+		{Kind: "text", Data: "Plan: fan the three charts out to workers, then reconcile and verify."},
+		{Kind: "tool", Data: `delegate {"tasks":["migrate application chart","migrate ingress chart"]}`},
+		{Kind: "worker:tool", Data: `#1 read {"path":"charts/application/application_helm.go"}`},
+		{Kind: "worker:tool-result", Data: `#1 142 lines`},
+		{Kind: "worker:edit", Data: `#1 {"file":"charts/application/values.yaml","added":12,"removed":4}`},
+		{Kind: "worker:tool", Data: `#1 bash {"command":"helm lint charts/application"}`},
+		{Kind: "worker:tool", Data: `#2 read {"path":"charts/ingress/values.yaml"}`},
+	} {
+		m.applyEvent(e)
+	}
+	m.running = true
+	m.phraseIdx = 4
+	m.tick = 70
+	m.cost = 0.0231
+	m.workerSel = 1
+	m.workerFocus = "#1" // detail of the first subagent open
+	return m.View()
+}
+
 // DemoHelpView renders the shortcuts overlay for screenshots.
 func DemoHelpView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)

@@ -145,9 +145,12 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
-	// live subagent tree, shown under the spinner while workers run
-	workerOrder []string          // worker tags, in first-seen order
-	workerAct   map[string]string // worker tag -> present-tense activity
+	// live subagent tree, shown under the prompt while workers run
+	workerOrder []string            // worker tags, in first-seen order
+	workerAct   map[string]string   // worker tag -> present-tense activity
+	workerLog   map[string][]string // worker tag -> rendered detail lines
+	workerSel   int                 // selection cursor: 0 = main, 1..N = workers
+	workerFocus string              // tag whose detail overlay is open ("" = none)
 
 	modeIdx    int       // permission mode (see modeLabels)
 	pendingAsk *askState // set while an ask_user request awaits answers
@@ -462,6 +465,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// Subagent tree navigation: while workers run, ↑/↓ move the selection
+		// (main + each worker) and enter opens/closes the selected worker's detail.
+		if m.running && len(m.workerOrder) > 0 {
+			switch msg.String() {
+			case "esc":
+				if m.workerFocus != "" {
+					m.workerFocus = ""
+					return m, nil
+				}
+			case "down", "j":
+				if m.workerFocus == "" && m.workerSel < len(m.workerOrder) {
+					m.workerSel++
+				}
+				return m, nil
+			case "up", "k":
+				if m.workerFocus == "" && m.workerSel > 0 {
+					m.workerSel--
+				}
+				return m, nil
+			case "enter":
+				if m.workerFocus != "" {
+					m.workerFocus = "" // enter closes the open detail
+				} else if m.workerSel >= 1 && m.workerSel <= len(m.workerOrder) {
+					m.workerFocus = m.workerOrder[m.workerSel-1]
+				}
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
@@ -488,7 +519,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.running = true
 				m.runStart = time.Now()
 				m.tick, m.phraseIdx = 0, 0
-				m.workerOrder, m.workerAct = nil, nil
+				m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+				m.workerSel, m.workerFocus = 0, ""
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
@@ -541,8 +573,20 @@ func (m Model) View() string {
 	if m.width == 0 {
 		return "loading…"
 	}
+	// Footer height is dynamic: the live subagent tree renders under the prompt
+	// while workers run, so size the body viewport around the actual footer.
+	footer := m.footer()
+	bodyH := m.height - 1 - lipgloss.Height(footer) // header is 1 line
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	m.vp.Height = bodyH
 	body := m.vp.View()
-	if m.helpOpen {
+	if m.workerFocus != "" {
+		m.vp.SetContent(m.renderWorkerFocus())
+		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if m.helpOpen {
 		m.vp.SetContent(renderHelp())
 		m.vp.GotoBottom()
 		body = m.vp.View()
@@ -565,7 +609,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats()) + m.workerTree()
+			metaStyle.Render("  "+m.runStats())
 		if content != "" {
 			content += "\n"
 		}
@@ -576,7 +620,7 @@ func (m Model) View() string {
 	return strings.Join([]string{
 		m.header(),
 		body,
-		m.footer(),
+		footer,
 	}, "\n")
 }
 
@@ -625,14 +669,20 @@ func (m *Model) trackWorker(kind, data string) {
 	if m.workerAct == nil {
 		m.workerAct = map[string]string{}
 	}
+	if m.workerLog == nil {
+		m.workerLog = map[string][]string{}
+	}
 	if _, seen := m.workerAct[tag]; !seen {
 		m.workerOrder = append(m.workerOrder, tag)
 	}
+	logLine := ""
 	switch kind {
 	case "tool":
 		name, args, _ := strings.Cut(rest, " ")
-		act := workerToolLabel(name, args)
-		m.workerAct[tag] = act
+		m.workerAct[tag] = workerToolLabel(name, args)
+		logLine = startGlyph.Render("▸ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 60))
+	case "tool-result":
+		logLine = doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(rest), 60))
 	case "edit":
 		var ed struct {
 			File string `json:"file"`
@@ -643,11 +693,17 @@ func (m *Model) trackWorker(kind, data string) {
 				base = base[i+1:]
 			}
 			m.workerAct[tag] = "Editing " + base
+			logLine = resultStyle.Render("Edited ") + toolName.Render(base)
 		}
 	case "text":
 		m.workerAct[tag] = "Done" // conclusion returned
+		logLine = agentText.Render(truncate(oneLine(rest), 66))
 	case "error":
 		m.workerAct[tag] = "Failed"
+		logLine = errStyle.Render("✗ " + truncate(oneLine(rest), 64))
+	}
+	if logLine != "" {
+		m.workerLog[tag] = append(m.workerLog[tag], logLine)
 	}
 }
 
@@ -691,12 +747,41 @@ func (m Model) workerTree() string {
 	if len(m.workerOrder) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("\n" + checkStyle.Render("  ● ") + agentText.Render("main"))
-	for _, tag := range m.workerOrder {
-		act := m.workerAct[tag]
-		b.WriteString("\n" + workerTag.Render("    ○ "+tag+" ") + resultStyle.Render(act))
+	// cursor marks the selected row (0 = main, 1..N = workers).
+	cursor := func(i int) string {
+		if i == m.workerSel {
+			return promptMark.Render("› ")
+		}
+		return "  "
 	}
+	var b strings.Builder
+	b.WriteString("\n" + cursor(0) + checkStyle.Render("● ") + agentText.Render("main"))
+	for i, tag := range m.workerOrder {
+		act := m.workerAct[tag]
+		b.WriteString("\n" + cursor(i+1) + workerTag.Render("  ○ "+tag+" ") + resultStyle.Render(act))
+	}
+	b.WriteString("\n  " + metaStyle.Render("↑/↓ select · enter view subagent"))
+	return b.String()
+}
+
+// renderWorkerFocus renders the detail log of the focused subagent as an overlay
+// body, the way selecting a subagent in Claude Code shows its own transcript.
+func (m Model) renderWorkerFocus() string {
+	tag := m.workerFocus
+	title := "subagent " + tag
+	if tag == "worker" {
+		title = "subagent"
+	}
+	var b strings.Builder
+	b.WriteString(agentLabel.Render(title) + "  " + resultStyle.Render(m.workerAct[tag]) + "\n\n")
+	log := m.workerLog[tag]
+	if len(log) == 0 {
+		b.WriteString(metaStyle.Render("  (no activity yet)"))
+	}
+	for _, l := range log {
+		b.WriteString("  " + l + "\n")
+	}
+	b.WriteString("\n" + metaStyle.Render("esc / enter — back to the run"))
 	return b.String()
 }
 
@@ -916,7 +1001,15 @@ func (m Model) footer() string {
 	box := inputBox.Width(m.width - 2).Render(line)
 	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode") +
 		metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
-	return box + "\n" + "  " + mode
+	out := box + "\n" + "  " + mode
+	// The live subagent tree sits under the prompt while workers run, the way
+	// Claude Code shows its subagents.
+	if m.running {
+		if tree := m.workerTree(); tree != "" {
+			out += tree
+		}
+	}
+	return out
 }
 
 func (m *Model) applyEvent(e agent.Event) {

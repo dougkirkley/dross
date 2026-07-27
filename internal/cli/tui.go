@@ -15,7 +15,7 @@ import (
 func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
-		subagents                                          bool
+		subagents, subagentFocus                           bool
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
@@ -34,6 +34,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoRunningView(width, height))
 				case subagents:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentsView(width, height))
+				case subagentFocus:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentFocusView(width, height))
 				case ask:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoAskView(width, height))
 				case sessions:
@@ -87,6 +89,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
 	f.BoolVar(&subagents, "subagents", false, "with --render, show the live subagent tree")
+	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
 	f.BoolVar(&shortcuts, "shortcuts", false, "with --render, show the shortcuts overlay")
