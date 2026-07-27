@@ -267,7 +267,7 @@ func (m Model) View() string {
 
 // welcome is the empty-state splash: the big logo, centered, with a tagline.
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 5 // header + footer
+	bodyH := m.height - 1 - 4 // header + footer
 	tagline := metaStyle.Render("cost-aware multi-model coding agent")
 	block := lipgloss.JoinVertical(lipgloss.Center, renderLogo(m.logoVariant), "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
@@ -297,18 +297,13 @@ func (m Model) runStats() string {
 }
 
 func (m Model) footer() string {
-	// The working spinner/phrase now lives in the body; the footer just shows
-	// turns when idle.
-	status := ""
-	if !m.running {
-		status = metaStyle.Render(fmt.Sprintf("%d turns", m.turns))
-	}
+	// The working spinner/phrase lives in the body; the footer is just the input
+	// and the mode line.
 	line := promptMark.Render("› ") + m.input.View()
 	box := inputBox.Width(m.width - 2).Render(line)
 	mode := startGlyph.Render("◆ ") + costStyle.Render(modeLabels[m.modeIdx]) +
 		metaStyle.Render("  shift+tab mode · ← sessions")
-	help := metaStyle.Render("  enter send · esc quit   ") + status
-	return box + "\n" + "  " + mode + "\n" + help
+	return box + "\n" + "  " + mode
 }
 
 func (m *Model) applyEvent(e agent.Event) {
@@ -382,7 +377,7 @@ func (m *Model) append(line string) {
 }
 
 func (m *Model) layout() {
-	headerH, footerH := 1, 5
+	headerH, footerH := 1, 4
 	m.vp = viewport.New(m.width, m.height-headerH-footerH)
 	m.vp.SetContent(strings.Join(m.lines, "\n"))
 	m.vp.GotoBottom()
