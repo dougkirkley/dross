@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holocron
+  labels:
+    app: holocron
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: holocron
+  template:
+    metadata:
+      labels:
+        app: holocron
+    spec:
+      containers:
+      - name: holocron
+        image: holocron:latest
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: sessions
+          mountPath: /root/.config/holocron/sessions
+        - name: uploads
+          mountPath: /app/uploads
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: sessions
+        persistentVolumeClaim:
+          claimName: holocron-sessions-pvc
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: holocron-uploads-pvc

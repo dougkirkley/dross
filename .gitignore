@@ -1,0 +1,16 @@
+# binaries
+/holocron
+*.exe
+
+# js deps / build
+node_modules/
+frontend/dist/
+
+# runtime data
+uploads/
+/artifacts/
+
+# misc
+*.bak
+*.out
+.DS_Store
