@@ -17,6 +17,35 @@ var glyphs = map[rune][5]string{
 	'N': {"█   █", "██  █", "█ █ █", "█  ██", "█   █"},
 }
 
+// cubeArt is an isometric holocron cube (ASCII-safe frame + a ◆ crystal core).
+var cubeArt = []string{
+	`      .+------+`,
+	`    .'  |   .'|`,
+	`   +------+'  |`,
+	`   |      |   |`,
+	`   |  ◆   |   |`,
+	`   |  .+--|---+`,
+	`   |.'    | .'`,
+	`   +------+'`,
+}
+
+// holocronCube renders the cube: accent frame, glowing accentHi core.
+func holocronCube() string {
+	var b strings.Builder
+	for i, l := range cubeArt {
+		if idx := strings.IndexRune(l, '◆'); idx >= 0 {
+			b.WriteString(logoStyle.Render(l[:idx]) + costStyle.Render("◆") +
+				logoStyle.Render(l[idx+len("◆"):]))
+		} else {
+			b.WriteString(logoStyle.Render(l))
+		}
+		if i < len(cubeArt)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 // bigLogoRows renders word in the block font, one string per row.
 func bigLogoRows(word string) []string {
 	rows := make([]string, 5)

@@ -579,7 +579,8 @@ func (m Model) View() string {
 func (m Model) welcome() string {
 	bodyH := m.height - 1 - 4 // header + footer
 	tagline := metaStyle.Render("cost-aware multi-model coding agent")
-	block := lipgloss.JoinVertical(lipgloss.Center, renderLogo(m.logoVariant), "", tagline)
+	block := lipgloss.JoinVertical(lipgloss.Center,
+		holocronCube(), "", renderLogo(m.logoVariant), "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
 
