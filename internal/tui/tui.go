@@ -46,6 +46,8 @@ var (
 	workerTag   = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C8AA6"))
 	checkStyle  = lipgloss.NewStyle().Foreground(accentHi)
 	errStyle    = lipgloss.NewStyle().Foreground(bad)
+	startGlyph  = lipgloss.NewStyle().Foreground(accent)              // something started
+	doneGlyph   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
 	promptMark  = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	inputBox    = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -83,6 +85,8 @@ type Model struct {
 	phrases   []string // whimsical status phrases shown while running
 	phraseIdx int
 	tick      int
+
+	modeIdx int // permission mode (see modeLabels)
 
 	lines []string // rendered log lines
 
@@ -153,6 +157,10 @@ var DefaultPhrases = []string{
 	"Spinning up the hyperdrive",
 }
 
+// modeLabels are the permission modes cycled with shift+tab (display state in
+// the TUI; enforcement is a separate concern).
+var modeLabels = []string{"Auto", "Manual", "Accept edits", "Plan"}
+
 // SetPhrases overrides the status phrases (empty keeps the defaults).
 func (m *Model) SetPhrases(p []string) {
 	if len(p) > 0 {
@@ -179,10 +187,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
+		case "shift+tab":
+			m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
+			return m, nil
 		case "enter":
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				prompt := m.input.Value()
-				m.append(youLabel.Render("you") + "  " + prompt)
+				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
 				m.running = true
 				m.tick, m.phraseIdx = 0, 0
@@ -199,6 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.res != nil {
 			m.cost = msg.res.Cost()
 			m.turns = msg.res.Turns
+			m.append(doneGlyph.Render("✓ ") + metaStyle.Render(fmt.Sprintf("completed · $%.4f · %d turns", m.cost, m.turns)))
 		}
 	case spinner.TickMsg:
 		if m.running {
@@ -224,8 +236,19 @@ func (m Model) View() string {
 		return "loading…"
 	}
 	body := m.vp.View()
-	if len(m.lines) == 0 {
+	if len(m.lines) == 0 && !m.running {
 		body = m.welcome()
+	} else if m.running {
+		// While working, show the spinner + rotating phrase as a live line at the
+		// bottom of the conversation, the way Claude Code does.
+		content := strings.Join(m.lines, "\n")
+		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…")
+		if content != "" {
+			content += "\n"
+		}
+		m.vp.SetContent(content + work)
+		m.vp.GotoBottom()
+		body = m.vp.View()
 	}
 	return strings.Join([]string{
 		m.header(),
@@ -236,7 +259,7 @@ func (m Model) View() string {
 
 // welcome is the empty-state splash: the big logo, centered, with a tagline.
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 4 // header + footer
+	bodyH := m.height - 1 - 5 // header + footer
 	tagline := metaStyle.Render("cost-aware multi-model coding agent")
 	block := lipgloss.JoinVertical(lipgloss.Center, renderLogo(m.logoVariant), "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
@@ -261,15 +284,18 @@ func (m Model) header() string {
 }
 
 func (m Model) footer() string {
+	// The working spinner/phrase now lives in the body; the footer just shows
+	// turns when idle.
 	status := ""
-	if m.running {
-		status = m.sp.View() + metaStyle.Render(" "+m.phrase()+"…")
-	} else {
+	if !m.running {
 		status = metaStyle.Render(fmt.Sprintf("%d turns", m.turns))
 	}
 	line := promptMark.Render("› ") + m.input.View()
 	box := inputBox.Width(m.width - 2).Render(line)
-	return box + "\n" + metaStyle.Render("  enter send · esc quit   ") + status
+	mode := startGlyph.Render("◆ ") + costStyle.Render(modeLabels[m.modeIdx]) +
+		metaStyle.Render("  shift+tab mode · ← sessions")
+	help := metaStyle.Render("  enter send · esc quit   ") + status
+	return box + "\n" + "  " + mode + "\n" + help
 }
 
 func (m *Model) applyEvent(e agent.Event) {
@@ -289,9 +315,9 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
-		m.append(indent + toolArrow.Render("→ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
+		m.append(indent + startGlyph.Render("▸ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
 	case "tool-result":
-		m.append(indent + resultStyle.Render("  "+truncate(oneLine(e.Data), 70)))
+		m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
 	case "edit":
 		var ed struct {
 			File    string `json:"file"`
@@ -343,7 +369,7 @@ func (m *Model) append(line string) {
 }
 
 func (m *Model) layout() {
-	headerH, footerH := 1, 4
+	headerH, footerH := 1, 5
 	m.vp = viewport.New(m.width, m.height-headerH-footerH)
 	m.vp.SetContent(strings.Join(m.lines, "\n"))
 	m.vp.GotoBottom()
