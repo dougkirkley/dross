@@ -54,7 +54,7 @@ type Config struct {
 // Event is emitted for each step of a run so callers can stream progress.
 type Event struct {
 	Agent string // Config.Name
-	Kind  string // "text" | "tool" | "tool-result" | "edit" | "review" | "error" | "worker:*"
+	Kind  string // "text" | "tool" | "tool-result" | "edit" | "usage" | "review" | "error" | "worker:*"
 	Data  string
 }
 
@@ -216,6 +216,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		}
 		res.Turns++
 		res.add(a.cfg.Model, resp.Usage)
+		a.emitUsage(res)
 
 		if resp.Text != "" {
 			res.Text = resp.Text
@@ -306,6 +307,19 @@ func (a *Agent) emitEdit(file, oldText, newText string) {
 		return
 	}
 	a.emit("edit", string(payload))
+}
+
+// emitUsage emits the run's cumulative token usage so a client can show a live
+// token counter (like Claude Code's).
+func (a *Agent) emitUsage(res *Result) {
+	payload, err := json.Marshal(map[string]any{
+		"in":  res.Usage.InputTokens,
+		"out": res.Usage.OutputTokens,
+	})
+	if err != nil {
+		return
+	}
+	a.emit("usage", string(payload))
 }
 
 const reviewerSystem = "You are a senior staff engineer doing a focused code " +

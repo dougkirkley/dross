@@ -14,7 +14,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var (
-		render, welcome          bool
+		render, welcome, running bool
 		logo, width, height      int
 		once                     string
 		workdir, model, provName string
@@ -26,9 +26,12 @@ func newTUICmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if render {
-				if welcome {
+				switch {
+				case welcome:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoWelcomeView(width, height, logo))
-				} else {
+				case running:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoRunningView(width, height))
+				default:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoView(width, height))
 				}
 				return nil
@@ -56,7 +59,9 @@ func newTUICmd() *cobra.Command {
 				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "holocron", model, provName, run, once))
 				return nil
 			}
-			p := tea.NewProgram(tui.New("holocron", model, provName, run), tea.WithAltScreen())
+			mdl := tui.New("holocron", model, provName, run)
+			mdl.SetPhrases(res.File.Phrases)
+			p := tea.NewProgram(mdl, tea.WithAltScreen())
 			_, err = p.Run()
 			return err
 		},
@@ -64,6 +69,7 @@ func newTUICmd() *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
+	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
 	f.IntVar(&logo, "logo", 0, "logo variant: 0 filled, 1 gradient, 2 boxed, 3 wordmark")
 	f.StringVar(&once, "once", "", "run one real prompt, print the final frame, and exit")
 	f.IntVar(&width, "width", 96, "width for --render/--once")

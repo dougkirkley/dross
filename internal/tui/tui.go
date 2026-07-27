@@ -6,6 +6,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -68,6 +69,8 @@ type Model struct {
 	provider  string
 	cost      float64
 	turns     int
+	inTok     int64
+	outTok    int64
 
 	vp          viewport.Model
 	input       textinput.Model
@@ -76,6 +79,10 @@ type Model struct {
 	width       int
 	height      int
 	logoVariant int
+
+	phrases   []string // whimsical status phrases shown while running
+	phraseIdx int
+	tick      int
 
 	lines []string // rendered log lines
 
@@ -124,7 +131,40 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant: 1, // gradient fade (default)
+		phrases:     DefaultPhrases,
 	}
+}
+
+// DefaultPhrases are the whimsical Star Wars status lines shown while the agent
+// works, in the spirit of Claude Code's rotating spinner words. Configurable
+// via the config file (see SetPhrases).
+var DefaultPhrases = []string{
+	"Channeling the Force",
+	"Consulting the Jedi Council",
+	"Decrypting the holocron",
+	"Aligning the kyber crystal",
+	"Plotting the jump to lightspeed",
+	"Waking the astromech",
+	"Rerouting power to the sensors",
+	"Trusting the Force",
+	"Scanning for life forms",
+	"Warming up the ion engines",
+	"Consulting the archives",
+	"Spinning up the hyperdrive",
+}
+
+// SetPhrases overrides the status phrases (empty keeps the defaults).
+func (m *Model) SetPhrases(p []string) {
+	if len(p) > 0 {
+		m.phrases = p
+	}
+}
+
+func (m Model) phrase() string {
+	if len(m.phrases) == 0 {
+		return "working"
+	}
+	return m.phrases[m.phraseIdx%len(m.phrases)]
 }
 
 func (m Model) Init() tea.Cmd { return textinput.Blink }
@@ -145,6 +185,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.append(youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
 				m.running = true
+				m.tick, m.phraseIdx = 0, 0
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
@@ -164,6 +205,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var c tea.Cmd
 			m.sp, c = m.sp.Update(msg)
 			cmds = append(cmds, c)
+			// Advance the status phrase ~every 2.5s (ticks ~10/s), so it reads
+			// like a rotating thought rather than a strobe.
+			m.tick++
+			if m.tick%25 == 0 {
+				m.phraseIdx++
+			}
 		}
 	}
 	var c tea.Cmd
@@ -199,7 +246,11 @@ func (m Model) welcome() string {
 
 func (m Model) header() string {
 	left := logoStyle.Render("◆ holocron")
-	right := metaStyle.Render(m.model+"  ·  "+m.provider) + "   " +
+	toks := ""
+	if m.inTok > 0 || m.outTok > 0 {
+		toks = metaStyle.Render(fmt.Sprintf("↑%s ↓%s  ", humanTokens(m.inTok), humanTokens(m.outTok)))
+	}
+	right := metaStyle.Render(m.model+"  ·  "+m.provider) + "   " + toks +
 		costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
@@ -212,7 +263,7 @@ func (m Model) header() string {
 func (m Model) footer() string {
 	status := ""
 	if m.running {
-		status = m.sp.View() + metaStyle.Render(" working")
+		status = m.sp.View() + metaStyle.Render(" "+m.phrase()+"…")
 	} else {
 		status = metaStyle.Render(fmt.Sprintf("%d turns", m.turns))
 	}
@@ -241,11 +292,48 @@ func (m *Model) applyEvent(e agent.Event) {
 		m.append(indent + toolArrow.Render("→ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
 	case "tool-result":
 		m.append(indent + resultStyle.Render("  "+truncate(oneLine(e.Data), 70)))
+	case "edit":
+		var ed struct {
+			File    string `json:"file"`
+			Added   int    `json:"added"`
+			Removed int    `json:"removed"`
+		}
+		if json.Unmarshal([]byte(e.Data), &ed) == nil {
+			m.append(indent + toolArrow.Render("✎ ") + toolName.Render("edit ") +
+				toolArgs.Render(ed.File) + " " +
+				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
+				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
+		}
+	case "usage":
+		var u struct {
+			In  int64 `json:"in"`
+			Out int64 `json:"out"`
+		}
+		if json.Unmarshal([]byte(e.Data), &u) == nil {
+			m.inTok, m.outTok = u.In, u.Out
+		}
+	case "review":
+		width := m.width - 14
+		for i, l := range wrap(e.Data, width) {
+			label := "  "
+			if i == 0 {
+				label = checkStyle.Render("review ")
+			}
+			m.append(label + agentText.Render(l))
+		}
 	case "checkpoint":
 		m.append(indent + checkStyle.Render("✓ "+e.Data))
 	case "error":
 		m.append(indent + errStyle.Render("✗ "+truncate(e.Data, 80)))
 	}
+}
+
+// humanTokens renders a token count compactly (e.g. 1234 → "1.2k").
+func humanTokens(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
 func (m *Model) append(line string) {

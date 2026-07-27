@@ -31,9 +31,12 @@ func DemoView(width, height int) string {
 		{Kind: "worker:tool-result", Data: "wrote 38 lines to internal/cli/output.go"},
 		{Kind: "tool-result", Data: "worker: added Output struct; internal/cli/output.go compiles."},
 		{Kind: "tool", Data: `edit {"path":"cmd/holocron/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
+		{Kind: "edit", Data: `{"file":"cmd/holocron/main.go","added":6,"removed":1}`},
 		{Kind: "tool", Data: `bash {"command":"go build ./... && go test ./..."}`},
 		{Kind: "tool-result", Data: "ok  github.com/dougkirkley/holocron  0.4s"},
 		{Kind: "text", Data: "Done. --json flag wired; boilerplate delegated to the local model. Build and tests pass."},
+		{Kind: "usage", Data: `{"in":18420,"out":1240}`},
+		{Kind: "review", Data: "LGTM — the flag defaults to false and Render() handles the empty case."},
 		{Kind: "checkpoint", Data: "saved handoff brief"},
 	}
 	for _, e := range events {
@@ -41,5 +44,26 @@ func DemoView(width, height int) string {
 	}
 	m.cost = 0.0142
 	m.turns = 6
+	return m.View()
+}
+
+// DemoRunningView renders a mid-run frame — spinner, a rotating status phrase,
+// and the live token counter — for screenshots of the working state.
+func DemoRunningView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  add a --json flag to the CLI and delegate the boilerplate")
+	for _, e := range []agent.Event{
+		{Kind: "text", Data: "Plan: add the flag, delegate the boilerplate, then wire and verify."},
+		{Kind: "tool", Data: `read {"path":"cmd/holocron/main.go"}`},
+		{Kind: "edit", Data: `{"file":"internal/cli/output.go","added":38,"removed":0}`},
+		{Kind: "usage", Data: `{"in":12800,"out":640}`},
+	} {
+		m.applyEvent(e)
+	}
+	m.running = true
+	m.phraseIdx = 2 // "Decrypting the holocron"
+	m.cost = 0.0091
 	return m.View()
 }

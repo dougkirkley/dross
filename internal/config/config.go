@@ -29,6 +29,7 @@ type File struct {
 	MaxTokens int       `json:"max_tokens,omitempty"`
 	Worker    *Provider `json:"worker,omitempty"`
 	Reviewer  *Provider `json:"reviewer,omitempty"`
+	Phrases   []string  `json:"phrases,omitempty"` // TUI status phrases
 }
 
 // SearchPaths returns the config file locations checked, in order. An explicit
