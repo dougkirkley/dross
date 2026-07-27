@@ -289,11 +289,10 @@ func (m Model) header() string {
 // runStats renders the live token usage + elapsed time in parentheses, shown
 // inline with the working spinner/phrase.
 func (m Model) runStats() string {
-	var parts []string
-	if m.inTok > 0 || m.outTok > 0 {
-		parts = append(parts, fmt.Sprintf("↑%s ↓%s", humanTokens(m.inTok), humanTokens(m.outTok)))
+	parts := []string{fmt.Sprintf("%ds", m.tick/5)} // spinner runs at 5 fps
+	if m.outTok > 0 {
+		parts = append(parts, fmt.Sprintf("↓ %s tokens", humanTokens(m.outTok)))
 	}
-	parts = append(parts, fmt.Sprintf("%ds", m.tick/5)) // spinner runs at 5 fps
 	return "(" + strings.Join(parts, " · ") + ")"
 }
 
