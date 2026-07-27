@@ -43,7 +43,7 @@ class T {
   // JetBrains Mono for code. Fallbacks resolve to platform faces if an asset
   // fails to load.
   static const sans = 'Inter';
-  static const serif = 'Newsreader';
+  static const serif = 'SourceSerif4';
   static const monoFamily = 'JetBrainsMono';
   static const serifFallback = <String>['Georgia', 'Charter', 'serif'];
   static const monoFallback = <String>['Menlo', 'Consolas', 'monospace'];

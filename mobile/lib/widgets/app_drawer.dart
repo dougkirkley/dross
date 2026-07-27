@@ -24,14 +24,13 @@ class AppDrawer extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 20),
               child: Row(
                 children: [
-                  const HolocronLogo(size: 34, showWordmark: false),
-                  const SizedBox(width: 12),
-                  Text('HOLOCRON',
-                      style: T.title.copyWith(letterSpacing: 1.5)),
+                  HolocronLogo(size: 34, showWordmark: false),
+                  SizedBox(width: 12),
+                  Text('Holocron', style: T.title),
                 ],
               ),
             ),

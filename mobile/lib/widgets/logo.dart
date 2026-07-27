@@ -84,12 +84,12 @@ class _HolocronLogoState extends State<HolocronLogo>
         if (widget.showWordmark) ...[
           SizedBox(height: widget.size * 0.28),
           Text(
-            'HOLOCRON',
+            'Holocron',
             style: TextStyle(
               color: T.text,
-              fontSize: widget.size * 0.30,
-              fontWeight: FontWeight.w700,
-              letterSpacing: widget.size * 0.04,
+              fontSize: widget.size * 0.32,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -widget.size * 0.005,
             ),
           ),
         ],
