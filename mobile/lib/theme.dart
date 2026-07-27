@@ -34,34 +34,48 @@ class T {
   static const rBubble = 20.0;
   static const rPill = 24.0;
 
-  // Serif stack for assistant prose (matches Claude's Tiempos-like look).
-  // No font asset is bundled; these resolve to the platform serif.
-  static const serifFallback = <String>[
-    'Georgia',
-    'Charter',
-    'Noto Serif',
-    'Times New Roman',
-    'serif',
-  ];
+  // Bundled type: Inter for UI, Newsreader (Tiempos-like) for assistant prose,
+  // JetBrains Mono for code. Fallbacks resolve to platform faces if an asset
+  // fails to load.
+  static const sans = 'Inter';
+  static const serif = 'Newsreader';
+  static const monoFamily = 'JetBrainsMono';
+  static const serifFallback = <String>['Georgia', 'Charter', 'serif'];
   static const monoFallback = <String>['Menlo', 'Consolas', 'monospace'];
 
   static TextStyle get prose => const TextStyle(
+        fontFamily: serif,
         fontFamilyFallback: serifFallback,
-        fontSize: 18,
-        height: 1.5,
+        fontSize: 19,
+        height: 1.55,
+        letterSpacing: 0.1,
         color: text,
       );
   static TextStyle get proseBold =>
-      prose.copyWith(fontWeight: FontWeight.w700);
-  static const title =
-      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: text);
-  static const rowTitle =
-      TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: text);
-  static const body = TextStyle(fontSize: 16, height: 1.4, color: text);
-  static const meta = TextStyle(fontSize: 13, color: textDim);
-  static const metaFaint = TextStyle(fontSize: 13, color: textFaint);
+      prose.copyWith(fontWeight: FontWeight.w600);
+  static const title = TextStyle(
+      fontFamily: sans,
+      fontSize: 21,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.2,
+      color: text);
+  static const rowTitle = TextStyle(
+      fontFamily: sans,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.1,
+      color: text);
+  static const body = TextStyle(
+      fontFamily: sans, fontSize: 16, height: 1.45, color: text);
+  static const meta =
+      TextStyle(fontFamily: sans, fontSize: 13.5, color: textDim);
+  static const metaFaint =
+      TextStyle(fontFamily: sans, fontSize: 13.5, color: textFaint);
   static const mono = TextStyle(
-      fontFamilyFallback: monoFallback, fontSize: 13, color: textDim);
+      fontFamily: monoFamily,
+      fontFamilyFallback: monoFallback,
+      fontSize: 13,
+      color: textDim);
 
   /// A dark, flat Material theme stripped of ripples/elevation so custom
   /// widgets read as the app's own design rather than stock Material.
@@ -74,6 +88,7 @@ class T {
     );
     return ThemeData(
       useMaterial3: true,
+      fontFamily: sans,
       colorScheme: scheme,
       scaffoldBackgroundColor: bg,
       canvasColor: bg,
