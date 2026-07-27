@@ -235,6 +235,8 @@ internal/session        handoff briefs (persisted)
 internal/storage        session/brief file store
 internal/tui            Bubble Tea terminal client
 internal/bench          comparative benchmark harness (vs Claude Code, Codex)
+mobile/                 Flutter client (iOS + Android) — see mobile/README.md
+frontend/               Vue web client
 ```
 
 ## Tests
