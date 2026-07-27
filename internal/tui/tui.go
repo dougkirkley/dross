@@ -145,6 +145,10 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
+	// live subagent tree, shown under the spinner while workers run
+	workerOrder []string          // worker tags, in first-seen order
+	workerAct   map[string]string // worker tag -> present-tense activity
+
 	modeIdx    int       // permission mode (see modeLabels)
 	pendingAsk *askState // set while an ask_user request awaits answers
 
@@ -484,6 +488,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.running = true
 				m.runStart = time.Now()
 				m.tick, m.phraseIdx = 0, 0
+				m.workerOrder, m.workerAct = nil, nil
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
@@ -560,7 +565,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats())
+			metaStyle.Render("  "+m.runStats()) + m.workerTree()
 		if content != "" {
 			content += "\n"
 		}
@@ -604,6 +609,95 @@ func (m Model) runStats() string {
 		parts = append(parts, fmt.Sprintf("↓ %s tokens", humanTokens(m.outTok)))
 	}
 	return "(" + strings.Join(parts, " · ") + ")"
+}
+
+// trackWorker updates the live subagent tree from a worker event. Worker data
+// from parallel delegation is tagged "#N " so subagents stay distinguishable; a
+// lone delegated worker has no tag and groups under "worker".
+func (m *Model) trackWorker(kind, data string) {
+	tag := "worker"
+	rest := data
+	if strings.HasPrefix(data, "#") {
+		if i := strings.IndexByte(data, ' '); i > 0 {
+			tag, rest = data[:i], strings.TrimSpace(data[i+1:])
+		}
+	}
+	if m.workerAct == nil {
+		m.workerAct = map[string]string{}
+	}
+	if _, seen := m.workerAct[tag]; !seen {
+		m.workerOrder = append(m.workerOrder, tag)
+	}
+	switch kind {
+	case "tool":
+		name, args, _ := strings.Cut(rest, " ")
+		act := workerToolLabel(name, args)
+		m.workerAct[tag] = act
+	case "edit":
+		var ed struct {
+			File string `json:"file"`
+		}
+		if json.Unmarshal([]byte(rest), &ed) == nil {
+			base := ed.File
+			if i := strings.LastIndexByte(base, '/'); i >= 0 {
+				base = base[i+1:]
+			}
+			m.workerAct[tag] = "Editing " + base
+		}
+	case "text":
+		m.workerAct[tag] = "Done" // conclusion returned
+	case "error":
+		m.workerAct[tag] = "Failed"
+	}
+}
+
+// workerToolLabel renders a present-tense activity from a worker's tool call,
+// mirroring Claude's "Reading <file>" / "Running a command" style.
+func workerToolLabel(name, args string) string {
+	switch name {
+	case "read":
+		return "Reading " + toolTargetPath(args)
+	case "write":
+		return "Writing " + toolTargetPath(args)
+	case "edit":
+		return "Editing " + toolTargetPath(args)
+	case "bash":
+		return "Running a command"
+	case "delegate":
+		return "Delegating"
+	default:
+		return name
+	}
+}
+
+// toolTargetPath pulls a bare filename out of a tool's JSON args for display.
+func toolTargetPath(args string) string {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
+		if i := strings.LastIndexByte(a.Path, '/'); i >= 0 {
+			return a.Path[i+1:]
+		}
+		return a.Path
+	}
+	return "a file"
+}
+
+// workerTree renders the live subagent panel shown under the spinner: the lead
+// as "● main" plus each active worker as "○ <tag> <activity>". Empty when no
+// workers have run this turn.
+func (m Model) workerTree() string {
+	if len(m.workerOrder) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + checkStyle.Render("  ● ") + agentText.Render("main"))
+	for _, tag := range m.workerOrder {
+		act := m.workerAct[tag]
+		b.WriteString("\n" + workerTag.Render("    ○ "+tag+" ") + resultStyle.Render(act))
+	}
+	return b.String()
 }
 
 // chosen returns the selected option strings for question i.
@@ -831,6 +925,7 @@ func (m *Model) applyEvent(e agent.Event) {
 	indent := ""
 	if worker {
 		indent = workerTag.Render("  ⋮ ")
+		m.trackWorker(kind, e.Data)
 	}
 	switch kind {
 	case "text":

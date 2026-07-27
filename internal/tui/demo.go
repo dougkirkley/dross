@@ -75,6 +75,32 @@ func DemoRunningView(width, height int) string {
 	return m.View()
 }
 
+// DemoSubagentsView renders a mid-run frame with the live subagent tree, where
+// the lead has fanned several subtasks out to parallel workers.
+func DemoSubagentsView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  migrate the three helm charts to the new values schema")
+	for _, e := range []agent.Event{
+		{Kind: "text", Data: "Plan: fan the three charts out to workers, then reconcile and verify."},
+		{Kind: "tool", Data: `delegate {"tasks":["migrate application chart","migrate ingress chart","migrate monitoring chart"]}`},
+		{Kind: "text", Data: "delegating 3 subtasks (max 2 parallel)"},
+		{Kind: "worker:tool", Data: `#1 read {"path":"charts/application/application_helm.go"}`},
+		{Kind: "worker:tool", Data: `#2 read {"path":"charts/ingress/values.yaml"}`},
+		{Kind: "worker:edit", Data: `#1 {"file":"charts/application/values.yaml","added":12,"removed":4}`},
+		{Kind: "worker:tool", Data: `#2 bash {"command":"helm lint charts/ingress"}`},
+		{Kind: "usage", Data: `{"in":22400,"out":1580}`},
+	} {
+		m.applyEvent(e)
+	}
+	m.running = true
+	m.phraseIdx = 4
+	m.tick = 60 // ~12s
+	m.cost = 0.0206
+	return m.View()
+}
+
 // DemoHelpView renders the shortcuts overlay for screenshots.
 func DemoHelpView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)

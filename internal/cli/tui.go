@@ -15,10 +15,11 @@ import (
 func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
-		logo, width, height      int
-		once                     string
-		workdir, model, provName string
-		baseURL, apiKey          string
+		subagents                                          bool
+		logo, width, height                                int
+		once                                               string
+		workdir, model, provName                           string
+		baseURL, apiKey                                    string
 	)
 	cmd := &cobra.Command{
 		Use:   "tui",
@@ -31,6 +32,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoWelcomeView(width, height, logo))
 				case running:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoRunningView(width, height))
+				case subagents:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentsView(width, height))
 				case ask:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoAskView(width, height))
 				case sessions:
@@ -83,6 +86,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
+	f.BoolVar(&subagents, "subagents", false, "with --render, show the live subagent tree")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
 	f.BoolVar(&shortcuts, "shortcuts", false, "with --render, show the shortcuts overlay")
