@@ -139,9 +139,15 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 	if hasWorker {
 		defs = append(defs, provider.ToolDef{
 			Name:        "delegate",
-			Description: "Delegate a bounded, self-contained subtask to a cheaper worker model. The task must include all context the worker needs; it cannot see this conversation. Returns the worker's conclusion.",
-			Properties:  map[string]any{"task": strProp("A fully self-contained task description with every file path, signature, and constraint the worker needs.")},
-			Required:    []string{"task"},
+			Description: "Delegate to a cheaper worker model. Pass `task` for one subtask, or `tasks` (an array) to run several INDEPENDENT subtasks in parallel (bounded by the configured max). Each task must include all context the worker needs; it cannot see this conversation. Returns the worker conclusion(s). Only parallelize tasks that don't touch the same files.",
+			Properties: map[string]any{
+				"task": strProp("A fully self-contained subtask (single delegation)."),
+				"tasks": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Several independent self-contained subtasks to run in parallel.",
+				},
+			},
 		})
 	}
 	if hasPublish {

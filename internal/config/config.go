@@ -21,16 +21,17 @@ type Provider struct {
 
 // File is the on-disk config. All fields optional.
 type File struct {
-	Provider  string    `json:"provider,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	BaseURL   string    `json:"base_url,omitempty"`
-	APIKey    string    `json:"api_key,omitempty"`
-	Style     string    `json:"style,omitempty"`
-	MaxTokens int       `json:"max_tokens,omitempty"`
-	Worker    *Provider   `json:"worker,omitempty"`
-	Reviewer  *Provider   `json:"reviewer,omitempty"`
-	Phrases   []string    `json:"phrases,omitempty"` // TUI status phrases
-	OAuth     *OAuthLogin `json:"oauth,omitempty"`   // for the claude-sub provider
+	Provider    string      `json:"provider,omitempty"`
+	Model       string      `json:"model,omitempty"`
+	BaseURL     string      `json:"base_url,omitempty"`
+	APIKey      string      `json:"api_key,omitempty"`
+	Style       string      `json:"style,omitempty"`
+	MaxTokens   int         `json:"max_tokens,omitempty"`
+	MaxParallel int         `json:"max_parallel,omitempty"` // parallel worker subagents
+	Worker      *Provider   `json:"worker,omitempty"`
+	Reviewer    *Provider   `json:"reviewer,omitempty"`
+	Phrases     []string    `json:"phrases,omitempty"` // TUI status phrases
+	OAuth       *OAuthLogin `json:"oauth,omitempty"`   // for the claude-sub provider
 }
 
 // OAuthLogin configures the `holocron login` PKCE flow and the claude-sub

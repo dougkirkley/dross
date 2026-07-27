@@ -159,6 +159,12 @@ holocron agent --model claude-opus-5 \
 
 Every run prints a per-model token/cost breakdown and a total.
 
+**Parallel subagents.** The `delegate` tool also accepts a `tasks` array — the
+lead hands several *independent* subtasks to worker subagents that run
+concurrently, bounded by `--max-parallel` (config `max_parallel`, default 2).
+Only parallelize tasks that don't touch the same files; workers share the
+workspace. Usage from every worker merges into the run's per-model cost.
+
 ## Code review skill (separate reviewer model)
 
 Give the agent a **reviewer** model and, after a run makes file changes, that

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/dougkirkley/holocron/internal/provider"
 )
@@ -72,6 +73,17 @@ func WithEventHook(fn func(Event)) Option { return func(a *Agent) { a.hook = fn 
 // A worker never gets its own worker — delegation is one level deep.
 func WithWorker(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.worker = &worker{prov: p, model: model} }
+}
+
+// WithMaxParallel caps how many worker subagents run concurrently when the lead
+// delegates a batch of tasks (default 2). Only independent tasks should be run
+// in parallel — workers share the workspace.
+func WithMaxParallel(n int) Option {
+	return func(a *Agent) {
+		if n > 0 {
+			a.maxParallel = n
+		}
+	}
 }
 
 // AskQuestion is one question in an ask_user request. Options makes it a
@@ -147,18 +159,20 @@ type editRec struct {
 
 // Agent is a configured, runnable coding agent. Construct with New.
 type Agent struct {
-	cfg        Config
-	prov       provider.Provider
-	ws         *workspace
-	out        io.Writer
-	hook       func(Event)
-	worker     *worker
-	reviewer   *reviewer
-	edits      []editRec // changes made this run, for the reviewer skill
-	publish    PublishFunc
-	asker      AskFunc
-	resume     string
-	checkpoint func(brief string) error
+	cfg         Config
+	prov        provider.Provider
+	ws          *workspace
+	out         io.Writer
+	hook        func(Event)
+	worker      *worker
+	reviewer    *reviewer
+	maxParallel int       // max concurrent worker subagents (0 = default 2)
+	edits       []editRec // changes made this run, for the reviewer skill
+	publish     PublishFunc
+	asker       AskFunc
+	resume      string
+	checkpoint  func(brief string) error
+	emitMu      sync.Mutex // serializes emit across parallel workers
 }
 
 // New builds an agent from cfg using p as its lead model backend.
@@ -311,6 +325,8 @@ func seedPrompt(resume, prompt string) string {
 }
 
 func (a *Agent) emit(kind, data string) {
+	a.emitMu.Lock() // serialize across parallel workers
+	defer a.emitMu.Unlock()
 	if a.out != nil {
 		fmt.Fprintf(a.out, "[%s/%s] %s\n", a.cfg.Name, kind, data)
 	}
@@ -429,10 +445,14 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(a.ws.runBash(in.Command))
 	case "delegate":
 		var in struct {
-			Task string `json:"task"`
+			Task  string   `json:"task"`
+			Tasks []string `json:"tasks"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
+		}
+		if len(in.Tasks) > 0 {
+			return a.delegateParallel(ctx, in.Tasks, res)
 		}
 		return a.delegate(ctx, in.Task, res)
 	case "publish":
@@ -479,8 +499,19 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 // conclusion. The worker shares the workspace but has no delegate tool of its
 // own (one level deep). Its usage is merged into res for correct cost.
 func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string, bool) {
+	sr, concl, isErr := a.delegateOne(ctx, task, "")
+	if sr != nil {
+		res.merge(sr)
+	}
+	return concl, isErr
+}
+
+// delegateOne runs one worker subagent and returns its Result (for the caller to
+// merge), its conclusion text, and whether it errored. tag prefixes worker event
+// data so parallel subagents are distinguishable.
+func (a *Agent) delegateOne(ctx context.Context, task, tag string) (*Result, string, bool) {
 	if a.worker == nil {
-		return "delegation is not configured for this agent", true
+		return nil, "delegation is not configured for this agent", true
 	}
 	sub, err := New(Config{
 		Name:     a.cfg.Name + "/worker",
@@ -488,19 +519,55 @@ func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string,
 		Model:    a.worker.model,
 		Workdir:  a.ws.root,
 	}, a.worker.prov, WithEventHook(func(e Event) {
-		a.emit("worker:"+e.Kind, e.Data)
+		a.emit("worker:"+e.Kind, tag+e.Data)
 	}))
 	if err != nil {
-		return err.Error(), true
+		return nil, err.Error(), true
 	}
 	sr, err := sub.Run(ctx, task)
-	if sr != nil {
-		res.merge(sr)
-	}
 	if err != nil {
-		return fmt.Sprintf("worker failed: %v", err), true
+		return sr, fmt.Sprintf("worker failed: %v", err), true
 	}
-	return sr.Text, false
+	return sr, sr.Text, false
+}
+
+// delegateParallel runs several worker subtasks concurrently, bounded by
+// maxParallel, and returns their conclusions in order. Tasks should be
+// independent — workers share the workspace.
+func (a *Agent) delegateParallel(ctx context.Context, tasks []string, res *Result) (string, bool) {
+	if a.worker == nil {
+		return "delegation is not configured for this agent", true
+	}
+	max := a.maxParallel
+	if max < 1 {
+		max = 2
+	}
+	sem := make(chan struct{}, max)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	conclusions := make([]string, len(tasks))
+	a.emit("text", fmt.Sprintf("delegating %d subtasks (max %d parallel)", len(tasks), max))
+	for i, task := range tasks {
+		wg.Add(1)
+		go func(i int, task string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			sr, concl, _ := a.delegateOne(ctx, task, fmt.Sprintf("#%d ", i+1))
+			mu.Lock()
+			if sr != nil {
+				res.merge(sr)
+			}
+			conclusions[i] = concl
+			mu.Unlock()
+		}(i, task)
+	}
+	wg.Wait()
+	var b strings.Builder
+	for i, c := range conclusions {
+		fmt.Fprintf(&b, "[subtask %d] %s\n", i+1, c)
+	}
+	return b.String(), false
 }
 
 // doPublish shares a workspace file and returns its URL to the model.

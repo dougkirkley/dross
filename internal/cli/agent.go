@@ -21,6 +21,7 @@ func newAgentCmd() *cobra.Command {
 		revProv, revModel, revBaseURL, revKey             string
 		sessionName                                       string
 		fresh                                             bool
+		maxParallel                                       int
 	)
 	cmd := &cobra.Command{
 		Use:   "agent [flags] <prompt...>",
@@ -53,6 +54,13 @@ func newAgentCmd() *cobra.Command {
 					return fmt.Errorf("worker provider: %w", err)
 				}
 				opts = append(opts, agent.WithWorker(wp, pc.Worker.Model))
+			}
+			mp := maxParallel
+			if mp == 0 {
+				mp = pc.File.MaxParallel
+			}
+			if mp > 0 {
+				opts = append(opts, agent.WithMaxParallel(mp))
 			}
 			if pc.ReviewerEnabled {
 				rp, err := provider.New(pc.Reviewer.Provider, provider.Config{BaseURL: pc.Reviewer.BaseURL, APIKey: pc.Reviewer.APIKey})
@@ -122,6 +130,7 @@ func newAgentCmd() *cobra.Command {
 	f.StringVar(&revModel, "reviewer-model", "", "reviewer model id (enables the code-review skill)")
 	f.StringVar(&revBaseURL, "reviewer-base-url", "", "reviewer provider base URL")
 	f.StringVar(&revKey, "reviewer-api-key", "", "reviewer provider API key")
+	f.IntVar(&maxParallel, "max-parallel", 0, "max concurrent worker subagents for batch delegation (default 2)")
 	f.StringVar(&sessionName, "session", "", "named session: resume from its brief and checkpoint at the end")
 	f.BoolVar(&fresh, "fresh", false, "with --session, ignore the existing brief")
 	return cmd

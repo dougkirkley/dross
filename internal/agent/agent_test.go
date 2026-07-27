@@ -88,6 +88,40 @@ func TestRun_WritesThenEdits(t *testing.T) {
 	}
 }
 
+// TestDelegateParallel proves the lead can delegate several subtasks at once:
+// two workers run and both conclusions come back, with usage merged per model.
+func TestDelegateParallel(t *testing.T) {
+	dir := t.TempDir()
+	lead := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopToolUse,
+			ToolCalls: []provider.ToolCall{
+				toolCall("1", "delegate", map[string]any{"tasks": []string{"task A", "task B"}}),
+			},
+		},
+		{StopReason: provider.StopEndTurn, Text: "combined"},
+	}}
+	work := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopEndTurn, Text: "did it", Usage: provider.Usage{OutputTokens: 5}},
+	}}
+	ag, err := New(Config{Name: "t", Model: "lead", Workdir: dir}, lead,
+		WithWorker(work, "w"), WithMaxParallel(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ag.Run(context.Background(), "do A and B in parallel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Text != "combined" {
+		t.Fatalf("lead text = %q", res.Text)
+	}
+	u, ok := res.ByModel["w"]
+	if !ok || u.OutputTokens < 10 {
+		t.Fatalf("worker usage not merged for both subtasks: %+v", res.ByModel)
+	}
+}
+
 // TestReviewSkill proves the code-review skill: after the lead writes a file, a
 // separate reviewer model reviews the diff. Its findings land in Result.Review,
 // a "review" event is emitted, and its usage is tracked under the reviewer model.
