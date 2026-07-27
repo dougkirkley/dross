@@ -24,15 +24,51 @@ class Activity {
   int get edits => steps.where((s) => s.edit != null).length;
   int get tools => steps.where((s) => s.edit == null).length;
 
+  /// Enumerates the distinct actions taken, like Claude's "Edited a file, ran a
+  /// command, read a file".
   String get summary {
-    final parts = <String>[];
-    if (tools > 0) parts.add(tools == 1 ? 'Used a tool' : 'Used $tools tools');
-    if (edits > 0) {
-      parts.add(edits == 1 ? 'edited a file' : 'edited $edits files');
+    final counts = <String, int>{};
+    for (final s in steps) {
+      final k = s.edit != null ? 'edit' : _verbKey(s.label);
+      counts[k] = (counts[k] ?? 0) + 1;
     }
-    if (parts.isEmpty) return 'Working…';
-    final s = parts.join(', ');
+    const order = ['edit', 'bash', 'read', 'search', 'delegate', 'publish', 'tool'];
+    final phrases = <String>[];
+    for (final k in order) {
+      final n = counts[k];
+      if (n != null) phrases.add(_phrase(k, n));
+    }
+    if (phrases.isEmpty) return 'Working…';
+    final s = phrases.join(', ');
     return s[0].toUpperCase() + s.substring(1);
+  }
+
+  static String _verbKey(String label) {
+    if (label.startsWith('Read')) return 'read';
+    if (label.startsWith('Ran')) return 'bash';
+    if (label.startsWith('Searched')) return 'search';
+    if (label.startsWith('Delegated')) return 'delegate';
+    if (label.startsWith('Published')) return 'publish';
+    return 'tool';
+  }
+
+  static String _phrase(String k, int n) {
+    switch (k) {
+      case 'edit':
+        return n == 1 ? 'edited a file' : 'edited $n files';
+      case 'bash':
+        return n == 1 ? 'ran a command' : 'ran $n commands';
+      case 'read':
+        return n == 1 ? 'read a file' : 'read $n files';
+      case 'search':
+        return 'searched the web';
+      case 'delegate':
+        return n == 1 ? 'delegated a task' : 'delegated $n tasks';
+      case 'publish':
+        return n == 1 ? 'published an artifact' : 'published $n artifacts';
+      default:
+        return n == 1 ? 'used a tool' : 'used $n tools';
+    }
   }
 }
 
