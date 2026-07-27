@@ -71,6 +71,22 @@ func DemoRunningView(width, height int) string {
 	return m.View()
 }
 
+// DemoSessionsView renders the session switcher overlay for screenshots.
+func DemoSessionsView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.sessions = []session{
+		{title: "add --json flag to the CLI", cost: 0.0142},
+		{title: "refactor the config loader", cost: 0.0031},
+		{title: "debug the SSE reconnect", cost: 0.0088},
+	}
+	m.cur = 0
+	m.pickerOpen = true
+	m.pickIdx = 1
+	return m.View()
+}
+
 // DemoAskView renders the multi-question ask_user picker for screenshots.
 func DemoAskView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)

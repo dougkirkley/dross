@@ -14,7 +14,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var (
-		render, welcome, running, ask bool
+		render, welcome, running, ask, sessions bool
 		logo, width, height      int
 		once                     string
 		workdir, model, provName string
@@ -33,6 +33,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoRunningView(width, height))
 				case ask:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoAskView(width, height))
+				case sessions:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSessionsView(width, height))
 				default:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoView(width, height))
 				}
@@ -80,6 +82,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
+	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
 	f.IntVar(&logo, "logo", 0, "logo variant: 0 filled, 1 gradient, 2 boxed, 3 wordmark")
 	f.StringVar(&once, "once", "", "run one real prompt, print the final frame, and exit")
 	f.IntVar(&width, "width", 96, "width for --render/--once")

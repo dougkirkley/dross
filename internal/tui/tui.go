@@ -110,6 +110,17 @@ func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
 	return <-st.reply, nil
 }
 
+// session is a saved conversation, so the TUI can hold several and switch
+// between them (← opens the switcher). Snapshot of the swappable Model fields.
+type session struct {
+	title  string
+	lines  []string
+	turns  int
+	cost   float64
+	inTok  int64
+	outTok int64
+}
+
 // Model is the TUI state.
 type Model struct {
 	agentName string
@@ -134,6 +145,12 @@ type Model struct {
 
 	modeIdx    int       // permission mode (see modeLabels)
 	pendingAsk *askState // set while an ask_user request awaits answers
+
+	title      string    // current session title
+	sessions   []session // saved sessions (current one is snapshotted on switch)
+	cur        int       // index of the current session
+	pickerOpen bool      // session switcher overlay open
+	pickIdx    int
 
 	lines []string // rendered log lines
 
@@ -189,7 +206,47 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant: 1, // gradient fade (default)
 		phrases:     DefaultPhrases,
+		sessions:    []session{{}},
 	}
+}
+
+func (m *Model) saveCurrent() {
+	if m.cur < len(m.sessions) {
+		m.sessions[m.cur] = session{
+			title: m.title, lines: m.lines, turns: m.turns,
+			cost: m.cost, inTok: m.inTok, outTok: m.outTok,
+		}
+	}
+}
+
+func (m *Model) loadSession(i int) {
+	s := m.sessions[i]
+	m.cur = i
+	m.title, m.lines, m.turns = s.title, s.lines, s.turns
+	m.cost, m.inTok, m.outTok = s.cost, s.inTok, s.outTok
+	m.vp.SetContent(strings.Join(m.lines, "\n"))
+	m.vp.GotoBottom()
+}
+
+func (m *Model) newSession() {
+	m.saveCurrent()
+	m.sessions = append(m.sessions, session{})
+	m.loadSession(len(m.sessions) - 1)
+}
+
+func (m *Model) removeSession(i int) {
+	if len(m.sessions) <= 1 || i < 0 || i >= len(m.sessions) {
+		return
+	}
+	m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+	target := m.cur
+	if i < target {
+		target--
+	}
+	if target >= len(m.sessions) {
+		target = len(m.sessions) - 1
+	}
+	m.loadSession(target)
 }
 
 // DefaultPhrases are the whimsical Star Wars status lines shown while the agent
@@ -237,6 +294,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
 	case tea.KeyMsg:
+		// Session switcher overlay captures keys.
+		if m.pickerOpen {
+			switch msg.String() {
+			case "esc", "left", "h", "q":
+				m.pickerOpen = false
+			case "up", "k":
+				if m.pickIdx > 0 {
+					m.pickIdx--
+				}
+			case "down", "j":
+				if m.pickIdx < len(m.sessions)-1 {
+					m.pickIdx++
+				}
+			case "enter", "right", "l":
+				m.loadSession(m.pickIdx)
+				m.pickerOpen = false
+			case "n":
+				m.newSession()
+				m.pickerOpen = false
+			case "x", "d":
+				m.removeSession(m.pickIdx)
+				if m.pickIdx >= len(m.sessions) {
+					m.pickIdx = len(m.sessions) - 1
+				}
+			}
+			return m, nil
+		}
+		// ← opens the session switcher when idle and the input is empty.
+		if msg.String() == "left" && !m.running && m.pendingAsk == nil && m.input.Value() == "" {
+			m.saveCurrent()
+			m.pickerOpen = true
+			m.pickIdx = m.cur
+			return m, nil
+		}
 		// A multi-question ask_user picker captures keys: ←/→ switch tabs, ↑/↓ or
 		// digits pick an option, enter advances / submits.
 		if m.pendingAsk != nil && !m.pendingAsk.freeText {
@@ -325,6 +416,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				prompt := m.input.Value()
+				if m.title == "" {
+					m.title = truncate(prompt, 40)
+				}
 				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
 				m.running = true
@@ -373,7 +467,11 @@ func (m Model) View() string {
 		return "loading…"
 	}
 	body := m.vp.View()
-	if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
+	if m.pickerOpen {
+		m.vp.SetContent(m.renderSessions())
+		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
 	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
 		content := strings.Join(m.lines, "\n")
@@ -463,6 +561,30 @@ func (m *Model) submitAsk() {
 	}
 	a.reply <- strings.Join(parts, "\n")
 	m.pendingAsk = nil
+}
+
+// renderSessions draws the session switcher overlay.
+func (m Model) renderSessions() string {
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("Sessions") + "\n\n")
+	for i, s := range m.sessions {
+		title := s.title
+		if title == "" {
+			title = fmt.Sprintf("session %d", i+1)
+		}
+		cur, style := "  ", resultStyle
+		if i == m.pickIdx {
+			cur, style = promptMark.Render("› "), agentText
+		}
+		line := cur + style.Render(fmt.Sprintf("%d. %s", i+1, title)) +
+			metaStyle.Render(fmt.Sprintf("  · $%.4f", s.cost))
+		if i == m.cur {
+			line += metaStyle.Render("  (current)")
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n" + metaStyle.Render("  ↑↓ move · enter switch · n new · x remove · esc close"))
+	return b.String()
 }
 
 // renderPicker draws the multi-question tabs + the current question's options.
