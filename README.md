@@ -41,15 +41,15 @@ workspace directory.
 
 ```bash
 # Frontier model:
-ANTHROPIC_API_KEY=... holocron agent -model claude-opus-5 -C ./repo "add a --json flag"
+ANTHROPIC_API_KEY=... holocron agent --model claude-opus-5 -C ./repo "add a --json flag"
 
 # Local model via any OpenAI-compatible endpoint (e.g. ollama):
-holocron agent -provider openai -base-url https://ollama.example.com/v1 \
-  -model qwen3-coder:30b -C ./repo "fix the failing test"
+holocron agent --provider openai --base-url https://ollama.example.com/v1 \
+  --model qwen3-coder:30b -C ./repo "fix the failing test"
 ```
 
-Key flags: `-provider` (`anthropic` | `openai`), `-model`, `-base-url`,
-`-api-key`, `-C` (workspace), `-style`, `-session`, and the worker flags below.
+Key flags: `--provider` (`anthropic` | `openai`), `--model`, `--base-url`,
+`--api-key`, `-C` (workspace), `--style`, `--session`, and the worker flags below.
 
 ### Providers
 
@@ -58,11 +58,11 @@ Backends self-register (driver style). Two ship today:
 - **`anthropic`** — the official Anthropic Go SDK. Prompt caching on the system
   prompt, adaptive thinking, per-turn usage.
 - **`openai`** — any OpenAI-compatible `/chat/completions` endpoint: OpenAI
-  itself, or a local **ollama** server (point `-base-url` at its `/v1`). This is
+  itself, or a local **ollama** server (point `--base-url` at its `/v1`). This is
   the free local tier.
 
 Credentials: `ANTHROPIC_API_KEY` (or an `ant auth login` profile) for Anthropic;
-`-api-key` / `-base-url` for OpenAI-compatible.
+`--api-key` / `--base-url` for OpenAI-compatible.
 
 ## Cost-aware delegation (lead + worker)
 
@@ -73,9 +73,9 @@ tracked per model, so the run's cost reflects the split — and the free local
 tier shows `$0`.
 
 ```bash
-holocron agent -model claude-opus-5 \
-  -worker-provider openai -worker-base-url https://ollama.example.com/v1 \
-  -worker-model qwen3-coder:30b \
+holocron agent --model claude-opus-5 \
+  --worker-provider openai --worker-base-url https://ollama.example.com/v1 \
+  --worker-model qwen3-coder:30b \
   -C ./repo "refactor the config loader and delegate the boilerplate"
 ```
 
@@ -85,18 +85,18 @@ Every run prints a per-model token/cost breakdown and a total.
 
 Keeping context small is a first-class feature (fewer tokens = lower cost):
 
-- **Handoff brief + resume** (`-session <name>`). A session ends by writing a
+- **Handoff brief + resume** (`--session <name>`). A session ends by writing a
   compact brief (task, state, files, next steps, gotchas); a new session resumes
   from that brief, not the full transcript. Cheaper than transcript compaction.
   Inspect with `holocron brief <name>`.
 - **Delegation** returns conclusions, not dumps (above).
-- **Output style** (`-style normal|terse|caveman`) compresses the agent's own
+- **Output style** (`--style normal|terse|caveman`) compresses the agent's own
   output; code, commands, and errors stay verbatim.
 
 ```bash
-holocron agent -session refactor -C ./repo "start the config refactor"
+holocron agent --session refactor -C ./repo "start the config refactor"
 # ... later, in a fresh run:
-holocron agent -session refactor -C ./repo "continue where we left off"
+holocron agent --session refactor -C ./repo "continue where we left off"
 holocron brief refactor            # view the saved handoff
 ```
 
@@ -107,10 +107,10 @@ dark base, Carolina-blue accent, block logo. Streams the agent's events (tool
 calls, delegation, cost) live.
 
 ```bash
-holocron tui -provider openai -base-url https://ollama.example.com/v1 -model qwen3-coder:30b -C ./repo
+holocron tui --provider openai --base-url https://ollama.example.com/v1 --model qwen3-coder:30b -C ./repo
 ```
 
-`-logo N` selects the logo (0 filled, 1 gradient (default), 2 boxed, 3 wordmark).
+`--logo N` selects the logo (0 filled, 1 gradient (default), 2 boxed, 3 wordmark).
 
 ## Benchmarking
 
@@ -122,7 +122,7 @@ task success. Success is graded by a check command that must exit 0 (e.g.
 the external CLIs don't expose that, so they show `-`.
 
 ```bash
-holocron bench -provider openai -base-url https://ollama.example.com/v1 -model qwen3-coder:30b
+holocron bench --provider openai --base-url https://ollama.example.com/v1 --model qwen3-coder:30b
 
 running 2 tasks across 3 runners...
 
@@ -151,9 +151,9 @@ carries a per-session monotonic `seq`, so a client fetches history then tails
 live, deduping by seq.
 
 ```bash
-holocron serve -addr :8080 \
-  -provider openai -base-url https://ollama.example.com/v1 -model qwen3-coder:30b \
-  -worker-base-url https://ollama.example.com/v1 -worker-model qwen3-coder:30b \
+holocron serve --addr :8080 \
+  --provider openai --base-url https://ollama.example.com/v1 --model qwen3-coder:30b \
+  --worker-base-url https://ollama.example.com/v1 --worker-model qwen3-coder:30b \
   -C ./workspace
 ```
 
@@ -184,7 +184,7 @@ Two directions, like Claude Code:
   file into the artifact store and returns a shareable capability URL
   (`/a/<id>`). `GET /a/<id>` serves it inline (renders images/gifs in a browser)
   and needs no auth — the unguessable id *is* the credential, so a link can be
-  sent to someone without an account. Set `-public-url` for absolute links.
+  sent to someone without an account. Set `--public-url` for absolute links.
 
 ## Auth (SSO)
 
@@ -203,21 +203,21 @@ enforce SSO — all gated by an optional email allowlist, verified with `go-oidc
 
 ```bash
 # OIDC (Keycloak):
-holocron serve -addr :8080 \
-  -auth-issuer https://keycloak.example.com/realms/homelab \
-  -auth-client-id holocron -auth-client-secret ... \
-  -auth-redirect-url https://holocron.example.com/auth/callback \
-  -auth-allowed-emails you@example.com
+holocron serve --addr :8080 \
+  --auth-issuer https://keycloak.example.com/realms/homelab \
+  --auth-client-id holocron --auth-client-secret ... \
+  --auth-redirect-url https://holocron.example.com/auth/callback \
+  --auth-allowed-emails you@example.com
 
 # Cloudflare Access:
-holocron serve -auth-cf-team https://team.cloudflareaccess.com -auth-cf-aud <AUD>
+holocron serve --auth-cf-team https://team.cloudflareaccess.com --auth-cf-aud <AUD>
 
 # Static token (programmatic clients):
-holocron serve -auth-token "$(openssl rand -hex 32)"
+holocron serve --auth-token "$(openssl rand -hex 32)"
 ```
 
-Auth flags: `-auth-issuer -auth-client-id -auth-client-secret -auth-redirect-url
--auth-allowed-emails -auth-cf-team -auth-cf-aud -auth-token -auth-cookie-secret
+Auth flags: `--auth-issuer --auth-client-id --auth-client-secret --auth-redirect-url
+-auth-allowed-emails --auth-cf-team --auth-cf-aud --auth-token --auth-cookie-secret
 -auth-insecure-cookies`.
 
 ## Layout

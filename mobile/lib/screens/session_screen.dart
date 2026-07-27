@@ -104,7 +104,7 @@ class _SessionScreenState extends State<SessionScreen> {
       default:
         content = _mono(e.data, const Color(0xFF9AA0A6));
     }
-    return Padding(padding: EdgeInsets.symmetric(vertical: 3).add(indent), child: content);
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 3).add(indent), child: content);
   }
 
   Widget _line(String label, String text, Color color, {bool bold = false}) => RichText(
