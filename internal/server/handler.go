@@ -58,6 +58,27 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }
 
+// handlePatchSession updates mutable session fields (currently the model), which
+// takes effect on the next prompt.
+func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.mgr.get(r.PathValue("id"))
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if m := strings.TrimSpace(body.Model); m != "" {
+		sess.setModel(m)
+	}
+	writeJSON(w, http.StatusOK, sess.snapshot())
+}
+
 // handleDeleteSession drops a session and cancels any in-flight run.
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	if !s.mgr.remove(r.PathValue("id")) {

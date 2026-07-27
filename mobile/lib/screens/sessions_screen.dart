@@ -102,7 +102,8 @@ class SessionsScreen extends StatelessWidget {
         key: ValueKey(sess.id),
         direction: DismissDirection.endToStart,
         background: _swipeBg(),
-        confirmDismiss: (_) => _confirmDelete(context, sess),
+        confirmDismiss: (_) => _confirmSheet(context, sess),
+        onDismissed: (_) => context.read<AppState>().deleteSession(sess),
         child: _openTap(
           context,
           sess,
@@ -137,7 +138,12 @@ class SessionsScreen extends StatelessWidget {
                         icon: const Icon(Icons.delete_outline,
                             size: 20, color: T.textDim),
                         tooltip: 'Delete session',
-                        onPressed: () => _confirmDelete(context, sess),
+                        onPressed: () async {
+                          if (await _confirmSheet(context, sess) &&
+                              context.mounted) {
+                            context.read<AppState>().deleteSession(sess);
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -255,9 +261,9 @@ class SessionsScreen extends StatelessWidget {
   void _settings(BuildContext context) => Navigator.push(
       context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
 
-  /// Confirms and (if confirmed) deletes the session. Returns whether it was
-  /// deleted, so it also serves as a Dismissible confirmDismiss callback.
-  Future<bool> _confirmDelete(BuildContext context, Session sess) async {
+  /// Shows the delete-confirmation sheet and returns whether the user confirmed.
+  /// It performs no mutation, so it is safe as a Dismissible confirmDismiss.
+  Future<bool> _confirmSheet(BuildContext context, Session sess) async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: T.surface,
@@ -273,11 +279,7 @@ class SessionsScreen extends StatelessWidget {
         ]),
       ),
     );
-    if (ok == true && context.mounted) {
-      await context.read<AppState>().deleteSession(sess);
-      return true;
-    }
-    return false;
+    return ok == true;
   }
 
   Future<void> _create(BuildContext context) async {

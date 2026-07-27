@@ -157,6 +157,30 @@ func TestDeleteSession(t *testing.T) {
 	}
 }
 
+func TestPatchSessionModel(t *testing.T) {
+	srv := testServer(t, nil)
+	w := do(t, srv, "POST", "/api/sessions", `{}`)
+	var created map[string]any
+	json.Unmarshal(w.Body.Bytes(), &created)
+	id, _ := created["id"].(string)
+
+	w = do(t, srv, "PATCH", "/api/sessions/"+id, `{"model":"claude-haiku-4-5"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch: %d", w.Code)
+	}
+	var updated map[string]any
+	json.Unmarshal(w.Body.Bytes(), &updated)
+	if updated["model"] != "claude-haiku-4-5" {
+		t.Fatalf("model = %v, want claude-haiku-4-5", updated["model"])
+	}
+	// It persists on a subsequent GET.
+	w = do(t, srv, "GET", "/api/sessions/"+id, "")
+	json.Unmarshal(w.Body.Bytes(), &updated)
+	if updated["model"] != "claude-haiku-4-5" {
+		t.Fatalf("model not persisted: %v", updated["model"])
+	}
+}
+
 func TestUnknownSession(t *testing.T) {
 	srv := testServer(t, nil)
 	for _, p := range []string{"/api/sessions/nope", "/api/sessions/nope/events"} {

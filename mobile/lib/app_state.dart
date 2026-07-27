@@ -438,18 +438,46 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteSession(Session s) async {
-    try {
-      await _client.deleteSession(s.id);
-    } catch (e) {
-      error = e.toString();
-    }
+    // Remove locally first so the list updates immediately, then tell the server.
     sessions.removeWhere((x) => x.id == s.id);
     if (current?.id == s.id) {
       await _sub?.cancel();
       current = null;
       events.clear();
+      queue.clear();
     }
     notifyListeners();
+    try {
+      await _client.deleteSession(s.id);
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Models the server offers, for the code-session model picker.
+  Future<List<String>> availableServerModels() async {
+    try {
+      return await _client.serverModels();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Changes the current remote session's model (applies to the next prompt).
+  Future<void> setSessionModel(String model) async {
+    final s = current;
+    if (s == null || model.trim().isEmpty || model == s.model) return;
+    try {
+      final updated = await _client.updateSessionModel(s.id, model.trim());
+      current = updated;
+      final i = sessions.indexWhere((x) => x.id == updated.id);
+      if (i >= 0) sessions[i] = updated;
+      notifyListeners();
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
   }
 
   Future<void> attach(Session s) async {

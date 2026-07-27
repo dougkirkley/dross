@@ -100,6 +100,14 @@ func (s *Session) setStatus(st string) {
 	s.mu.Unlock()
 }
 
+// setModel changes the model used for subsequent prompts.
+func (s *Session) setModel(model string) {
+	s.mu.Lock()
+	s.Model = model
+	s.updated = time.Now()
+	s.mu.Unlock()
+}
+
 func (s *Session) addCost(c float64) {
 	s.mu.Lock()
 	s.cost += c
@@ -275,6 +283,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	if s.title == "" {
 		s.title = truncate(oneLine(prompt), 60)
 	}
+	model := s.Model
 	s.mu.Unlock()
 
 	opts := []agent.Option{agent.WithEventHook(func(e agent.Event) { s.emit(e.Kind, e.Data) })}
@@ -294,7 +303,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		}
 	}
 	ag, err := agent.New(agent.Config{
-		Name: "holocron", Model: s.Model, Workdir: s.workdir, Style: agent.Style(s.Style),
+		Name: "holocron", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
 	}, m.lead, opts...)
 	if err != nil {
 		return err

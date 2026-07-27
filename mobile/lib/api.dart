@@ -66,6 +66,22 @@ class HolocronClient {
     _check(r);
   }
 
+  Future<Session> updateSessionModel(String id, String model) async {
+    final r = await http.patch(_uri('api/sessions/$id'),
+        headers: _headers, body: jsonEncode({'model': model}));
+    _check(r);
+    return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
+  /// The models the server offers (GET /api/models -> {models, current}).
+  Future<List<String>> serverModels() async {
+    final r = await http.get(_uri('api/models'), headers: _headers);
+    _check(r);
+    final body = jsonDecode(r.body) as Map<String, dynamic>;
+    final list = (body['models'] as List?) ?? const [];
+    return list.map((e) => e.toString()).toList();
+  }
+
   Future<void> prompt(String id, String text) async {
     final r = await http.post(_uri('api/sessions/$id/prompt'),
         headers: _headers, body: jsonEncode({'prompt': text}));

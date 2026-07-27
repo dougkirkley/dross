@@ -6,6 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/activity.dart';
 import '../widgets/logo.dart';
+import '../widgets/server_model_sheet.dart';
 import 'chat_screen.dart' show ProseText;
 
 /// Remote-session conversation. Streams the serve event log (tool calls,
@@ -217,32 +218,51 @@ class _SessionScreenState extends State<SessionScreen> {
             borderRadius: BorderRadius.circular(T.rCard),
             border: Border.all(color: T.border),
           ),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                minLines: 1,
-                maxLines: 5,
-                style: T.body,
-                decoration: InputDecoration.collapsed(
-                    hintText:
-                        running ? 'Queue after this turn…' : 'Build anything…',
-                    hintStyle: const TextStyle(color: T.textDim)),
-                onSubmitted: (_) => _send(context),
-              ),
-            ),
-            GestureDetector(
-              onTap: () => _send(context),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                    color: T.accent, shape: BoxShape.circle),
-                child: Icon(running ? Icons.add : Icons.arrow_upward,
-                    size: 20, color: T.bg),
-              ),
-            ),
-          ]),
+          child: Column(
+            children: [
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 5,
+                    style: T.body,
+                    decoration: InputDecoration.collapsed(
+                        hintText: running
+                            ? 'Queue after this turn…'
+                            : 'Build anything…',
+                        hintStyle: const TextStyle(color: T.textDim)),
+                    onSubmitted: (_) => _send(context),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => _send(context),
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: const BoxDecoration(
+                        color: T.accent, shape: BoxShape.circle),
+                    child: Icon(running ? Icons.add : Icons.arrow_upward,
+                        size: 20, color: T.bg),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Flexible(
+                  child: OutlineChip(
+                    onTap: () => showServerModelSheet(context),
+                    child: Text(s.current?.model ?? 'model',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: T.textDim, fontSize: 13)),
+                  ),
+                ),
+                const Spacer(),
+              ]),
+            ],
+          ),
         ),
       ),
     );
