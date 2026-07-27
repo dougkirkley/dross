@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/logo.dart';
 import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
 
@@ -25,8 +26,14 @@ class AppDrawer extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-              child: Text('HOLOCRON',
-                  style: T.title.copyWith(letterSpacing: 1.5)),
+              child: Row(
+                children: [
+                  const HolocronLogo(size: 34, showWordmark: false),
+                  const SizedBox(width: 12),
+                  Text('HOLOCRON',
+                      style: T.title.copyWith(letterSpacing: 1.5)),
+                ],
+              ),
             ),
             _navItem(context, Icons.chat_bubble_outline, 'Chats',
                 active: s.mode == ConnMode.direct,

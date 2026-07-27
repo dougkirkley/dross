@@ -55,8 +55,13 @@ Key flags: `--provider` (`anthropic` | `openai`), `--model`, `--base-url`,
 
 Backends self-register (driver style). Three ship today:
 
-- **`anthropic`** — the official Anthropic Go SDK. Prompt caching on the system
-  prompt, adaptive thinking, per-turn usage.
+- **`anthropic`** — the official Anthropic Go SDK. Aggressive prompt caching to
+  cut token cost: the stable **system prompt** and **tool definitions** are
+  cached, plus a **rolling cache breakpoint on the newest user/tool-result turn**
+  so each turn re-reads the whole conversation prefix at ~0.1x (the breakpoint is
+  anchored on stable inputs, never a shifting assistant output, and the previous
+  one is cleared to stay within Anthropic's 4-breakpoint limit). Per-turn usage
+  reports cache read/write tokens.
 - **`openai`** — any OpenAI-compatible `/chat/completions` endpoint: OpenAI
   itself, or a local **ollama** server (point `--base-url` at its `/v1`). This is
   the free local tier.

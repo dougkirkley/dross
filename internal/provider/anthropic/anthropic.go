@@ -58,23 +58,25 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 		maxTok = defaultMaxTokens
 	}
 	return &session{
-		client:    p.client,
-		model:     cfg.Model,
-		system:    cfg.System,
-		pin:       p.pin,
-		tools:     convertTools(cfg.Tools),
-		maxTokens: int64(maxTok),
+		client:       p.client,
+		model:        cfg.Model,
+		system:       cfg.System,
+		pin:          p.pin,
+		tools:        convertTools(cfg.Tools),
+		maxTokens:    int64(maxTok),
+		lastCacheIdx: -1,
 	}
 }
 
 type session struct {
-	client    sdk.Client
-	model     string
-	system    string
-	pin       string
-	tools     []sdk.ToolUnionParam
-	maxTokens int64
-	messages  []sdk.MessageParam // provider-native history
+	client       sdk.Client
+	model        string
+	system       string
+	pin          string
+	tools        []sdk.ToolUnionParam
+	maxTokens    int64
+	messages     []sdk.MessageParam // provider-native history
+	lastCacheIdx int                // message holding the rolling cache breakpoint
 }
 
 func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Response, error) {
@@ -88,6 +90,17 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	} else {
 		s.messages = append(s.messages, sdk.NewUserMessage(sdk.NewTextBlock(in.Text)))
 	}
+
+	// Roll the conversation cache breakpoint onto the newest user turn (a stable
+	// input — text or tool results, never a shifting assistant output), clearing
+	// the previous one so we stay within Anthropic's 4-breakpoint limit. Combined
+	// with the cached system + tools prefix, each turn re-reads the whole prefix
+	// at ~0.1x.
+	if s.lastCacheIdx >= 0 && s.lastCacheIdx < len(s.messages) {
+		setBlockCache(&s.messages[s.lastCacheIdx], sdk.CacheControlEphemeralParam{})
+	}
+	setBlockCache(&s.messages[len(s.messages)-1], sdk.NewCacheControlEphemeralParam())
+	s.lastCacheIdx = len(s.messages) - 1
 
 	params := sdk.MessageNewParams{
 		Model:     sdk.Model(s.model),
@@ -155,7 +168,28 @@ func convertTools(defs []provider.ToolDef) []sdk.ToolUnionParam {
 		}
 		out = append(out, sdk.ToolUnionParam{OfTool: &t})
 	}
+	// Cache the (stable) tool definitions: a cache_control on the last tool marks
+	// the whole tools + system prefix as cacheable, so repeated turns pay ~0.1x
+	// on it.
+	if n := len(out); n > 0 && out[n-1].OfTool != nil {
+		out[n-1].OfTool.CacheControl = sdk.NewCacheControlEphemeralParam()
+	}
 	return out
+}
+
+// setBlockCache sets (or, with a zero value, clears) cache_control on the last
+// content block of a message.
+func setBlockCache(msg *sdk.MessageParam, cc sdk.CacheControlEphemeralParam) {
+	if len(msg.Content) == 0 {
+		return
+	}
+	b := &msg.Content[len(msg.Content)-1]
+	switch {
+	case b.OfText != nil:
+		b.OfText.CacheControl = cc
+	case b.OfToolResult != nil:
+		b.OfToolResult.CacheControl = cc
+	}
 }
 
 func normStop(r sdk.StopReason) string {
