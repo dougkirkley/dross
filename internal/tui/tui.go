@@ -150,11 +150,13 @@ type Model struct {
 
 	title      string    // current session title
 	lastText   string    // last plain agent text, for the switcher summary
+	runStart   time.Time // when the current run began, for "Churned for X"
 	sessions   []session // saved sessions (current one is snapshotted on switch)
 	cur        int       // index of the current session
 	pickerOpen bool      // session switcher overlay open
 	pickIdx    int
 	pickOrder  []int // session indices in switcher display order
+	helpOpen   bool  // shortcuts overlay open
 
 	lines []string // rendered log lines
 
@@ -237,6 +239,15 @@ func (m Model) statusOf(i int) string {
 		return "awaiting"
 	}
 	return "new"
+}
+
+// fmtDur renders a run duration like "1m 57s" or "12s".
+func fmtDur(d time.Duration) string {
+	s := int(d.Seconds())
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	return fmt.Sprintf("%dm %ds", s/60, s%60)
 }
 
 func ageString(t time.Time) string {
@@ -331,6 +342,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
 	case tea.KeyMsg:
+		// Shortcuts overlay: any key closes it.
+		if m.helpOpen {
+			m.helpOpen = false
+			return m, nil
+		}
+		// "?" on an empty prompt opens the shortcuts overlay.
+		if msg.String() == "?" && m.input.Value() == "" && !m.pickerOpen && m.pendingAsk == nil {
+			m.helpOpen = true
+			return m, nil
+		}
 		// Session switcher overlay captures keys.
 		if m.pickerOpen {
 			switch msg.String() {
@@ -461,6 +482,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
 				m.running = true
+				m.runStart = time.Now()
 				m.tick, m.phraseIdx = 0, 0
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
@@ -475,7 +497,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.res != nil {
 			m.cost = msg.res.Cost()
 			m.turns = msg.res.Turns
-			m.append(doneGlyph.Render("✓ ") + metaStyle.Render(fmt.Sprintf("completed · $%.4f · %d turns", m.cost, m.turns)))
+			m.append(doneGlyph.Render("✻ ") + metaStyle.Render(fmt.Sprintf("Churned for %s · $%.4f · %d turns", fmtDur(time.Since(m.runStart)), m.cost, m.turns)))
+			if r := strings.TrimSpace(msg.res.Text); r != "" {
+				for i, l := range wrap("recap: "+r, m.width-6) {
+					pad := ""
+					if i > 0 {
+						pad = "  "
+					}
+					m.append(pad + metaStyle.Render(l))
+				}
+			}
 		}
 	case askMsg:
 		m.pendingAsk = msg.st
@@ -506,7 +537,11 @@ func (m Model) View() string {
 		return "loading…"
 	}
 	body := m.vp.View()
-	if m.pickerOpen {
+	if m.helpOpen {
+		m.vp.SetContent(renderHelp())
+		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
 		body = m.vp.View()
@@ -617,6 +652,28 @@ func (m Model) buildPickOrder() []int {
 		}
 	}
 	return append(append(work, await...), neu...)
+}
+
+// renderHelp draws the shortcuts overlay (holocron's own keybindings).
+func renderHelp() string {
+	rows := [][2]string{
+		{"enter", "send message"},
+		{"shift+tab", "cycle mode (auto/manual/accept-edits/plan)"},
+		{"←", "session switcher"},
+		{"ctrl+c", "interrupt run · promote queued message"},
+		{"esc", "quit"},
+		{"↑ ↓ · 1-9", "move / pick in menus"},
+		{"space", "toggle option (multi-select questions)"},
+		{"?", "this help"},
+	}
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("Shortcuts") + "\n\n")
+	for _, r := range rows {
+		b.WriteString("  " + costStyle.Render(fmt.Sprintf("%-12s", r[0])) +
+			metaStyle.Render(r[1]) + "\n")
+	}
+	b.WriteString("\n" + metaStyle.Render("  any key closes"))
+	return b.String()
 }
 
 // renderSessions draws the session switcher overlay: sessions grouped by status
@@ -763,8 +820,8 @@ func (m Model) footer() string {
 	// and the mode line.
 	line := promptMark.Render("› ") + m.input.View()
 	box := inputBox.Width(m.width - 2).Render(line)
-	mode := startGlyph.Render("◆ ") + costStyle.Render(modeLabels[m.modeIdx]) +
-		metaStyle.Render("  shift+tab mode · ← sessions")
+	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode") +
+		metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
 	return box + "\n" + "  " + mode
 }
 

@@ -75,6 +75,15 @@ func DemoRunningView(width, height int) string {
 	return m.View()
 }
 
+// DemoHelpView renders the shortcuts overlay for screenshots.
+func DemoHelpView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.helpOpen = true
+	return m.View()
+}
+
 // DemoSessionsView renders the session switcher overlay for screenshots.
 func DemoSessionsView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
