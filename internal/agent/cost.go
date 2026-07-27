@@ -12,8 +12,8 @@ type pricing struct {
 
 var priceTable = map[string]pricing{
 	// Anthropic (first-party rates).
-	"claude-opus-5":   {in: 5.0, out: 25.0, cacheRead: 0.5, cacheWrite: 6.25},
-	"claude-sonnet-5": {in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75},
+	"claude-opus-5":    {in: 5.0, out: 25.0, cacheRead: 0.5, cacheWrite: 6.25},
+	"claude-sonnet-5":  {in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75},
 	"claude-haiku-4-5": {in: 1.0, out: 5.0, cacheRead: 0.1, cacheWrite: 1.25},
 	// Local models are free after the hardware.
 	"qwen3-coder:30b": {},
