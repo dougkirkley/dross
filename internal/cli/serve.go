@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -106,6 +108,7 @@ func newServeCmd() *cobra.Command {
 				mgr.SetCompactor(cp, res.Compactor.Model, res.CompactAt)
 			}
 			mgr.SetModels(res.File.Models)
+			mgr.SetRepo(repoLabel(workdir))
 			srv := server.New(storage.NewSessionStore(sp), mgr, authr, arts)
 
 			state := "OPEN (no auth)"
@@ -143,4 +146,30 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&artifactDir, "artifact-dir", "", "directory for published artifacts")
 	f.StringVar(&publicURL, "public-url", "", "external origin for artifact links")
 	return cmd
+}
+
+// repoLabel derives a short "owner/repo" label for the workspace from its git
+// remote, falling back to the directory name when it isn't a git repo.
+func repoLabel(workdir string) string {
+	out, err := exec.Command("git", "-C", workdir, "config", "--get", "remote.origin.url").Output()
+	if err == nil {
+		url := strings.TrimSpace(string(out))
+		url = strings.TrimSuffix(url, ".git")
+		// Normalize scp-style (git@host:owner/repo) and URL forms to path parts.
+		url = strings.ReplaceAll(url, ":", "/")
+		var parts []string
+		for _, p := range strings.Split(url, "/") {
+			if p != "" && !strings.Contains(p, "@") { // drop scheme/user@host bits
+				parts = append(parts, p)
+			}
+		}
+		if len(parts) >= 2 {
+			return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+		}
+	}
+	abs, err := filepath.Abs(workdir)
+	if err != nil {
+		abs = workdir
+	}
+	return filepath.Base(abs)
 }

@@ -102,6 +102,10 @@ class Session {
   final String status; // idle | running | error
   final double cost;
   final int events;
+  final String title;
+  final String workspace;
+  final String last;
+  final DateTime? updated;
 
   Session({
     required this.id,
@@ -112,6 +116,10 @@ class Session {
     required this.status,
     required this.cost,
     required this.events,
+    this.title = '',
+    this.workspace = '',
+    this.last = '',
+    this.updated,
   });
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -123,7 +131,15 @@ class Session {
         status: j['status'] as String? ?? 'idle',
         cost: (j['cost'] as num?)?.toDouble() ?? 0,
         events: j['events'] as int? ?? 0,
+        title: j['title'] as String? ?? '',
+        workspace: j['workspace'] as String? ?? '',
+        last: j['last'] as String? ?? '',
+        updated: DateTime.tryParse(j['updated'] as String? ?? ''),
       );
+
+  /// The display name for the session card: the title, or the model as a
+  /// fallback for sessions that have not run a prompt yet.
+  String get displayTitle => title.isNotEmpty ? title : model;
 
   bool get isRunning => status == 'running';
 }

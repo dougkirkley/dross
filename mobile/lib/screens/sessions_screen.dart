@@ -6,6 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
+import 'chats_screen.dart' show relTimeLong;
 import 'session_screen.dart';
 import 'settings_screen.dart';
 
@@ -113,26 +114,69 @@ class SessionsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  _statusIcon(sess.status),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(sess.model,
-                        style: T.rowTitle,
-                        maxLines: 1,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _statusIcon(sess.status),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(sess.displayTitle,
+                              style: T.rowTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
+                          _statusLine(sess),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(sess.updated != null ? relTimeLong(sess.updated!) : '',
+                        style: T.metaFaint),
+                  ],
+                ),
+                if (sess.last.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: T.bg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(sess.last,
+                        style: T.body,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis),
                   ),
-                  Text('\$${sess.cost.toStringAsFixed(4)}',
-                      style: const TextStyle(color: T.accentHi)),
-                ]),
-                const SizedBox(height: 6),
-                Text('${sess.provider} · ${sess.events} events',
-                    style: T.metaFaint),
+                ],
               ],
             ),
           ),
         ),
       );
+
+  // Status label (colored) + workspace, e.g. "running · owner/repo".
+  Widget _statusLine(Session sess) {
+    final (color, label) = switch (sess.status) {
+      'running' => (T.ok, 'running'),
+      'error' => (T.danger, 'error'),
+      _ => (T.textFaint, 'idle'),
+    };
+    return Row(children: [
+      Flexible(
+        child: Text(
+          sess.workspace.isNotEmpty ? '$label · ${sess.workspace}' : label,
+          style: TextStyle(color: color, fontSize: 13),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ]);
+  }
 
   Widget _statusIcon(String status) {
     final (color, icon) = switch (status) {

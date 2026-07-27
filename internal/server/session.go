@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,10 @@ type Session struct {
 
 	mu      sync.Mutex
 	workdir string
+	repo    string // owner/repo (or dir name) label for the session card
+	title   string // first prompt, truncated — the session's display name
+	last    string // most recent user/agent message, for the list preview
+	updated time.Time
 	status  string // "idle" | "running" | "error"
 	cost    float64
 	seq     int
@@ -49,19 +54,24 @@ func (s *Session) snapshot() sessionView {
 	return sessionView{
 		ID: s.ID, Model: s.Model, Provider: s.Provider,
 		WorkerModel: s.WorkerModel, Style: s.Style,
+		Title: s.title, Workspace: s.repo, Last: s.last, Updated: s.updated,
 		Status: s.status, Cost: s.cost, Events: len(s.events),
 	}
 }
 
 type sessionView struct {
-	ID          string  `json:"id"`
-	Model       string  `json:"model"`
-	Provider    string  `json:"provider"`
-	WorkerModel string  `json:"worker_model,omitempty"`
-	Style       string  `json:"style,omitempty"`
-	Status      string  `json:"status"`
-	Cost        float64 `json:"cost"`
-	Events      int     `json:"events"`
+	ID          string    `json:"id"`
+	Model       string    `json:"model"`
+	Provider    string    `json:"provider"`
+	WorkerModel string    `json:"worker_model,omitempty"`
+	Style       string    `json:"style,omitempty"`
+	Title       string    `json:"title,omitempty"`
+	Workspace   string    `json:"workspace,omitempty"`
+	Last        string    `json:"last,omitempty"`
+	Updated     time.Time `json:"updated,omitempty"`
+	Status      string    `json:"status"`
+	Cost        float64   `json:"cost"`
+	Events      int       `json:"events"`
 }
 
 // emit appends an event and fans it out to live subscribers.
@@ -70,6 +80,11 @@ func (s *Session) emit(kind, data string) {
 	s.seq++
 	e := Event{Seq: s.seq, Kind: kind, Data: data, Time: time.Now()}
 	s.events = append(s.events, e)
+	s.updated = e.Time
+	// Keep a short preview of the latest human/agent message for the list card.
+	if (kind == "prompt" || kind == "text") && strings.TrimSpace(data) != "" {
+		s.last = truncate(oneLine(data), 140)
+	}
 	for ch := range s.subs {
 		select {
 		case ch <- e:
@@ -147,6 +162,7 @@ type Manager struct {
 	compModel string
 	compAt    int
 	models    []string // allowed models to offer clients
+	repo      string   // owner/repo (or dir) label shown on session cards
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -154,6 +170,9 @@ type Manager struct {
 
 // SetModels sets the allowed model list surfaced at /api/models.
 func (m *Manager) SetModels(models []string) { m.models = models }
+
+// SetRepo sets the workspace label (e.g. "owner/repo") shown on session cards.
+func (m *Manager) SetRepo(repo string) { m.repo = repo }
 
 // SetPublish enables the agent publish tool, backed by fn.
 func (m *Manager) SetPublish(fn agent.PublishFunc) { m.publish = fn }
@@ -195,6 +214,8 @@ func (m *Manager) create(req CreateReq) *Session {
 		WorkerModel: req.WorkerModel,
 		Style:       req.Style,
 		workdir:     m.workdir,
+		repo:        m.repo,
+		updated:     time.Now(),
 		status:      "idle",
 	}
 	m.mu.Lock()
@@ -247,6 +268,9 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.status = "running"
+	if s.title == "" {
+		s.title = truncate(oneLine(prompt), 60)
+	}
 	s.mu.Unlock()
 
 	opts := []agent.Option{agent.WithEventHook(func(e agent.Event) { s.emit(e.Kind, e.Data) })}
@@ -282,6 +306,26 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		s.setStatus("idle")
 	}()
 	return nil
+}
+
+// oneLine collapses a string to its first line, trimmed.
+func oneLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+// truncate shortens s to at most n runes, appending an ellipsis when cut.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(r[:n])
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func randomID() string {
