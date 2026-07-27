@@ -94,6 +94,9 @@ func (s *Server) buildHandler() http.Handler {
 	root.HandleFunc("GET /auth/logout", s.auth.Logout)
 	root.HandleFunc("GET /api/health", s.handleHealth) // more specific than /api/ → wins, unauth
 	root.Handle("/api/", s.auth.Middleware(api))
-	root.Handle("/", rootFallback) // static UI is public; API stays gated
+	// Gate the UI too: an unauthenticated browser hitting "/" is redirected to
+	// the OIDC login (Google), so signing in unlocks the whole app. /auth/*,
+	// health, and artifact capability URLs (/a/{id}) stay public above.
+	root.Handle("/", s.auth.Middleware(rootFallback))
 	return root
 }
