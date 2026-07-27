@@ -22,6 +22,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,6 +158,25 @@ func WithCompactor(p provider.Provider, model string, threshold int) Option {
 	}
 }
 
+// CompactRecord is one compaction observation, handed to a CompactStatsFunc so
+// callers can measure whether a persistent content-hash cache would pay off:
+// repeated Hashes across runs are cache hits a cache would have served.
+type CompactRecord struct {
+	Hash     string // sha256 of the raw tool result
+	Tool     string
+	RawBytes int
+	OutBytes int // bytes actually forwarded to the lead (raw if compaction didn't help)
+}
+
+// CompactStatsFunc receives one record per compaction attempt over threshold.
+type CompactStatsFunc func(CompactRecord)
+
+// WithCompactStats records each compaction so the value of a cross-session
+// summary cache can be measured before building one.
+func WithCompactStats(fn CompactStatsFunc) Option {
+	return func(a *Agent) { a.compactStats = fn }
+}
+
 type worker struct {
 	prov  provider.Provider
 	model string
@@ -180,21 +201,22 @@ type editRec struct {
 
 // Agent is a configured, runnable coding agent. Construct with New.
 type Agent struct {
-	cfg         Config
-	prov        provider.Provider
-	ws          *workspace
-	out         io.Writer
-	hook        func(Event)
-	worker      *worker
-	reviewer    *reviewer
-	compactor   *compactor
-	maxParallel int       // max concurrent worker subagents (0 = default 2)
-	edits       []editRec // changes made this run, for the reviewer skill
-	publish     PublishFunc
-	asker       AskFunc
-	resume      string
-	checkpoint  func(brief string) error
-	emitMu      sync.Mutex // serializes emit across parallel workers
+	cfg          Config
+	prov         provider.Provider
+	ws           *workspace
+	out          io.Writer
+	hook         func(Event)
+	worker       *worker
+	reviewer     *reviewer
+	compactor    *compactor
+	compactStats CompactStatsFunc
+	maxParallel  int       // max concurrent worker subagents (0 = default 2)
+	edits        []editRec // changes made this run, for the reviewer skill
+	publish      PublishFunc
+	asker        AskFunc
+	resume       string
+	checkpoint   func(brief string) error
+	emitMu       sync.Mutex // serializes emit across parallel workers
 }
 
 // New builds an agent from cfg using p as its lead model backend.
@@ -403,6 +425,13 @@ func (a *Agent) maybeCompact(ctx context.Context, tool, content string, res *Res
 	if a.compactor == nil || len(content) < a.compactor.threshold {
 		return content
 	}
+	sum := sha256.Sum256([]byte(content))
+	hash := hex.EncodeToString(sum[:])
+	record := func(out int) {
+		if a.compactStats != nil {
+			a.compactStats(CompactRecord{Hash: hash, Tool: tool, RawBytes: len(content), OutBytes: out})
+		}
+	}
 	sess := a.compactor.prov.NewSession(provider.SessionConfig{
 		System: compactorSystem,
 		Model:  a.compactor.model,
@@ -411,12 +440,15 @@ func (a *Agent) maybeCompact(ctx context.Context, tool, content string, res *Res
 		Text: fmt.Sprintf("Tool: %s\nResult to compress:\n\n%s", tool, content),
 	})
 	if err != nil || resp.Text == "" {
+		record(len(content))
 		return content
 	}
 	res.add(a.compactor.model, resp.Usage)
 	if len(resp.Text) >= len(content) {
+		record(len(content))
 		return content // compaction didn't help; keep the original
 	}
+	record(len(resp.Text))
 	a.emit("compact", fmt.Sprintf("%s result %d -> %d bytes", tool, len(content), len(resp.Text)))
 	return resp.Text + "\n\n[compacted from " + fmt.Sprintf("%d", len(content)) + " bytes]"
 }

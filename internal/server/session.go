@@ -161,8 +161,9 @@ type Manager struct {
 	compactor provider.Provider // optional; enables the token-efficiency skill
 	compModel string
 	compAt    int
-	models    []string // allowed models to offer clients
-	repo      string   // owner/repo (or dir) label shown on session cards
+	compStats agent.CompactStatsFunc // optional; records compaction repeat-rate
+	models    []string               // allowed models to offer clients
+	repo      string                 // owner/repo (or dir) label shown on session cards
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -186,6 +187,9 @@ func (m *Manager) SetReviewer(p provider.Provider, model string) {
 func (m *Manager) SetCompactor(p provider.Provider, model string, threshold int) {
 	m.compactor, m.compModel, m.compAt = p, model, threshold
 }
+
+// SetCompactStats records compaction observations on served sessions.
+func (m *Manager) SetCompactStats(fn agent.CompactStatsFunc) { m.compStats = fn }
 
 // NewManager wires the model backends a served session will use.
 func NewManager(lead, worker provider.Provider, defaultModel, workdir string) *Manager {
@@ -285,6 +289,9 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 	if m.compactor != nil && m.compModel != "" {
 		opts = append(opts, agent.WithCompactor(m.compactor, m.compModel, m.compAt))
+		if m.compStats != nil {
+			opts = append(opts, agent.WithCompactStats(m.compStats))
+		}
 	}
 	ag, err := agent.New(agent.Config{
 		Name: "holocron", Model: s.Model, Workdir: s.workdir, Style: agent.Style(s.Style),

@@ -76,6 +76,9 @@ func newAgentCmd() *cobra.Command {
 					return fmt.Errorf("compactor provider: %w", err)
 				}
 				opts = append(opts, agent.WithCompactor(cp, pc.Compactor.Model, pc.CompactAt))
+				if p, err := compactStatsPath(); err == nil {
+					opts = append(opts, agent.WithCompactStats(newCompactRecorder(p)))
+				}
 			}
 			if sessionName != "" {
 				sp, err := mustStorePath()

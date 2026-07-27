@@ -106,6 +106,9 @@ func newServeCmd() *cobra.Command {
 					return fmt.Errorf("compactor provider: %w", err)
 				}
 				mgr.SetCompactor(cp, res.Compactor.Model, res.CompactAt)
+				if p, err := compactStatsPath(); err == nil {
+					mgr.SetCompactStats(newCompactRecorder(p))
+				}
 			}
 			mgr.SetModels(res.File.Models)
 			mgr.SetRepo(repoLabel(workdir))
