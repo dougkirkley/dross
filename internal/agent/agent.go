@@ -77,9 +77,10 @@ func WithWorker(p provider.Provider, model string) Option {
 // AskQuestion is one question in an ask_user request. Options makes it a
 // single-choice pick; empty Options means free text.
 type AskQuestion struct {
-	Header   string   `json:"header"`
-	Question string   `json:"question"`
-	Options  []string `json:"options"`
+	Header      string   `json:"header"`
+	Question    string   `json:"question"`
+	Options     []string `json:"options"`
+	MultiSelect bool     `json:"multiSelect"`
 }
 
 // AskRequest is one or more questions posed to the user at once (Claude-style

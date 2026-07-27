@@ -65,15 +65,27 @@ type doneMsg struct {
 	err error
 }
 
-// askState holds a pending ask_user request: the questions, the selected option
-// per question, the active tab (0..len = Submit), and the reply channel the
-// agent goroutine blocks on. freeText is the single no-options case.
+// askState holds a pending ask_user request: the questions, per-question option
+// selections (a set, for multi-select), the highlighted cursor per question, the
+// active tab (0..len = Submit), and the reply channel the agent goroutine blocks
+// on. freeText is the single no-options case.
 type askState struct {
 	questions []agent.AskQuestion
-	sel       []int // selected option index per question
-	tab       int   // 0..len-1 = question tabs, len = Submit
+	sel       [][]bool // sel[q][opt] chosen
+	cursor    []int    // highlighted option per question
+	tab       int      // 0..len-1 = question tabs, len = Submit
+	warn      bool     // "you have not answered all questions"
 	freeText  bool
 	reply     chan string
+}
+
+func (a *askState) answered(q int) bool {
+	for _, v := range a.sel[q] {
+		if v {
+			return true
+		}
+	}
+	return false
 }
 
 // askMsg delivers an askState into the Bubble Tea loop.
@@ -84,8 +96,12 @@ type askMsg struct{ st *askState }
 func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
 	st := &askState{
 		questions: req.Questions,
-		sel:       make([]int, len(req.Questions)),
+		sel:       make([][]bool, len(req.Questions)),
+		cursor:    make([]int, len(req.Questions)),
 		reply:     make(chan string, 1),
+	}
+	for i, q := range req.Questions {
+		st.sel[i] = make([]bool, len(q.Options))
 	}
 	if len(req.Questions) == 1 && len(req.Questions[0].Options) == 0 {
 		st.freeText = true
@@ -226,6 +242,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingAsk != nil && !m.pendingAsk.freeText {
 			a := m.pendingAsk
 			nq := len(a.questions)
+			pick := func(i int) {
+				if a.tab >= nq || i >= len(a.sel[a.tab]) {
+					return
+				}
+				if a.questions[a.tab].MultiSelect {
+					a.sel[a.tab][i] = !a.sel[a.tab][i]
+				} else {
+					for j := range a.sel[a.tab] {
+						a.sel[a.tab][j] = j == i
+					}
+				}
+			}
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				return m, tea.Quit
@@ -240,27 +268,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "up", "k":
-				if a.tab < nq && a.sel[a.tab] > 0 {
-					a.sel[a.tab]--
+				if a.tab < nq && a.cursor[a.tab] > 0 {
+					a.cursor[a.tab]--
 				}
 				return m, nil
 			case "down", "j":
-				if a.tab < nq && a.sel[a.tab] < len(a.questions[a.tab].Options)-1 {
-					a.sel[a.tab]++
+				if a.tab < nq && a.cursor[a.tab] < len(a.questions[a.tab].Options)-1 {
+					a.cursor[a.tab]++
+				}
+				return m, nil
+			case " ":
+				if a.tab < nq {
+					pick(a.cursor[a.tab])
 				}
 				return m, nil
 			case "enter":
 				if a.tab < nq {
-					a.tab++ // confirm this question, go to next tab (or Submit)
+					if !a.questions[a.tab].MultiSelect && !a.answered(a.tab) {
+						pick(a.cursor[a.tab]) // single-select: enter chooses the highlighted option
+					}
+					a.tab++ // advance to next tab (or Submit)
 					return m, nil
 				}
-				m.submitAsk() // on Submit tab
+				// Submit tab: require every question answered.
+				for i := range a.questions {
+					if !a.answered(i) {
+						a.warn = true
+						a.tab = i
+						return m, nil
+					}
+				}
+				m.submitAsk()
 				return m, nil
 			default:
 				if a.tab < nq && len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
-					if i := int(msg.String()[0] - '1'); i < len(a.questions[a.tab].Options) {
-						a.sel[a.tab] = i
-					}
+					pick(int(msg.String()[0] - '1'))
 				}
 				return m, nil
 			}
@@ -392,6 +434,17 @@ func (m Model) runStats() string {
 	return "(" + strings.Join(parts, " · ") + ")"
 }
 
+// chosen returns the selected option strings for question i.
+func (a *askState) chosen(i int) []string {
+	var out []string
+	for j, v := range a.sel[i] {
+		if v {
+			out = append(out, a.questions[i].Options[j])
+		}
+	}
+	return out
+}
+
 // submitAsk sends the picked answers back to the blocked agent goroutine.
 func (m *Model) submitAsk() {
 	a := m.pendingAsk
@@ -400,16 +453,13 @@ func (m *Model) submitAsk() {
 	}
 	var parts []string
 	for i, q := range a.questions {
-		opt := ""
-		if a.sel[i] < len(q.Options) {
-			opt = q.Options[a.sel[i]]
-		}
 		label := q.Header
 		if label == "" {
 			label = q.Question
 		}
-		parts = append(parts, label+": "+opt)
-		m.append(youLabel.Render("you") + "  " + agentText.Render(label+" → "+opt))
+		ans := strings.Join(a.chosen(i), ", ")
+		parts = append(parts, label+": "+ans)
+		m.append(youLabel.Render("you") + "  " + agentText.Render(label+" → "+ans))
 	}
 	a.reply <- strings.Join(parts, "\n")
 	m.pendingAsk = nil
@@ -427,46 +477,74 @@ func (m Model) renderPicker() string {
 		if h == "" {
 			h = fmt.Sprintf("Q%d", i+1)
 		}
+		mark := "  "
+		if a.answered(i) {
+			mark = doneGlyph.Render("✓ ")
+		}
 		if i == a.tab {
 			tabs = append(tabs, promptMark.Render("["+h+"]"))
 		} else {
-			tabs = append(tabs, metaStyle.Render(" "+h+" "))
+			tabs = append(tabs, mark+metaStyle.Render(h))
 		}
 	}
 	if a.tab == nq {
 		tabs = append(tabs, promptMark.Render("[Submit]"))
 	} else {
-		tabs = append(tabs, metaStyle.Render("✓ Submit"))
+		tabs = append(tabs, metaStyle.Render("→ Submit"))
 	}
 	b.WriteString(strings.Join(tabs, "  ") + "\n\n")
 
 	if a.tab < nq {
 		q := a.questions[a.tab]
-		b.WriteString(agentText.Render(q.Question) + "\n")
+		b.WriteString(agentText.Render(q.Question))
+		if q.MultiSelect {
+			b.WriteString(metaStyle.Render("  (choose any)"))
+		}
+		b.WriteString("\n")
 		for i, opt := range q.Options {
-			marker, style := "  ", resultStyle
-			if i == a.sel[a.tab] {
-				marker, style = promptMark.Render("› "), agentText
+			cur := "  "
+			style := resultStyle
+			if i == a.cursor[a.tab] {
+				cur, style = promptMark.Render("› "), agentText
 			}
-			line := marker + style.Render(fmt.Sprintf("%d. %s", i+1, opt))
+			box := "( ) "
+			if q.MultiSelect {
+				box = "[ ] "
+			}
+			if a.sel[a.tab][i] {
+				box = "(*) "
+				if q.MultiSelect {
+					box = "[x] "
+				}
+			}
+			line := cur + style.Render(box+fmt.Sprintf("%d. %s", i+1, opt))
 			if i == 0 {
 				line += metaStyle.Render("  (recommended)")
 			}
 			b.WriteString(line + "\n")
 		}
-		b.WriteString("\n" + metaStyle.Render("  ←→ tabs · ↑↓ pick · enter next"))
+		hint := "←→ tabs · ↑↓ move · enter next"
+		if q.MultiSelect {
+			hint = "←→ tabs · ↑↓ move · space toggle · enter next"
+		}
+		b.WriteString("\n" + metaStyle.Render("  "+hint))
 	} else {
 		b.WriteString(agentText.Render("Review your answers") + "\n")
+		if a.warn {
+			b.WriteString(errStyle.Render("  ⚠ You have not answered all questions") + "\n")
+		}
 		for i, q := range a.questions {
 			h := q.Header
 			if h == "" {
 				h = q.Question
 			}
-			opt := ""
-			if a.sel[i] < len(q.Options) {
-				opt = q.Options[a.sel[i]]
+			ans := strings.Join(a.chosen(i), ", ")
+			if ans == "" {
+				ans = metaStyle.Render("(unanswered)")
+			} else {
+				ans = agentText.Render(ans)
 			}
-			b.WriteString(metaStyle.Render("  "+h+": ") + agentText.Render(opt) + "\n")
+			b.WriteString(metaStyle.Render("  "+h+": ") + ans + "\n")
 		}
 		b.WriteString("\n" + promptMark.Render("› ") + agentText.Render("Submit answers") + metaStyle.Render("   (enter)"))
 	}

@@ -77,15 +77,24 @@ func DemoAskView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  review the branch before I merge")
-	m.pendingAsk = &askState{
-		questions: []agent.AskQuestion{
-			{Header: "Scope", Question: "How should I scope the review?", Options: []string{
-				"Post-merge commits only", "Whole MR, 367 files", "Risky judgment calls only"}},
-			{Header: "Reviewer", Question: "Which model reviews?", Options: []string{
-				"A different, stronger model", "Same model"}},
-		},
-		sel: make([]int, 2),
-		tab: 0,
+	qs := []agent.AskQuestion{
+		{Header: "Scope", Question: "How should I scope the review?", Options: []string{
+			"Post-merge commits only", "Whole MR, 367 files", "Risky judgment calls only"}},
+		{Header: "Lenses", Question: "Which review lenses?", MultiSelect: true, Options: []string{
+			"Correctness", "Security", "Performance"}},
 	}
+	st := &askState{
+		questions: qs,
+		sel:       make([][]bool, len(qs)),
+		cursor:    make([]int, len(qs)),
+		tab:       1, // show the multi-select question
+	}
+	for i, q := range qs {
+		st.sel[i] = make([]bool, len(q.Options))
+	}
+	st.sel[0][0] = true // Scope answered (shows ✓ on its tab)
+	st.sel[1][0] = true // two lenses chosen
+	st.sel[1][1] = true
+	m.pendingAsk = st
 	return m.View()
 }

@@ -170,6 +170,10 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 								"items":       map[string]any{"type": "string"},
 								"description": "Distinct choices; put the recommended one first.",
 							},
+							"multiSelect": map[string]any{
+								"type":        "boolean",
+								"description": "Allow selecting multiple options for this question.",
+							},
 						},
 						"required": []string{"question", "options"},
 					},
