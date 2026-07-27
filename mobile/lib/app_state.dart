@@ -418,6 +418,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> deleteSession(Session s) async {
+    try {
+      await _client.deleteSession(s.id);
+    } catch (e) {
+      error = e.toString();
+    }
+    sessions.removeWhere((x) => x.id == s.id);
+    if (current?.id == s.id) {
+      await _sub?.cancel();
+      current = null;
+      events.clear();
+    }
+    notifyListeners();
+  }
+
   Future<void> attach(Session s) async {
     await _sub?.cancel();
     current = s;

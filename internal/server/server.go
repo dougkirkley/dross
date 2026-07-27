@@ -56,6 +56,7 @@ func (s *Server) apiMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
 	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/prompt", s.handlePrompt)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupt", s.handleInterrupt)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleEvents)

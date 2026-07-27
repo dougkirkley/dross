@@ -210,6 +210,21 @@ func (m *Manager) get(id string) (*Session, bool) {
 	return s, ok
 }
 
+// remove cancels any running prompt and drops the session from the manager.
+// Returns false if the id was unknown.
+func (m *Manager) remove(id string) bool {
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	if ok {
+		delete(m.sessions, id)
+	}
+	m.mu.Unlock()
+	if ok {
+		s.interrupt() // stop any in-flight run
+	}
+	return ok
+}
+
 func (m *Manager) list() []sessionView {
 	m.mu.Lock()
 	defer m.mu.Unlock()

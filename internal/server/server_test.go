@@ -136,6 +136,27 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeleteSession(t *testing.T) {
+	srv := testServer(t, nil)
+
+	w := do(t, srv, "POST", "/api/sessions", `{}`)
+	var created map[string]any
+	json.Unmarshal(w.Body.Bytes(), &created)
+	id, _ := created["id"].(string)
+
+	if w := do(t, srv, "DELETE", "/api/sessions/"+id, ""); w.Code != http.StatusOK {
+		t.Fatalf("delete: %d", w.Code)
+	}
+	// gone afterwards
+	if w := do(t, srv, "GET", "/api/sessions/"+id, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("get after delete: want 404, got %d", w.Code)
+	}
+	// deleting again is a 404
+	if w := do(t, srv, "DELETE", "/api/sessions/"+id, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("delete missing: want 404, got %d", w.Code)
+	}
+}
+
 func TestUnknownSession(t *testing.T) {
 	srv := testServer(t, nil)
 	for _, p := range []string{"/api/sessions/nope", "/api/sessions/nope/events"} {

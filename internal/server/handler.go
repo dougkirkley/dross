@@ -58,6 +58,15 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }
 
+// handleDeleteSession drops a session and cancels any in-flight run.
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if !s.mgr.remove(r.PathValue("id")) {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.mgr.get(r.PathValue("id"))
 	if !ok {

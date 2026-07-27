@@ -98,6 +98,7 @@ class SessionsScreen extends StatelessWidget {
       );
 
   Widget _sessionCard(BuildContext context, Session sess) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () async {
           await context.read<AppState>().attach(sess);
           if (context.mounted) {
@@ -105,6 +106,7 @@ class SessionsScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const SessionScreen()));
           }
         },
+        onLongPress: () => _confirmDelete(context, sess),
         child: _card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -179,6 +181,27 @@ class SessionsScreen extends StatelessWidget {
 
   void _settings(BuildContext context) => Navigator.push(
       context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+
+  Future<void> _confirmDelete(BuildContext context, Session sess) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: T.surface,
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.delete_outline, color: T.danger),
+            title:
+                const Text('Delete session', style: TextStyle(color: T.text)),
+            subtitle: Text(sess.model, style: T.metaFaint),
+            onTap: () => Navigator.pop(context, true),
+          ),
+        ]),
+      ),
+    );
+    if (ok == true && context.mounted) {
+      await context.read<AppState>().deleteSession(sess);
+    }
+  }
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();

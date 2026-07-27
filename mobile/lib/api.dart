@@ -61,6 +61,11 @@ class HolocronClient {
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
+  Future<void> deleteSession(String id) async {
+    final r = await http.delete(_uri('api/sessions/$id'), headers: _headers);
+    _check(r);
+  }
+
   Future<void> prompt(String id, String text) async {
     final r = await http.post(_uri('api/sessions/$id/prompt'),
         headers: _headers, body: jsonEncode({'prompt': text}));
