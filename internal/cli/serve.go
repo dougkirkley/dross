@@ -91,6 +91,21 @@ func newServeCmd() *cobra.Command {
 				}
 				return arts.URL(m.ID), nil
 			})
+			if res.ReviewerEnabled {
+				rp, err := provider.New(res.Reviewer.Provider, provider.Config{BaseURL: res.Reviewer.BaseURL, APIKey: res.Reviewer.APIKey})
+				if err != nil {
+					return fmt.Errorf("reviewer provider: %w", err)
+				}
+				mgr.SetReviewer(rp, res.Reviewer.Model)
+			}
+			if res.CompactorEnabled {
+				cp, err := provider.New(res.Compactor.Provider, provider.Config{BaseURL: res.Compactor.BaseURL, APIKey: res.Compactor.APIKey})
+				if err != nil {
+					return fmt.Errorf("compactor provider: %w", err)
+				}
+				mgr.SetCompactor(cp, res.Compactor.Model, res.CompactAt)
+			}
+			mgr.SetModels(res.File.Models)
 			srv := server.New(storage.NewSessionStore(sp), mgr, authr, arts)
 
 			state := "OPEN (no auth)"

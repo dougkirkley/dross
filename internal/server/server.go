@@ -50,6 +50,7 @@ func (s *Server) apiMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/providers", s.handleProviders)
+	mux.HandleFunc("GET /api/models", s.handleModels)
 	mux.HandleFunc("GET /api/whoami", s.handleWhoami)
 
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)

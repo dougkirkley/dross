@@ -141,6 +141,21 @@ func WithReviewer(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.reviewer = &reviewer{prov: p, model: model} }
 }
 
+// WithCompactor enables the token-efficiency skill: tool results larger than
+// threshold bytes are compressed by a cheap model before they enter the lead
+// model's message history, so a big read/bash output is summarized once instead
+// of re-sent verbatim on every subsequent turn. A threshold <= 0 uses the
+// default. Compactor usage is tracked under its own model. Error results and
+// small results are never compacted.
+func WithCompactor(p provider.Provider, model string, threshold int) Option {
+	if threshold <= 0 {
+		threshold = defaultCompactThreshold
+	}
+	return func(a *Agent) {
+		a.compactor = &compactor{prov: p, model: model, threshold: threshold}
+	}
+}
+
 type worker struct {
 	prov  provider.Provider
 	model string
@@ -149,6 +164,12 @@ type worker struct {
 type reviewer struct {
 	prov  provider.Provider
 	model string
+}
+
+type compactor struct {
+	prov      provider.Provider
+	model     string
+	threshold int
 }
 
 // editRec is one file change captured during a run, for the reviewer skill.
@@ -166,6 +187,7 @@ type Agent struct {
 	hook        func(Event)
 	worker      *worker
 	reviewer    *reviewer
+	compactor   *compactor
 	maxParallel int       // max concurrent worker subagents (0 = default 2)
 	edits       []editRec // changes made this run, for the reviewer skill
 	publish     PublishFunc
@@ -274,6 +296,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			if isErr {
 				a.emit("error", content)
 			} else {
+				content = a.maybeCompact(ctx, tc.Name, content, res)
 				a.emit("tool-result", truncate(content, 200))
 			}
 			results = append(results, provider.ToolResult{ID: tc.ID, Content: content, IsError: isErr})
@@ -361,6 +384,41 @@ func (a *Agent) emitUsage(res *Result) {
 		return
 	}
 	a.emit("usage", string(payload))
+}
+
+const defaultCompactThreshold = 6000 // bytes; tool results larger get compacted
+
+const compactorSystem = "You compress a tool result for a coding agent to save " +
+	"tokens. Preserve every fact the agent could need: exact file paths, symbol " +
+	"and identifier names, function signatures, error messages, line numbers, " +
+	"counts, and values, verbatim. Drop only redundancy, boilerplate, and " +
+	"repeated framing. Never invent or infer. Output the condensed result only, " +
+	"no preamble."
+
+// maybeCompact compresses an oversized tool result through the cheap compactor
+// model so the lead model's history carries a summary instead of the raw blob.
+// It is a no-op unless a compactor is configured and the result exceeds the
+// threshold. On any error it returns the original content unchanged.
+func (a *Agent) maybeCompact(ctx context.Context, tool, content string, res *Result) string {
+	if a.compactor == nil || len(content) < a.compactor.threshold {
+		return content
+	}
+	sess := a.compactor.prov.NewSession(provider.SessionConfig{
+		System: compactorSystem,
+		Model:  a.compactor.model,
+	})
+	resp, err := sess.Send(ctx, provider.Input{
+		Text: fmt.Sprintf("Tool: %s\nResult to compress:\n\n%s", tool, content),
+	})
+	if err != nil || resp.Text == "" {
+		return content
+	}
+	res.add(a.compactor.model, resp.Usage)
+	if len(resp.Text) >= len(content) {
+		return content // compaction didn't help; keep the original
+	}
+	a.emit("compact", fmt.Sprintf("%s result %d -> %d bytes", tool, len(content), len(resp.Text)))
+	return resp.Text + "\n\n[compacted from " + fmt.Sprintf("%d", len(content)) + " bytes]"
 }
 
 const reviewerSystem = "You are a senior staff engineer doing a focused code " +

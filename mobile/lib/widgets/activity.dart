@@ -88,6 +88,7 @@ List<Object> buildTimeline(List<Event> events) {
     switch (e.baseKind) {
       case 'prompt':
       case 'text':
+      case 'review':
       case 'done':
       case 'error':
       case 'checkpoint':
@@ -98,6 +99,11 @@ List<Object> buildTimeline(List<Event> events) {
         if (step != null) (cur ??= Activity()).steps.add(step);
       case 'tool-result':
         break; // detail; not shown in the summary
+      case 'compact':
+        (cur ??= Activity()).steps.add(ActStep(
+            icon: Icons.compress,
+            label: 'Compacted ${e.data}',
+            color: T.textFaint));
       case 'edit':
         try {
           final info =

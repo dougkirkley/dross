@@ -28,8 +28,11 @@ type File struct {
 	Style       string      `json:"style,omitempty"`
 	MaxTokens   int         `json:"max_tokens,omitempty"`
 	MaxParallel int         `json:"max_parallel,omitempty"` // parallel worker subagents
+	Models      []string    `json:"models,omitempty"`       // allowed model ids to offer
 	Worker      *Provider   `json:"worker,omitempty"`
 	Reviewer    *Provider   `json:"reviewer,omitempty"`
+	Compactor   *Provider   `json:"compactor,omitempty"`   // token-efficiency skill
+	CompactAt   int         `json:"compact_at,omitempty"`  // tool-result byte threshold
 	Phrases     []string    `json:"phrases,omitempty"` // TUI status phrases
 	OAuth       *OAuthLogin `json:"oauth,omitempty"`   // for the claude-sub provider
 }

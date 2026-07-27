@@ -29,11 +29,16 @@ type scriptedSession struct {
 	steps      []provider.Response
 	i          int
 	firstInput string
+	lastInput  string // text of the most recent Send (tool results serialized)
 }
 
 func (s *scriptedSession) Send(_ context.Context, in provider.Input) (*provider.Response, error) {
 	if s.i == 0 {
 		s.firstInput = in.Text
+	}
+	s.lastInput = in.Text
+	for _, tr := range in.ToolResults {
+		s.lastInput += tr.Content
 	}
 	r := s.steps[s.i]
 	s.i++
@@ -193,6 +198,94 @@ func TestReviewSkillNoEdits(t *testing.T) {
 	}
 	if rev.last != nil {
 		t.Fatal("reviewer session should not have been opened")
+	}
+}
+
+// TestCompactor proves the token-efficiency skill: a large tool result is
+// summarized by the compactor model before it enters the lead's history, its
+// usage is tracked, and a "compact" event fires.
+func TestCompactor(t *testing.T) {
+	dir := t.TempDir()
+	big := strings.Repeat("this is a long line of output\n", 400) // > threshold
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lead := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopToolUse,
+			ToolCalls: []provider.ToolCall{
+				toolCall("1", "read", map[string]string{"path": "big.txt"}),
+			},
+		},
+		{StopReason: provider.StopEndTurn, Text: "done"},
+	}}
+	comp := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopEndTurn,
+			Text:       "SUMMARY: 400 identical lines.",
+			Usage:      provider.Usage{InputTokens: 200, OutputTokens: 8},
+		},
+	}}
+
+	var kinds []string
+	ag, err := New(Config{Name: "t", Model: "lead", Workdir: dir}, lead,
+		WithCompactor(comp, "compactor-model", 0),
+		WithEventHook(func(e Event) { kinds = append(kinds, e.Kind) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ag.Run(context.Background(), "read big.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The compacted result the lead saw on turn 2 must be far smaller than raw.
+	sess := lead.last
+	if !strings.Contains(sess.lastInput, "SUMMARY") {
+		t.Fatalf("lead did not receive compacted result; got %q", sess.lastInput)
+	}
+	if len(sess.lastInput) >= len(big) {
+		t.Fatalf("result not compacted: %d >= %d", len(sess.lastInput), len(big))
+	}
+	if _, ok := res.ByModel["compactor-model"]; !ok {
+		t.Fatalf("compactor usage not tracked: %v", res.ByModel)
+	}
+	found := false
+	for _, k := range kinds {
+		if k == "compact" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no compact event; got %v", kinds)
+	}
+}
+
+// TestCompactorSkipsSmall: results under the threshold are passed through
+// untouched and the compactor is never invoked.
+func TestCompactorSkipsSmall(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "small.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lead := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopToolUse,
+			ToolCalls: []provider.ToolCall{
+				toolCall("1", "read", map[string]string{"path": "small.txt"}),
+			},
+		},
+		{StopReason: provider.StopEndTurn, Text: "done"},
+	}}
+	comp := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopEndTurn, Text: "should not run"},
+	}}
+	ag, _ := New(Config{Name: "t", Model: "lead", Workdir: dir}, lead,
+		WithCompactor(comp, "compactor-model", 0))
+	if _, err := ag.Run(context.Background(), "read small.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if comp.last != nil {
+		t.Fatal("compactor session should not have been opened for a small result")
 	}
 }
 

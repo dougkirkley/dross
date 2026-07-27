@@ -31,6 +31,11 @@ class AppState extends ChangeNotifier {
   String anthropicKey = '';
   String anthropicModel = 'claude-opus-5';
 
+  /// Allowed models offered in the picker per provider. Empty = fall back to
+  /// the built-in presets. Editable under Settings (comma-separated).
+  List<String> openaiModels = [];
+  List<String> anthropicModels = [];
+
   String identity = '';
 
   // Agent permission mode (Claude-style). Enforced by the serve agent in remote
@@ -79,6 +84,12 @@ class AppState extends ChangeNotifier {
         ProviderKind.anthropic => anthropicModel,
       };
 
+  /// Allowed models for the active provider (empty = use built-in presets).
+  List<String> get allowedModels => switch (providerKind) {
+        ProviderKind.openai => openaiModels,
+        ProviderKind.anthropic => anthropicModels,
+      };
+
   HolocronClient get _client => HolocronClient(baseUrl: baseUrl, token: token);
 
   // --- load / save ----------------------------------------------------
@@ -91,6 +102,8 @@ class AppState extends ChangeNotifier {
     openaiModel = p.getString('openaiModel') ?? openaiModel;
     anthropicBaseUrl = p.getString('anthropicBaseUrl') ?? anthropicBaseUrl;
     anthropicModel = p.getString('anthropicModel') ?? anthropicModel;
+    openaiModels = p.getStringList('openaiModels') ?? [];
+    anthropicModels = p.getStringList('anthropicModels') ?? [];
     identity = p.getString('identity') ?? '';
     permissionMode = PermissionMode.values[p.getInt('permissionMode') ?? 0];
     baseUrl = p.getString('baseUrl') ?? '';
@@ -119,6 +132,8 @@ class AppState extends ChangeNotifier {
     await p.setString('openaiModel', openaiModel);
     await p.setString('anthropicBaseUrl', anthropicBaseUrl);
     await p.setString('anthropicModel', anthropicModel);
+    await p.setStringList('openaiModels', openaiModels);
+    await p.setStringList('anthropicModels', anthropicModels);
     await p.setString('identity', identity);
     await p.setInt('permissionMode', permissionMode.index);
     await p.setString('baseUrl', baseUrl);
@@ -207,6 +222,28 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     saveConfig();
   }
+
+  /// Selects a provider and model together (from the grouped model picker),
+  /// then persists.
+  void setProviderModel(ProviderKind kind, String model) {
+    model = model.trim();
+    if (model.isEmpty) return;
+    providerKind = kind;
+    switch (kind) {
+      case ProviderKind.openai:
+        openaiModel = model;
+      case ProviderKind.anthropic:
+        anthropicModel = model;
+    }
+    notifyListeners();
+    saveConfig();
+  }
+
+  /// Allowed models for a specific provider (empty = built-in presets).
+  List<String> modelsFor(ProviderKind kind) => switch (kind) {
+        ProviderKind.openai => openaiModels,
+        ProviderKind.anthropic => anthropicModels,
+      };
 
   void setPermissionMode(PermissionMode m) {
     permissionMode = m;

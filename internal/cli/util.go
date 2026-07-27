@@ -33,12 +33,15 @@ func mustStorePath() (string, error) {
 // resolved is the effective provider configuration after merging config file,
 // environment, and flags.
 type resolved struct {
-	Lead            config.Provider
-	Worker          config.Provider
-	WorkerEnabled   bool
-	Reviewer        config.Provider
-	ReviewerEnabled bool
-	File            *config.File
+	Lead             config.Provider
+	Worker           config.Provider
+	WorkerEnabled    bool
+	Reviewer         config.Provider
+	ReviewerEnabled  bool
+	Compactor        config.Provider
+	CompactorEnabled bool
+	CompactAt        int
+	File             *config.File
 }
 
 // flagStr returns a string flag's value and whether it was explicitly set. A
@@ -138,12 +141,43 @@ func resolveProviders(cmd *cobra.Command, provDefault, modelDefault string) (res
 		APIKeyChanged:   rkChanged,
 	})
 
+	// Compactor slot: config file's compactor block plus compactor-* flags.
+	var cfile config.File
+	if file.Compactor != nil {
+		cfile = config.File{
+			Provider: file.Compactor.Provider,
+			Model:    file.Compactor.Model,
+			BaseURL:  file.Compactor.BaseURL,
+			APIKey:   file.Compactor.APIKey,
+		}
+	}
+	cpFlag, cpChanged := flagStr(cmd, "compactor-provider")
+	cmFlag, cmChanged := flagStr(cmd, "compactor-model")
+	cbFlag, cbChanged := flagStr(cmd, "compactor-base-url")
+	ckFlag, ckChanged := flagStr(cmd, "compactor-api-key")
+	comp := config.Resolve(config.Layers{
+		File:            cfile,
+		ProviderFlag:    cpFlag,
+		ProviderDefault: "openai",
+		ProviderChanged: cpChanged,
+		ModelFlag:       cmFlag,
+		ModelDefault:    "",
+		ModelChanged:    cmChanged,
+		BaseURLFlag:     cbFlag,
+		BaseURLChanged:  cbChanged,
+		APIKeyFlag:      ckFlag,
+		APIKeyChanged:   ckChanged,
+	})
+
 	return resolved{
-		Lead:            lead,
-		Worker:          worker,
-		WorkerEnabled:   worker.Model != "",
-		Reviewer:        rev,
-		ReviewerEnabled: rev.Model != "",
-		File:            file,
+		Lead:             lead,
+		Worker:           worker,
+		WorkerEnabled:    worker.Model != "",
+		Reviewer:         rev,
+		ReviewerEnabled:  rev.Model != "",
+		Compactor:        comp,
+		CompactorEnabled: comp.Model != "",
+		CompactAt:        file.CompactAt,
+		File:             file,
 	}, nil
 }

@@ -5,14 +5,29 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 
-/// Bottom sheet to change the model for the active direct provider — tapped from
-/// the model chip in the chat input. Offers presets plus a free-text field.
+/// Built-in fallback presets per provider, used when Settings defines no
+/// allowed-models list for that provider.
+const _defaults = {
+  ProviderKind.anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  ProviderKind.openai: ['qwen3-coder:30b', 'llama3.1:8b', 'deepseek-coder-v2:16b'],
+};
+
+const _labels = {
+  ProviderKind.anthropic: 'Anthropic',
+  ProviderKind.openai: 'OpenAI-compatible',
+};
+
+/// Bottom sheet to change the active model, grouped by provider. Tapping a
+/// model selects both its provider and the model. A free-text field still lets
+/// you enter an arbitrary id for the current provider.
 Future<void> showModelSheet(BuildContext context) {
   final s = context.read<AppState>();
   final ctrl = TextEditingController(text: s.currentModel);
-  final presets = s.providerKind == ProviderKind.anthropic
-      ? const ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']
-      : const ['qwen3-coder:30b', 'llama3.1:8b', 'deepseek-coder-v2:16b'];
+
+  List<String> modelsFor(ProviderKind k) {
+    final allowed = s.modelsFor(k);
+    return allowed.isNotEmpty ? allowed : _defaults[k]!;
+  }
 
   return showModalBottomSheet<void>(
     context: context,
@@ -36,21 +51,32 @@ Future<void> showModelSheet(BuildContext context) {
                           style: T.title, textAlign: TextAlign.center)),
                   const SizedBox(width: 44),
                 ]),
+                const SizedBox(height: 8),
+                for (final kind in ProviderKind.values) ...[
+                  const SizedBox(height: 10),
+                  Text(_labels[kind]!, style: T.metaFaint),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final m in modelsFor(kind))
+                        OutlineChip(
+                          filled: s.providerKind == kind && ctrl.text == m,
+                          onTap: () => setSheet(() {
+                            s.setProviderModel(kind, m);
+                            ctrl.text = m;
+                          }),
+                          child: Text(m,
+                              style:
+                                  const TextStyle(color: T.text, fontSize: 13)),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final p in presets)
-                      OutlineChip(
-                        filled: ctrl.text == p,
-                        onTap: () => setSheet(() => ctrl.text = p),
-                        child: Text(p,
-                            style: const TextStyle(color: T.text, fontSize: 13)),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                Text('Custom (${_labels[s.providerKind]})', style: T.metaFaint),
+                const SizedBox(height: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 4),

@@ -136,18 +136,37 @@ func (s *Session) interrupt() {
 
 // Manager owns sessions and builds agents for them.
 type Manager struct {
-	lead    provider.Provider
-	worker  provider.Provider // optional
-	model   string            // default lead model
-	workdir string
-	publish agent.PublishFunc // optional; enables the publish tool
+	lead      provider.Provider
+	worker    provider.Provider // optional
+	model     string            // default lead model
+	workdir   string
+	publish   agent.PublishFunc // optional; enables the publish tool
+	reviewer  provider.Provider // optional; enables the code-review skill
+	revModel  string
+	compactor provider.Provider // optional; enables the token-efficiency skill
+	compModel string
+	compAt    int
+	models    []string // allowed models to offer clients
 
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
 
+// SetModels sets the allowed model list surfaced at /api/models.
+func (m *Manager) SetModels(models []string) { m.models = models }
+
 // SetPublish enables the agent publish tool, backed by fn.
 func (m *Manager) SetPublish(fn agent.PublishFunc) { m.publish = fn }
+
+// SetReviewer enables the code-review skill on served sessions.
+func (m *Manager) SetReviewer(p provider.Provider, model string) {
+	m.reviewer, m.revModel = p, model
+}
+
+// SetCompactor enables the token-efficiency skill on served sessions.
+func (m *Manager) SetCompactor(p provider.Provider, model string, threshold int) {
+	m.compactor, m.compModel, m.compAt = p, model, threshold
+}
 
 // NewManager wires the model backends a served session will use.
 func NewManager(lead, worker provider.Provider, defaultModel, workdir string) *Manager {
@@ -221,6 +240,12 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 	if m.publish != nil {
 		opts = append(opts, agent.WithPublish(m.publish))
+	}
+	if m.reviewer != nil && m.revModel != "" {
+		opts = append(opts, agent.WithReviewer(m.reviewer, m.revModel))
+	}
+	if m.compactor != nil && m.compModel != "" {
+		opts = append(opts, agent.WithCompactor(m.compactor, m.compModel, m.compAt))
 	}
 	ag, err := agent.New(agent.Config{
 		Name: "holocron", Model: s.Model, Workdir: s.workdir, Style: agent.Style(s.Style),

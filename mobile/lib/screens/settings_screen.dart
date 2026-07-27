@@ -25,6 +25,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _anthUrl = TextEditingController();
   final _anthKey = TextEditingController();
   final _anthModel = TextEditingController();
+  final _openaiModels = TextEditingController();
+  final _anthModels = TextEditingController();
   final _identity = TextEditingController();
   final _serverUrl = TextEditingController();
   final _serverToken = TextEditingController();
@@ -41,6 +43,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _anthUrl.text = s.anthropicBaseUrl;
     _anthKey.text = s.anthropicKey;
     _anthModel.text = s.anthropicModel;
+    _openaiModels.text = s.openaiModels.join(', ');
+    _anthModels.text = s.anthropicModels.join(', ');
     _identity.text = s.identity;
     _serverUrl.text = s.baseUrl;
     _serverToken.text = s.token;
@@ -55,6 +59,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _anthUrl,
       _anthKey,
       _anthModel,
+      _openaiModels,
+      _anthModels,
       _identity,
       _serverUrl,
       _serverToken,
@@ -140,10 +146,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _field('API key', _openaiKey,
               hint: 'optional for local ollama', secret: true),
           _field('Model', _openaiModel, hint: 'qwen3-coder:30b'),
+          _field('Allowed models', _openaiModels,
+              hint: 'comma-separated; blank = presets'),
         ] else ...[
           _field('Base URL', _anthUrl, hint: 'https://api.anthropic.com'),
           _field('API key', _anthKey, hint: 'sk-ant-…', secret: true),
           _field('Model', _anthModel, hint: 'claude-opus-5'),
+          _field('Allowed models', _anthModels,
+              hint: 'comma-separated; blank = presets'),
         ],
         const SizedBox(height: 12),
         _field('Identity / system prompt', _identity,
@@ -242,10 +252,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     s.anthropicBaseUrl = _anthUrl.text.trim();
     s.anthropicKey = _anthKey.text.trim();
     s.anthropicModel = _anthModel.text.trim();
+    s.openaiModels = _parseModels(_openaiModels.text);
+    s.anthropicModels = _parseModels(_anthModels.text);
     s.identity = _identity.text.trim();
     s.baseUrl = _serverUrl.text.trim().replaceAll(RegExp(r'/+$'), '');
     s.token = _serverToken.text.trim();
     await s.saveConfig();
     if (mounted) Navigator.pop(context);
   }
+
+  List<String> _parseModels(String raw) => raw
+      .split(RegExp(r'[,\n]'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
 }

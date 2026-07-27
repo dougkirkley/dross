@@ -33,6 +33,15 @@ func (s *Server) handleProviders(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// handleModels reports the allowed models to offer in a picker, plus the current
+// default.
+func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models":  s.mgr.models,
+		"current": s.mgr.model,
+	})
+}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.mgr.list()})
 }

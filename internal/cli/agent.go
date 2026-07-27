@@ -19,6 +19,7 @@ func newAgentCmd() *cobra.Command {
 		provName, baseURL, apiKey                         string
 		workerProv, workerModel, workerBaseURL, workerKey string
 		revProv, revModel, revBaseURL, revKey             string
+		compProv, compModel, compBaseURL, compKey         string
 		sessionName                                       string
 		fresh                                             bool
 		maxParallel                                       int
@@ -68,6 +69,13 @@ func newAgentCmd() *cobra.Command {
 					return fmt.Errorf("reviewer provider: %w", err)
 				}
 				opts = append(opts, agent.WithReviewer(rp, pc.Reviewer.Model))
+			}
+			if pc.CompactorEnabled {
+				cp, err := provider.New(pc.Compactor.Provider, provider.Config{BaseURL: pc.Compactor.BaseURL, APIKey: pc.Compactor.APIKey})
+				if err != nil {
+					return fmt.Errorf("compactor provider: %w", err)
+				}
+				opts = append(opts, agent.WithCompactor(cp, pc.Compactor.Model, pc.CompactAt))
 			}
 			if sessionName != "" {
 				sp, err := mustStorePath()
@@ -130,6 +138,10 @@ func newAgentCmd() *cobra.Command {
 	f.StringVar(&revModel, "reviewer-model", "", "reviewer model id (enables the code-review skill)")
 	f.StringVar(&revBaseURL, "reviewer-base-url", "", "reviewer provider base URL")
 	f.StringVar(&revKey, "reviewer-api-key", "", "reviewer provider API key")
+	f.StringVar(&compProv, "compactor-provider", "openai", "compactor backend")
+	f.StringVar(&compModel, "compactor-model", "", "compactor model id (enables the token-efficiency skill)")
+	f.StringVar(&compBaseURL, "compactor-base-url", "", "compactor provider base URL")
+	f.StringVar(&compKey, "compactor-api-key", "", "compactor provider API key")
 	f.IntVar(&maxParallel, "max-parallel", 0, "max concurrent worker subagents for batch delegation (default 2)")
 	f.StringVar(&sessionName, "session", "", "named session: resume from its brief and checkpoint at the end")
 	f.BoolVar(&fresh, "fresh", false, "with --session, ignore the existing brief")

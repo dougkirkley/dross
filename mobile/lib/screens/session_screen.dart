@@ -118,6 +118,16 @@ class _SessionScreenState extends State<SessionScreen> {
       case 'text':
         content = ProseText(e.data);
         break;
+      case 'review':
+        content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('code review', style: T.metaFaint),
+            const SizedBox(height: 2),
+            ProseText(e.data),
+          ],
+        );
+        break;
       case 'tool':
         content = _mono('→ ${e.data}', T.accentHi);
         break;
