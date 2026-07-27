@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -123,7 +124,12 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 	ti.Focus()
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	// ASCII line frames render on every terminal/font — the default braille Dot
+	// (and even quadrant circles) show as tofu boxes in many fonts.
+	sp.Spinner = spinner.Spinner{
+		Frames: []string{"|", "/", "-", "\\"},
+		FPS:    time.Second / 10,
+	}
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
 	return Model{
@@ -325,7 +331,7 @@ func (m *Model) applyEvent(e agent.Event) {
 			Removed int    `json:"removed"`
 		}
 		if json.Unmarshal([]byte(e.Data), &ed) == nil {
-			m.append(indent + toolArrow.Render("✎ ") + toolName.Render("edit ") +
+			m.append(indent + doneGlyph.Render("+ ") + toolName.Render("edit ") +
 				toolArgs.Render(ed.File) + " " +
 				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
