@@ -72,10 +72,20 @@ Output style: caveman. Maximally compressed. Drop articles (a/an/the) and filler
 	}
 }
 
-func systemPrompt(cfg Config, hasWorker bool) string {
+const publishGuidance = `
+
+You also have a publish(path) tool: it shares a workspace file at a public URL
+and returns the link. Use it when the user wants to see or share a produced
+artifact — a screenshot, a rendered image or gif, an exported report. Include
+the returned URL in your reply.`
+
+func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
 	p := basePrompt
 	if hasWorker {
 		p += delegateGuidance
+	}
+	if hasPublish {
+		p += publishGuidance
 	}
 	if d := styleDirective(cfg.Style); d != "" {
 		p += "\n" + d
@@ -89,7 +99,7 @@ func systemPrompt(cfg Config, hasWorker bool) string {
 // toolDefs is the fixed day-one tool set. The delegate tool is added only when
 // a worker model is configured. Correctness over breadth; more tools (glob,
 // symbol search, screenshot-publish) come in later phases.
-func toolDefs(hasWorker bool) []provider.ToolDef {
+func toolDefs(hasWorker, hasPublish bool) []provider.ToolDef {
 	strProp := func(desc string) map[string]any {
 		return map[string]any{"type": "string", "description": desc}
 	}
@@ -132,6 +142,14 @@ func toolDefs(hasWorker bool) []provider.ToolDef {
 			Description: "Delegate a bounded, self-contained subtask to a cheaper worker model. The task must include all context the worker needs; it cannot see this conversation. Returns the worker's conclusion.",
 			Properties:  map[string]any{"task": strProp("A fully self-contained task description with every file path, signature, and constraint the worker needs.")},
 			Required:    []string{"task"},
+		})
+	}
+	if hasPublish {
+		defs = append(defs, provider.ToolDef{
+			Name:        "publish",
+			Description: "Share a workspace file at a public URL and get the link back. Use for screenshots, images, gifs, or reports the user wants to see or share.",
+			Properties:  map[string]any{"path": strProp("Workspace-relative path to the file to publish.")},
+			Required:    []string{"path"},
 		})
 	}
 	return defs

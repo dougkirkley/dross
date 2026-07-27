@@ -112,6 +112,36 @@ holocron tui -provider openai -base-url https://ollama.example.com/v1 -model qwe
 
 `-logo N` selects the logo (0 filled, 1 gradient (default), 2 boxed, 3 wordmark).
 
+## Benchmarking
+
+`holocron bench` runs the same objectively-checkable coding tasks through
+holocron and — if installed — **Claude Code** (`claude -p`) and **Codex**
+(`codex exec`), in fresh isolated workspaces, and reports wall-clock time and
+task success. Success is graded by a check command that must exit 0 (e.g.
+`go test`), not by self-report. Holocron additionally reports its token cost;
+the external CLIs don't expose that, so they show `-`.
+
+```bash
+holocron bench -provider openai -base-url https://ollama.example.com/v1 -model qwen3-coder:30b
+
+running 2 tasks across 3 runners...
+
+TASK             RUNNER       OK       TIME       COST       NOTES
+add-function     holocron     yes      14.3s      $0.0000
+edit-output      holocron     yes      13.2s      $0.0000
+...
+```
+
+Missing CLIs are skipped with a note. Tasks live in `internal/bench`.
+
+## The publish tool
+
+When a worker/serve session is configured with an artifact store, the agent
+gains a `publish(path)` tool: it shares a produced file (screenshot, gif,
+report) at a capability URL and hands the link back, so a run that renders
+something can return a shareable link inline. Enabled automatically under
+`holocron serve` (backed by the artifact store).
+
 ## serve — remote control
 
 `holocron serve` holds **server-side sessions** that clients (TUI, web, phone)
@@ -204,6 +234,7 @@ internal/artifact       capability-URL store (publish/share files)
 internal/session        handoff briefs (persisted)
 internal/storage        session/brief file store
 internal/tui            Bubble Tea terminal client
+internal/bench          comparative benchmark harness (vs Claude Code, Codex)
 ```
 
 ## Tests

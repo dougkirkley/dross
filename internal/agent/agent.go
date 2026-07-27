@@ -73,6 +73,16 @@ func WithWorker(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.worker = &worker{prov: p, model: model} }
 }
 
+// PublishFunc stores a file and returns a shareable URL for it.
+type PublishFunc func(name string, data []byte, mime string) (url string, err error)
+
+// WithPublish gives the agent a `publish` tool: it shares a workspace file
+// (screenshot, gif, report) via fn and hands the resulting URL back to the
+// model, which can surface it to the user.
+func WithPublish(fn PublishFunc) Option {
+	return func(a *Agent) { a.publish = fn }
+}
+
 // WithResume seeds the run with a prior session's handoff brief instead of a
 // full transcript — the cheap way to continue work in a fresh session.
 func WithResume(brief string) Option {
@@ -99,6 +109,7 @@ type Agent struct {
 	out        io.Writer
 	hook       func(Event)
 	worker     *worker
+	publish    PublishFunc
 	resume     string
 	checkpoint func(brief string) error
 }
@@ -165,8 +176,8 @@ const maxTurns = 40
 // Run drives the agent to completion on prompt.
 func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	sess := a.prov.NewSession(provider.SessionConfig{
-		System:    systemPrompt(a.cfg, a.worker != nil),
-		Tools:     toolDefs(a.worker != nil),
+		System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
+		Tools:     toolDefs(a.worker != nil, a.publish != nil),
 		Model:     a.cfg.Model,
 		MaxTokens: a.cfg.MaxTokens,
 	})
@@ -303,6 +314,14 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 			return err.Error(), true
 		}
 		return a.delegate(ctx, in.Task, res)
+	case "publish":
+		var in struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return a.doPublish(in.Path)
 	default:
 		return fmt.Sprintf("unknown tool %q", tc.Name), true
 	}
@@ -334,6 +353,22 @@ func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string,
 		return fmt.Sprintf("worker failed: %v", err), true
 	}
 	return sr.Text, false
+}
+
+// doPublish shares a workspace file and returns its URL to the model.
+func (a *Agent) doPublish(path string) (string, bool) {
+	if a.publish == nil {
+		return "publishing is not configured for this agent", true
+	}
+	data, mime, name, err := a.ws.readForPublish(path)
+	if err != nil {
+		return err.Error(), true
+	}
+	url, err := a.publish(name, data, mime)
+	if err != nil {
+		return "publish failed: " + err.Error(), true
+	}
+	return "published " + name + " → " + url, false
 }
 
 func orErr(out string, err error) (string, bool) {

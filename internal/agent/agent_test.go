@@ -191,6 +191,35 @@ func TestResume(t *testing.T) {
 	}
 }
 
+// TestPublish proves the publish tool reads a workspace file and returns the
+// URL the publish callback produces.
+func TestPublish(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "shot.png"), []byte("PNGDATA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{toolCall("p1", "publish", map[string]string{"path": "shot.png"})}},
+		{StopReason: provider.StopEndTurn, Text: "shared it"},
+	}}
+	var gotName, gotMime string
+	var gotData []byte
+	ag, err := New(Config{Name: "a", Model: "claude-opus-5", Workdir: dir}, prov,
+		WithPublish(func(name string, data []byte, mime string) (string, error) {
+			gotName, gotData, gotMime = name, data, mime
+			return "https://h.example/a/abc", nil
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.Run(context.Background(), "share the screenshot"); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "shot.png" || string(gotData) != "PNGDATA" || gotMime != "image/png" {
+		t.Fatalf("publish got name=%q mime=%q data=%q", gotName, gotMime, gotData)
+	}
+}
+
 // TestEdit_Uniqueness proves the edit tool refuses ambiguous and absent matches
 // (surfaced to the model as a tool error, not a crash).
 func TestEdit_Uniqueness(t *testing.T) {

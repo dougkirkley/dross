@@ -21,6 +21,7 @@ import (
 	"github.com/dougkirkley/holocron/internal/agent"
 	"github.com/dougkirkley/holocron/internal/artifact"
 	"github.com/dougkirkley/holocron/internal/auth"
+	"github.com/dougkirkley/holocron/internal/bench"
 	"github.com/dougkirkley/holocron/internal/provider"
 	"github.com/dougkirkley/holocron/internal/server"
 	"github.com/dougkirkley/holocron/internal/session"
@@ -48,6 +49,8 @@ func main() {
 		briefCmd(os.Args[2:])
 	case "tui":
 		tuiCmd(os.Args[2:])
+	case "bench":
+		benchCmd(os.Args[2:])
 	default:
 		usage()
 	}
@@ -156,6 +159,35 @@ func briefCmd(args []string) {
 	fmt.Printf("# session %s (updated %s)\n\n%s\n", b.Name, b.Updated.Format("2006-01-02 15:04"), b.Content)
 }
 
+// benchCmd runs the comparison benchmark: the same coding tasks through
+// holocron and (if installed) Claude Code and Codex, reporting time, success,
+// and — for holocron — cost.
+func benchCmd(args []string) {
+	fs := flag.NewFlagSet("bench", flag.ExitOnError)
+	provName := fs.String("provider", "openai", "holocron lead backend")
+	baseURL := fs.String("base-url", "", "provider base URL")
+	apiKey := fs.String("api-key", "", "provider API key")
+	model := fs.String("model", "qwen3-coder:30b", "holocron model")
+	workerModel := fs.String("worker-model", "", "holocron worker model (enables delegation)")
+	external := fs.Bool("external", true, "also run Claude Code and Codex if installed")
+	fs.Parse(args)
+
+	prov, err := provider.New(*provName, provider.Config{BaseURL: *baseURL, APIKey: *apiKey})
+	if err != nil {
+		log.Fatalf("provider: %v", err)
+	}
+	runners := []bench.Runner{&bench.HolocronRunner{
+		Provider: prov, Model: *model, Worker: prov, WorkerModel: *workerModel,
+	}}
+	if *external {
+		runners = append(runners, bench.DefaultExternalRunners()...)
+	}
+
+	fmt.Printf("running %d tasks across %d runners...\n\n", len(bench.DefaultTasks()), len(runners))
+	results := bench.Run(context.Background(), bench.DefaultTasks(), runners)
+	fmt.Print(bench.Report(results))
+}
+
 func serveCmd(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", ":8080", "listen address")
@@ -234,6 +266,14 @@ func serveCmd(args []string) {
 
 	store := storage.NewSessionStore(storePath())
 	mgr := server.NewManager(lead, worker, *model, *workdir)
+	// The publish tool shares a workspace file via the artifact store.
+	mgr.SetPublish(func(name string, data []byte, mime string) (string, error) {
+		m, err := arts.Put(data, mime, name)
+		if err != nil {
+			return "", err
+		}
+		return arts.URL(m.ID), nil
+	})
 	srv := server.New(store, mgr, authr, arts)
 
 	authState := "OPEN (no auth)"

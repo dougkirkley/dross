@@ -140,10 +140,14 @@ type Manager struct {
 	worker  provider.Provider // optional
 	model   string            // default lead model
 	workdir string
+	publish agent.PublishFunc // optional; enables the publish tool
 
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
+
+// SetPublish enables the agent publish tool, backed by fn.
+func (m *Manager) SetPublish(fn agent.PublishFunc) { m.publish = fn }
 
 // NewManager wires the model backends a served session will use.
 func NewManager(lead, worker provider.Provider, defaultModel, workdir string) *Manager {
@@ -214,6 +218,9 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	opts := []agent.Option{agent.WithEventHook(func(e agent.Event) { s.emit(e.Kind, e.Data) })}
 	if m.worker != nil && s.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(m.worker, s.WorkerModel))
+	}
+	if m.publish != nil {
+		opts = append(opts, agent.WithPublish(m.publish))
 	}
 	ag, err := agent.New(agent.Config{
 		Name: "holocron", Model: s.Model, Workdir: s.workdir, Style: agent.Style(s.Style),

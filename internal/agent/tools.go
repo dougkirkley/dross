@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"mime"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,6 +130,26 @@ func (w *workspace) editFile(path, oldStr, newStr string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("edited %s (1 replacement)", path), nil
+}
+
+// readForPublish reads a workspace file and reports its bytes, MIME type
+// (extension first, then content sniffing), and base name — for the publish
+// tool.
+func (w *workspace) readForPublish(path string) (data []byte, mimeType, name string, err error) {
+	abs, err := w.resolve(path)
+	if err != nil {
+		return nil, "", "", err
+	}
+	data, err = os.ReadFile(abs)
+	if err != nil {
+		return nil, "", "", err
+	}
+	name = filepath.Base(path)
+	mimeType = mime.TypeByExtension(filepath.Ext(abs))
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	return data, mimeType, name, nil
 }
 
 const bashTimeout = 120 * time.Second
