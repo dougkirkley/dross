@@ -32,6 +32,8 @@ func DemoView(width, height int) string {
 		{Kind: "tool-result", Data: "worker: added Output struct; internal/cli/output.go compiles."},
 		{Kind: "tool", Data: `edit {"path":"cmd/holocron/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
 		{Kind: "edit", Data: `{"file":"cmd/holocron/main.go","added":6,"removed":1}`},
+		{Kind: "ask", Data: "Name the flag --json or --output=json?"},
+		{Kind: "answer", Data: "--json"},
 		{Kind: "tool", Data: `bash {"command":"go build ./... && go test ./..."}`},
 		{Kind: "tool-result", Data: "ok  github.com/dougkirkley/holocron  0.4s"},
 		{Kind: "text", Data: "Done. --json flag wired; boilerplate delegated to the local model. Build and tests pass."},
@@ -66,5 +68,24 @@ func DemoRunningView(width, height int) string {
 	m.phraseIdx = 2 // "Decrypting the holocron"
 	m.tick = 40     // ~8s elapsed at 5 fps
 	m.cost = 0.0091
+	return m.View()
+}
+
+// DemoAskView renders the multi-question ask_user picker for screenshots.
+func DemoAskView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  review the branch before I merge")
+	m.pendingAsk = &askState{
+		questions: []agent.AskQuestion{
+			{Header: "Scope", Question: "How should I scope the review?", Options: []string{
+				"Post-merge commits only", "Whole MR, 367 files", "Risky judgment calls only"}},
+			{Header: "Reviewer", Question: "Which model reviews?", Options: []string{
+				"A different, stronger model", "Same model"}},
+		},
+		sel: make([]int, 2),
+		tab: 0,
+	}
 	return m.View()
 }

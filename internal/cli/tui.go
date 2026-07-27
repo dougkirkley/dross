@@ -14,7 +14,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var (
-		render, welcome, running bool
+		render, welcome, running, ask bool
 		logo, width, height      int
 		once                     string
 		workdir, model, provName string
@@ -31,6 +31,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoWelcomeView(width, height, logo))
 				case running:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoRunningView(width, height))
+				case ask:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoAskView(width, height))
 				default:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoView(width, height))
 				}
@@ -46,9 +48,16 @@ func newTUICmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
 			}
+			var prog *tea.Program
 			run := func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error) {
+				opts := []agent.Option{agent.WithEventHook(emit)}
+				if prog != nil {
+					opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
+						return tui.Ask(prog, req)
+					}))
+				}
 				ag, err := agent.New(agent.Config{Name: "holocron", Model: model, Workdir: workdir},
-					prov, agent.WithEventHook(emit))
+					prov, opts...)
 				if err != nil {
 					return nil, err
 				}
@@ -61,8 +70,8 @@ func newTUICmd() *cobra.Command {
 			}
 			mdl := tui.New("holocron", model, provName, run)
 			mdl.SetPhrases(res.File.Phrases)
-			p := tea.NewProgram(mdl, tea.WithAltScreen())
-			_, err = p.Run()
+			prog = tea.NewProgram(mdl, tea.WithAltScreen())
+			_, err = prog.Run()
 			return err
 		},
 	}
@@ -70,6 +79,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
+	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.IntVar(&logo, "logo", 0, "logo variant: 0 filled, 1 gradient, 2 boxed, 3 wordmark")
 	f.StringVar(&once, "once", "", "run one real prompt, print the final frame, and exit")
 	f.IntVar(&width, "width", 96, "width for --render/--once")

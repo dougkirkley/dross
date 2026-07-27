@@ -99,7 +99,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
 // toolDefs is the fixed day-one tool set. The delegate tool is added only when
 // a worker model is configured. Correctness over breadth; more tools (glob,
 // symbol search, screenshot-publish) come in later phases.
-func toolDefs(hasWorker, hasPublish bool) []provider.ToolDef {
+func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 	strProp := func(desc string) map[string]any {
 		return map[string]any{"type": "string", "description": desc}
 	}
@@ -150,6 +150,32 @@ func toolDefs(hasWorker, hasPublish bool) []provider.ToolDef {
 			Description: "Share a workspace file at a public URL and get the link back. Use for screenshots, images, gifs, or reports the user wants to see or share.",
 			Properties:  map[string]any{"path": strProp("Workspace-relative path to the file to publish.")},
 			Required:    []string{"path"},
+		})
+	}
+	if hasAsker {
+		defs = append(defs, provider.ToolDef{
+			Name:        "ask_user",
+			Description: "Ask the user 1-4 clarifying questions at once when blocked on decisions only they can make (ambiguous requirements, real choices with no sensible default). Each question gets its own tab; the user picks an option per question, then submits. Returns their answers. Use sparingly — prefer sensible defaults.",
+			Properties: map[string]any{
+				"questions": map[string]any{
+					"type":        "array",
+					"description": "The questions to ask (1-4).",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"header":   strProp("Short tab label (<=12 chars)."),
+							"question": strProp("The full question."),
+							"options": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Distinct choices; put the recommended one first.",
+							},
+						},
+						"required": []string{"question", "options"},
+					},
+				},
+			},
+			Required: []string{"questions"},
 		})
 	}
 	return defs

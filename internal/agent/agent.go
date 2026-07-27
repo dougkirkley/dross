@@ -74,6 +74,29 @@ func WithWorker(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.worker = &worker{prov: p, model: model} }
 }
 
+// AskQuestion is one question in an ask_user request. Options makes it a
+// single-choice pick; empty Options means free text.
+type AskQuestion struct {
+	Header   string   `json:"header"`
+	Question string   `json:"question"`
+	Options  []string `json:"options"`
+}
+
+// AskRequest is one or more questions posed to the user at once (Claude-style
+// multi-question picker with tabs).
+type AskRequest struct {
+	Questions []AskQuestion
+}
+
+// AskFunc asks the user the questions and returns their answers as text.
+// Optional; enables the ask_user tool.
+type AskFunc func(AskRequest) (string, error)
+
+// WithAsker gives the agent an `ask_user` tool that asks the user a clarifying
+// question via fn and feeds their answer back to the model. Without it, the tool
+// is not offered.
+func WithAsker(fn AskFunc) Option { return func(a *Agent) { a.asker = fn } }
+
 // PublishFunc stores a file and returns a shareable URL for it.
 type PublishFunc func(name string, data []byte, mime string) (url string, err error)
 
@@ -132,6 +155,7 @@ type Agent struct {
 	reviewer   *reviewer
 	edits      []editRec // changes made this run, for the reviewer skill
 	publish    PublishFunc
+	asker      AskFunc
 	resume     string
 	checkpoint func(brief string) error
 }
@@ -200,7 +224,7 @@ const maxTurns = 40
 func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	sess := a.prov.NewSession(provider.SessionConfig{
 		System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
-		Tools:     toolDefs(a.worker != nil, a.publish != nil),
+		Tools:     toolDefs(a.worker != nil, a.publish != nil, a.asker != nil),
 		Model:     a.cfg.Model,
 		MaxTokens: a.cfg.MaxTokens,
 	})
@@ -418,6 +442,33 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 			return err.Error(), true
 		}
 		return a.doPublish(in.Path)
+	case "ask_user":
+		var in struct {
+			Questions []AskQuestion `json:"questions"`
+			// single-question convenience form
+			Question string   `json:"question"`
+			Options  []string `json:"options"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		qs := in.Questions
+		if len(qs) == 0 && in.Question != "" {
+			qs = []AskQuestion{{Question: in.Question, Options: in.Options}}
+		}
+		if len(qs) == 0 {
+			return "ask_user requires a question", true
+		}
+		a.emit("ask", qs[0].Question)
+		if a.asker == nil {
+			return "No interactive user is available; proceed with your best assumption and state it.", false
+		}
+		ans, err := a.asker(AskRequest{Questions: qs})
+		if err != nil {
+			return "ask_user failed: " + err.Error(), true
+		}
+		a.emit("answer", ans)
+		return ans, false
 	default:
 		return fmt.Sprintf("unknown tool %q", tc.Name), true
 	}

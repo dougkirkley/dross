@@ -47,7 +47,7 @@ var (
 	workerTag   = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C8AA6"))
 	checkStyle  = lipgloss.NewStyle().Foreground(accentHi)
 	errStyle    = lipgloss.NewStyle().Foreground(bad)
-	startGlyph  = lipgloss.NewStyle().Foreground(accent)              // something started
+	startGlyph  = lipgloss.NewStyle().Foreground(accent)                    // something started
 	doneGlyph   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
 	promptMark  = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	inputBox    = lipgloss.NewStyle().
@@ -63,6 +63,35 @@ type EventMsg agent.Event
 type doneMsg struct {
 	res *agent.Result
 	err error
+}
+
+// askState holds a pending ask_user request: the questions, the selected option
+// per question, the active tab (0..len = Submit), and the reply channel the
+// agent goroutine blocks on. freeText is the single no-options case.
+type askState struct {
+	questions []agent.AskQuestion
+	sel       []int // selected option index per question
+	tab       int   // 0..len-1 = question tabs, len = Submit
+	freeText  bool
+	reply     chan string
+}
+
+// askMsg delivers an askState into the Bubble Tea loop.
+type askMsg struct{ st *askState }
+
+// Ask is the AskFunc wired into the agent: it posts the questions to the running
+// TUI program and blocks until the user submits their answers.
+func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
+	st := &askState{
+		questions: req.Questions,
+		sel:       make([]int, len(req.Questions)),
+		reply:     make(chan string, 1),
+	}
+	if len(req.Questions) == 1 && len(req.Questions[0].Options) == 0 {
+		st.freeText = true
+	}
+	p.Send(askMsg{st: st})
+	return <-st.reply, nil
 }
 
 // Model is the TUI state.
@@ -87,7 +116,8 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
-	modeIdx int // permission mode (see modeLabels)
+	modeIdx    int       // permission mode (see modeLabels)
+	pendingAsk *askState // set while an ask_user request awaits answers
 
 	lines []string // rendered log lines
 
@@ -191,6 +221,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
 	case tea.KeyMsg:
+		// A multi-question ask_user picker captures keys: ←/→ switch tabs, ↑/↓ or
+		// digits pick an option, enter advances / submits.
+		if m.pendingAsk != nil && !m.pendingAsk.freeText {
+			a := m.pendingAsk
+			nq := len(a.questions)
+			switch msg.String() {
+			case "ctrl+c", "esc":
+				return m, tea.Quit
+			case "left", "h":
+				if a.tab > 0 {
+					a.tab--
+				}
+				return m, nil
+			case "right", "l", "tab":
+				if a.tab < nq {
+					a.tab++
+				}
+				return m, nil
+			case "up", "k":
+				if a.tab < nq && a.sel[a.tab] > 0 {
+					a.sel[a.tab]--
+				}
+				return m, nil
+			case "down", "j":
+				if a.tab < nq && a.sel[a.tab] < len(a.questions[a.tab].Options)-1 {
+					a.sel[a.tab]++
+				}
+				return m, nil
+			case "enter":
+				if a.tab < nq {
+					a.tab++ // confirm this question, go to next tab (or Submit)
+					return m, nil
+				}
+				m.submitAsk() // on Submit tab
+				return m, nil
+			default:
+				if a.tab < nq && len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
+					if i := int(msg.String()[0] - '1'); i < len(a.questions[a.tab].Options) {
+						a.sel[a.tab] = i
+					}
+				}
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
@@ -198,6 +272,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
 			return m, nil
 		case "enter":
+			if m.pendingAsk != nil && m.pendingAsk.freeText && strings.TrimSpace(m.input.Value()) != "" {
+				ans := m.input.Value()
+				m.append(youLabel.Render("you") + "  " + ans)
+				m.pendingAsk.reply <- ans
+				m.pendingAsk = nil
+				m.input.Reset()
+				m.input.Placeholder = "ask holocron to build, edit, or run something…"
+				return m, nil
+			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				prompt := m.input.Value()
 				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
@@ -218,6 +301,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cost = msg.res.Cost()
 			m.turns = msg.res.Turns
 			m.append(doneGlyph.Render("✓ ") + metaStyle.Render(fmt.Sprintf("completed · $%.4f · %d turns", m.cost, m.turns)))
+		}
+	case askMsg:
+		m.pendingAsk = msg.st
+		if msg.st.freeText {
+			m.input.Placeholder = "type your answer…"
 		}
 	case spinner.TickMsg:
 		if m.running {
@@ -243,8 +331,16 @@ func (m Model) View() string {
 		return "loading…"
 	}
 	body := m.vp.View()
-	if len(m.lines) == 0 && !m.running {
+	if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
+	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
+		content := strings.Join(m.lines, "\n")
+		if content != "" {
+			content += "\n"
+		}
+		m.vp.SetContent(content + m.renderPicker())
+		m.vp.GotoBottom()
+		body = m.vp.View()
 	} else if m.running {
 		// While working, show the spinner + rotating phrase as a live line at the
 		// bottom of the conversation, the way Claude Code does.
@@ -296,6 +392,87 @@ func (m Model) runStats() string {
 	return "(" + strings.Join(parts, " · ") + ")"
 }
 
+// submitAsk sends the picked answers back to the blocked agent goroutine.
+func (m *Model) submitAsk() {
+	a := m.pendingAsk
+	if a == nil {
+		return
+	}
+	var parts []string
+	for i, q := range a.questions {
+		opt := ""
+		if a.sel[i] < len(q.Options) {
+			opt = q.Options[a.sel[i]]
+		}
+		label := q.Header
+		if label == "" {
+			label = q.Question
+		}
+		parts = append(parts, label+": "+opt)
+		m.append(youLabel.Render("you") + "  " + agentText.Render(label+" → "+opt))
+	}
+	a.reply <- strings.Join(parts, "\n")
+	m.pendingAsk = nil
+}
+
+// renderPicker draws the multi-question tabs + the current question's options.
+func (m Model) renderPicker() string {
+	a := m.pendingAsk
+	nq := len(a.questions)
+	var b strings.Builder
+
+	var tabs []string
+	for i, q := range a.questions {
+		h := q.Header
+		if h == "" {
+			h = fmt.Sprintf("Q%d", i+1)
+		}
+		if i == a.tab {
+			tabs = append(tabs, promptMark.Render("["+h+"]"))
+		} else {
+			tabs = append(tabs, metaStyle.Render(" "+h+" "))
+		}
+	}
+	if a.tab == nq {
+		tabs = append(tabs, promptMark.Render("[Submit]"))
+	} else {
+		tabs = append(tabs, metaStyle.Render("✓ Submit"))
+	}
+	b.WriteString(strings.Join(tabs, "  ") + "\n\n")
+
+	if a.tab < nq {
+		q := a.questions[a.tab]
+		b.WriteString(agentText.Render(q.Question) + "\n")
+		for i, opt := range q.Options {
+			marker, style := "  ", resultStyle
+			if i == a.sel[a.tab] {
+				marker, style = promptMark.Render("› "), agentText
+			}
+			line := marker + style.Render(fmt.Sprintf("%d. %s", i+1, opt))
+			if i == 0 {
+				line += metaStyle.Render("  (recommended)")
+			}
+			b.WriteString(line + "\n")
+		}
+		b.WriteString("\n" + metaStyle.Render("  ←→ tabs · ↑↓ pick · enter next"))
+	} else {
+		b.WriteString(agentText.Render("Review your answers") + "\n")
+		for i, q := range a.questions {
+			h := q.Header
+			if h == "" {
+				h = q.Question
+			}
+			opt := ""
+			if a.sel[i] < len(q.Options) {
+				opt = q.Options[a.sel[i]]
+			}
+			b.WriteString(metaStyle.Render("  "+h+": ") + agentText.Render(opt) + "\n")
+		}
+		b.WriteString("\n" + promptMark.Render("› ") + agentText.Render("Submit answers") + metaStyle.Render("   (enter)"))
+	}
+	return b.String()
+}
+
 func (m Model) footer() string {
 	// The working spinner/phrase lives in the body; the footer is just the input
 	// and the mode line.
@@ -333,8 +510,11 @@ func (m *Model) applyEvent(e agent.Event) {
 			Removed int    `json:"removed"`
 		}
 		if json.Unmarshal([]byte(e.Data), &ed) == nil {
-			m.append(indent + doneGlyph.Render("+ ") + toolName.Render("edit ") +
-				toolArgs.Render(ed.File) + " " +
+			base := ed.File
+			if i := strings.LastIndexByte(base, '/'); i >= 0 {
+				base = base[i+1:]
+			}
+			m.append(indent + resultStyle.Render("Edited ") + toolName.Render(base) + " " +
 				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
 		}
@@ -355,6 +535,15 @@ func (m *Model) applyEvent(e agent.Event) {
 			}
 			m.append(label + agentText.Render(l))
 		}
+	case "ask":
+		width := m.width - 14
+		lines := wrap(e.Data, width)
+		m.append(agentLabel.Render(m.agentName) + " asks  " + agentText.Render(lines[0]))
+		for _, l := range lines[1:] {
+			m.append("          " + agentText.Render(l))
+		}
+	case "answer":
+		// The answer is shown immediately when the user hits enter; skip here.
 	case "checkpoint":
 		m.append(indent + checkStyle.Render("✓ "+e.Data))
 	case "error":
