@@ -86,10 +86,10 @@ func DemoSubagentsView(width, height int) string {
 		{Kind: "text", Data: "Plan: fan the three charts out to workers, then reconcile and verify."},
 		{Kind: "tool", Data: `delegate {"tasks":["migrate application chart","migrate ingress chart","migrate monitoring chart"]}`},
 		{Kind: "text", Data: "delegating 3 subtasks (max 2 parallel)"},
-		{Kind: "worker:tool", Data: `#1 read {"path":"charts/application/application_helm.go"}`},
-		{Kind: "worker:tool", Data: `#2 read {"path":"charts/ingress/values.yaml"}`},
-		{Kind: "worker:edit", Data: `#1 {"file":"charts/application/values.yaml","added":12,"removed":4}`},
-		{Kind: "worker:tool", Data: `#2 bash {"command":"helm lint charts/ingress"}`},
+		{Kind: "worker:tool", Data: "migrate application chart\x1f" + `read {"path":"charts/application/application_helm.go"}`},
+		{Kind: "worker:tool", Data: "migrate ingress chart\x1f" + `read {"path":"charts/ingress/values.yaml"}`},
+		{Kind: "worker:edit", Data: "migrate application chart\x1f" + `{"file":"charts/application/values.yaml","added":12,"removed":4}`},
+		{Kind: "worker:tool", Data: "migrate ingress chart\x1f" + `bash {"command":"helm lint charts/ingress"}`},
 		{Kind: "usage", Data: `{"in":22400,"out":1580}`},
 	} {
 		m.applyEvent(e)
@@ -111,11 +111,11 @@ func DemoSubagentFocusView(width, height int) string {
 	for _, e := range []agent.Event{
 		{Kind: "text", Data: "Plan: fan the three charts out to workers, then reconcile and verify."},
 		{Kind: "tool", Data: `delegate {"tasks":["migrate application chart","migrate ingress chart"]}`},
-		{Kind: "worker:tool", Data: `#1 read {"path":"charts/application/application_helm.go"}`},
-		{Kind: "worker:tool-result", Data: `#1 142 lines`},
-		{Kind: "worker:edit", Data: `#1 {"file":"charts/application/values.yaml","added":12,"removed":4}`},
-		{Kind: "worker:tool", Data: `#1 bash {"command":"helm lint charts/application"}`},
-		{Kind: "worker:tool", Data: `#2 read {"path":"charts/ingress/values.yaml"}`},
+		{Kind: "worker:tool", Data: "migrate application chart\x1f" + `read {"path":"charts/application/application_helm.go"}`},
+		{Kind: "worker:tool-result", Data: "migrate application chart\x1f142 lines"},
+		{Kind: "worker:edit", Data: "migrate application chart\x1f" + `{"file":"charts/application/values.yaml","added":12,"removed":4}`},
+		{Kind: "worker:tool", Data: "migrate application chart\x1f" + `bash {"command":"helm lint charts/application"}`},
+		{Kind: "worker:tool", Data: "migrate ingress chart\x1f" + `read {"path":"charts/ingress/values.yaml"}`},
 	} {
 		m.applyEvent(e)
 	}
@@ -124,7 +124,7 @@ func DemoSubagentFocusView(width, height int) string {
 	m.tick = 70
 	m.cost = 0.0231
 	m.workerSel = 1
-	m.workerFocus = "#1" // detail of the first subagent open
+	m.workerFocus = "migrate application chart" // detail of the first subagent open
 	return m.View()
 }
 

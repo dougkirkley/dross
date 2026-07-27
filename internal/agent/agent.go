@@ -557,27 +557,57 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 // conclusion. The worker shares the workspace but has no delegate tool of its
 // own (one level deep). Its usage is merged into res for correct cost.
 func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string, bool) {
-	sr, concl, isErr := a.delegateOne(ctx, task, "")
+	sr, concl, isErr := a.delegateOne(ctx, task, workerName(task, 0))
 	if sr != nil {
 		res.merge(sr)
 	}
 	return concl, isErr
 }
 
+// workerTagSep separates a worker's name from its event payload, so a name may
+// contain spaces without confusing the client that renders the subagent tree.
+const workerTagSep = "\x1f"
+
+// workerName derives a short, human label for a subagent from its task, e.g.
+// "migrate the application chart" -> "migrate the application". Falls back to
+// "worker N" (1-based) when the task yields nothing usable.
+func workerName(task string, idx int) string {
+	task = strings.TrimSpace(oneLineTask(task))
+	fields := strings.Fields(task)
+	if len(fields) > 4 {
+		fields = fields[:4]
+	}
+	name := strings.Join(fields, " ")
+	if len(name) > 32 {
+		name = strings.TrimSpace(name[:32])
+	}
+	if name == "" {
+		return fmt.Sprintf("worker %d", idx+1)
+	}
+	return name
+}
+
+func oneLineTask(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
 // delegateOne runs one worker subagent and returns its Result (for the caller to
-// merge), its conclusion text, and whether it errored. tag prefixes worker event
-// data so parallel subagents are distinguishable.
-func (a *Agent) delegateOne(ctx context.Context, task, tag string) (*Result, string, bool) {
+// merge), its conclusion text, and whether it errored. name labels the subagent
+// and prefixes its worker events so the client can group and title each one.
+func (a *Agent) delegateOne(ctx context.Context, task, name string) (*Result, string, bool) {
 	if a.worker == nil {
 		return nil, "delegation is not configured for this agent", true
 	}
 	sub, err := New(Config{
-		Name:     a.cfg.Name + "/worker",
+		Name:     a.cfg.Name + "/" + name,
 		Identity: workerIdentity,
 		Model:    a.worker.model,
 		Workdir:  a.ws.root,
 	}, a.worker.prov, WithEventHook(func(e Event) {
-		a.emit("worker:"+e.Kind, tag+e.Data)
+		a.emit("worker:"+e.Kind, name+workerTagSep+e.Data)
 	}))
 	if err != nil {
 		return nil, err.Error(), true
@@ -611,7 +641,7 @@ func (a *Agent) delegateParallel(ctx context.Context, tasks []string, res *Resul
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			sr, concl, _ := a.delegateOne(ctx, task, fmt.Sprintf("#%d ", i+1))
+			sr, concl, _ := a.delegateOne(ctx, task, workerName(task, i))
 			mu.Lock()
 			if sr != nil {
 				res.merge(sr)

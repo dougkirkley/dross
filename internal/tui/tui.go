@@ -658,14 +658,17 @@ func (m Model) runStats() string {
 // trackWorker updates the live subagent tree from a worker event. Worker data
 // from parallel delegation is tagged "#N " so subagents stay distinguishable; a
 // lone delegated worker has no tag and groups under "worker".
-func (m *Model) trackWorker(kind, data string) {
-	tag := "worker"
-	rest := data
-	if strings.HasPrefix(data, "#") {
-		if i := strings.IndexByte(data, ' '); i > 0 {
-			tag, rest = data[:i], strings.TrimSpace(data[i+1:])
-		}
+// parseWorkerData splits a worker event's payload into the subagent name and the
+// underlying data, using the unit-separator the agent inserts. Untagged payloads
+// (a lone delegated worker) group under "worker".
+func parseWorkerData(data string) (name, rest string) {
+	if i := strings.IndexByte(data, '\x1f'); i >= 0 {
+		return data[:i], data[i+1:]
 	}
+	return "worker", data
+}
+
+func (m *Model) trackWorker(kind, tag, rest string) {
 	if m.workerAct == nil {
 		m.workerAct = map[string]string{}
 	}
@@ -758,7 +761,7 @@ func (m Model) workerTree() string {
 	b.WriteString("\n" + cursor(0) + checkStyle.Render("● ") + agentText.Render("main"))
 	for i, tag := range m.workerOrder {
 		act := m.workerAct[tag]
-		b.WriteString("\n" + cursor(i+1) + workerTag.Render("  ○ "+tag+" ") + resultStyle.Render(act))
+		b.WriteString("\n" + cursor(i+1) + workerTag.Render("○ "+tag) + "  " + resultStyle.Render(act))
 	}
 	b.WriteString("\n  " + metaStyle.Render("↑/↓ select · enter view subagent"))
 	return b.String()
@@ -1017,8 +1020,10 @@ func (m *Model) applyEvent(e agent.Event) {
 	kind := strings.TrimPrefix(e.Kind, "worker:")
 	indent := ""
 	if worker {
-		indent = workerTag.Render("  ⋮ ")
-		m.trackWorker(kind, e.Data)
+		var name string
+		name, e.Data = parseWorkerData(e.Data)
+		indent = workerTag.Render("  ⋮ " + name + " ")
+		m.trackWorker(kind, name, e.Data)
 	}
 	switch kind {
 	case "text":
