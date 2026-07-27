@@ -23,17 +23,26 @@ func init() {
 		}
 		// Zero-arg client also resolves an `ant auth login` profile, so a
 		// missing APIKey is not an error here.
-		return &prov{client: sdk.NewClient(opts...)}, nil
+		return NewWithClient(sdk.NewClient(opts...), "anthropic"), nil
 	})
 }
 
 const defaultMaxTokens = 16000
 
-type prov struct {
-	client sdk.Client
+// NewWithClient wraps an already-constructed Anthropic SDK client as a provider
+// under the given name. This lets other backends that speak the Anthropic
+// Messages API over a different transport (e.g. AWS Bedrock) reuse the exact
+// same session logic instead of duplicating it.
+func NewWithClient(client sdk.Client, name string) provider.Provider {
+	return &prov{client: client, name: name}
 }
 
-func (p *prov) Name() string { return "anthropic" }
+type prov struct {
+	client sdk.Client
+	name   string
+}
+
+func (p *prov) Name() string { return p.name }
 
 func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 	maxTok := cfg.MaxTokens

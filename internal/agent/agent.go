@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/dougkirkley/holocron/internal/provider"
 )
@@ -53,7 +54,7 @@ type Config struct {
 // Event is emitted for each step of a run so callers can stream progress.
 type Event struct {
 	Agent string // Config.Name
-	Kind  string // "text" | "tool" | "tool-result" | "error" | "worker:*"
+	Kind  string // "text" | "tool" | "tool-result" | "edit" | "review" | "error" | "worker:*"
 	Data  string
 }
 
@@ -96,9 +97,28 @@ func WithCheckpoint(save func(brief string) error) Option {
 	return func(a *Agent) { a.checkpoint = save }
 }
 
+// WithReviewer enables the code-review skill: after a run makes file changes, a
+// separate model (typically a stronger one than did the edits) reviews the
+// collected diffs and its findings are emitted as a "review" event and returned
+// in Result.Review. Usage is tracked under the reviewer model.
+func WithReviewer(p provider.Provider, model string) Option {
+	return func(a *Agent) { a.reviewer = &reviewer{prov: p, model: model} }
+}
+
 type worker struct {
 	prov  provider.Provider
 	model string
+}
+
+type reviewer struct {
+	prov  provider.Provider
+	model string
+}
+
+// editRec is one file change captured during a run, for the reviewer skill.
+type editRec struct {
+	file string
+	diff string
 }
 
 // Agent is a configured, runnable coding agent. Construct with New.
@@ -109,6 +129,8 @@ type Agent struct {
 	out        io.Writer
 	hook       func(Event)
 	worker     *worker
+	reviewer   *reviewer
+	edits      []editRec // changes made this run, for the reviewer skill
 	publish    PublishFunc
 	resume     string
 	checkpoint func(brief string) error
@@ -144,6 +166,7 @@ type Result struct {
 	Usage   provider.Usage            // total across all models
 	ByModel map[string]provider.Usage // per-model usage
 	Brief   string                    // handoff brief, if a checkpoint was set
+	Review  string                    // reviewer findings, if a reviewer was set
 }
 
 func (r *Result) add(model string, u provider.Usage) {
@@ -221,6 +244,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		return res, fmt.Errorf("agent %q: hit turn limit (%d)", a.cfg.Name, maxTurns)
 	}
 
+	// Code-review skill: a separate model reviews the diffs this run produced.
+	a.runReview(ctx, res)
+
 	// Handoff brief: one extra turn on the same session (full context) asking
 	// for a compact resume summary. Cheap, and what a future run replays.
 	if a.checkpoint != nil {
@@ -267,6 +293,52 @@ func (a *Agent) emit(kind, data string) {
 	}
 }
 
+// emitEdit emits a structured "edit" event describing a write/edit: the file,
+// added/removed line counts, and a unified diff. Clients render it as an
+// activity line ("Edited file +A -B") that expands to the diff.
+func (a *Agent) emitEdit(file, oldText, newText string) {
+	added, removed, diff := diffStat(oldText, newText)
+	a.edits = append(a.edits, editRec{file: file, diff: diff})
+	payload, err := json.Marshal(map[string]any{
+		"file": file, "added": added, "removed": removed, "diff": diff,
+	})
+	if err != nil {
+		return
+	}
+	a.emit("edit", string(payload))
+}
+
+const reviewerSystem = "You are a senior staff engineer doing a focused code " +
+	"review. Judge only the diffs shown. Flag real bugs, security issues, and " +
+	"regressions with the file and a concrete fix; skip style nits. Be terse. " +
+	"If nothing is wrong, reply exactly: LGTM."
+
+// runReview is the code-review skill: a separate model reviews the diffs made
+// this run. No-op unless a reviewer is configured and at least one edit landed.
+func (a *Agent) runReview(ctx context.Context, res *Result) {
+	if a.reviewer == nil || len(a.edits) == 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("Review these changes:\n\n")
+	for _, e := range a.edits {
+		b.WriteString("=== " + e.file + " ===\n" + e.diff + "\n")
+	}
+	sess := a.reviewer.prov.NewSession(provider.SessionConfig{
+		System:    reviewerSystem,
+		Model:     a.reviewer.model,
+		MaxTokens: a.cfg.MaxTokens,
+	})
+	resp, err := sess.Send(ctx, provider.Input{Text: b.String()})
+	if err != nil {
+		a.emit("error", "review: "+err.Error())
+		return
+	}
+	res.add(a.reviewer.model, resp.Usage)
+	res.Review = resp.Text
+	a.emit("review", resp.Text)
+}
+
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
 // so the run's cost reflects both models.
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
@@ -287,7 +359,12 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		return orErr(a.ws.writeFile(in.Path, in.Content))
+		old, _ := a.ws.readFile(in.Path) // "" if new file
+		out, err := a.ws.writeFile(in.Path, in.Content)
+		if err == nil {
+			a.emitEdit(in.Path, old, in.Content)
+		}
+		return orErr(out, err)
 	case "edit":
 		var in struct {
 			Path   string `json:"path"`
@@ -297,7 +374,12 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		return orErr(a.ws.editFile(in.Path, in.OldStr, in.NewStr))
+		old, _ := a.ws.readFile(in.Path)
+		out, err := a.ws.editFile(in.Path, in.OldStr, in.NewStr)
+		if err == nil {
+			a.emitEdit(in.Path, old, strings.Replace(old, in.OldStr, in.NewStr, 1))
+		}
+		return orErr(out, err)
 	case "bash":
 		var in struct {
 			Command string `json:"command"`

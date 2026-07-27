@@ -2,13 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
+import 'models.dart';
+import 'theme.dart';
+import 'screens/chats_screen.dart';
 import 'screens/sessions_screen.dart';
-
-// Carolina blue on near-black — matches the TUI theme.
-const carolina = Color(0xFF4B9CD3);
-const carolinaHi = Color(0xFF8FC7E8);
-const base = Color(0xFF0C0F12);
-const panel = Color(0xFF15181C);
 
 void main() {
   runApp(
@@ -24,25 +21,35 @@ class HolocronApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: carolina,
-      brightness: Brightness.dark,
-    ).copyWith(
-      surface: base,
-      primary: carolina,
-      secondary: carolinaHi,
-    );
     return MaterialApp(
       title: 'Holocron',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: base,
-        appBarTheme: const AppBarTheme(backgroundColor: panel),
-        fontFamily: 'monospace',
-      ),
-      home: const SessionsScreen(),
+      theme: T.themeData(),
+      home: const Home(),
     );
   }
+}
+
+/// Routes to the direct-mode chat list or the remote-session list based on the
+/// selected connection mode.
+class Home extends StatelessWidget {
+  const Home({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = context.select<AppState, ConnMode>((s) => s.mode);
+    return mode == ConnMode.direct
+        ? const ChatsScreen()
+        : const SessionsScreen();
+  }
+}
+
+/// Human-friendly relative time ("now", "3h", "5d").
+String relTime(DateTime t) {
+  final d = DateTime.now().difference(t);
+  if (d.inSeconds < 60) return 'now';
+  if (d.inMinutes < 60) return '${d.inMinutes}m';
+  if (d.inHours < 24) return '${d.inHours}h';
+  if (d.inDays < 7) return '${d.inDays}d';
+  return '${(d.inDays / 7).floor()}w';
 }

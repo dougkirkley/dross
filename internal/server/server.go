@@ -6,6 +6,7 @@ import (
 	"github.com/dougkirkley/holocron/internal/artifact"
 	"github.com/dougkirkley/holocron/internal/auth"
 	"github.com/dougkirkley/holocron/internal/storage"
+	"github.com/dougkirkley/holocron/internal/web"
 )
 
 // Server is the HTTP surface for `holocron serve`: server-side sessions that
@@ -70,8 +71,18 @@ func (s *Server) buildHandler() http.Handler {
 	api := s.apiMux()
 	root := http.NewServeMux()
 	root.HandleFunc("GET /a/{id}", s.handleArtifactGet) // capability URL — unauth by design
+
+	// "/" serves the embedded Flutter client when a real build is bundled;
+	// otherwise fall back to the API mux (so a UI-less binary still 404s cleanly
+	// on non-API paths rather than hard-failing).
+	rootFallback := http.Handler(api)
+	if h, ok := web.Handler(); ok {
+		rootFallback = h
+	}
+
 	if s.auth == nil {
-		root.Handle("/", api)
+		root.Handle("/api/", api)
+		root.Handle("/", rootFallback)
 		return root
 	}
 	root.HandleFunc("GET /auth/login", s.auth.Login)
@@ -80,6 +91,6 @@ func (s *Server) buildHandler() http.Handler {
 	root.HandleFunc("GET /auth/logout", s.auth.Logout)
 	root.HandleFunc("GET /api/health", s.handleHealth) // more specific than /api/ → wins, unauth
 	root.Handle("/api/", s.auth.Middleware(api))
-	root.Handle("/", api)
+	root.Handle("/", rootFallback) // static UI is public; API stays gated
 	return root
 }

@@ -132,6 +132,69 @@ func (w *workspace) editFile(path, oldStr, newStr string) (string, error) {
 	return fmt.Sprintf("edited %s (1 replacement)", path), nil
 }
 
+// diffStat produces a line-level diff of oldText vs newText: the number of
+// added and removed lines plus a unified-ish diff (each line prefixed "+ ", "- "
+// or "  "). Uses a standard LCS so unchanged lines are preserved as context —
+// this backs the mobile "Edited file +A -B" activity + expandable diff view.
+func diffStat(oldText, newText string) (added, removed int, unified string) {
+	var o, n []string
+	if oldText != "" {
+		o = strings.Split(strings.TrimRight(oldText, "\n"), "\n")
+	}
+	if newText != "" {
+		n = strings.Split(strings.TrimRight(newText, "\n"), "\n")
+	}
+	m, k := len(o), len(n)
+	// lcs[i][j] = length of the longest common subsequence of o[i:] and n[j:].
+	lcs := make([][]int, m+1)
+	for i := range lcs {
+		lcs[i] = make([]int, k+1)
+	}
+	for i := m - 1; i >= 0; i-- {
+		for j := k - 1; j >= 0; j-- {
+			if o[i] == n[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else if lcs[i+1][j] >= lcs[i][j+1] {
+				lcs[i][j] = lcs[i+1][j]
+			} else {
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+	var b strings.Builder
+	i, j := 0, 0
+	for i < m && j < k {
+		switch {
+		case o[i] == n[j]:
+			b.WriteString("  " + o[i] + "\n")
+			i++
+			j++
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			b.WriteString("- " + o[i] + "\n")
+			removed++
+			i++
+		default:
+			b.WriteString("+ " + n[j] + "\n")
+			added++
+			j++
+		}
+	}
+	for ; i < m; i++ {
+		b.WriteString("- " + o[i] + "\n")
+		removed++
+	}
+	for ; j < k; j++ {
+		b.WriteString("+ " + n[j] + "\n")
+		added++
+	}
+	diff := b.String()
+	const cap = 12000 // keep events light; the counts stay exact
+	if len(diff) > cap {
+		diff = diff[:cap] + "\n… (diff truncated)\n"
+	}
+	return added, removed, diff
+}
+
 // readForPublish reads a workspace file and reports its bytes, MIME type
 // (extension first, then content sniffing), and base name — for the publish
 // tool.

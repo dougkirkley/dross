@@ -88,6 +88,80 @@ func TestRun_WritesThenEdits(t *testing.T) {
 	}
 }
 
+// TestReviewSkill proves the code-review skill: after the lead writes a file, a
+// separate reviewer model reviews the diff. Its findings land in Result.Review,
+// a "review" event is emitted, and its usage is tracked under the reviewer model.
+func TestReviewSkill(t *testing.T) {
+	dir := t.TempDir()
+	lead := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopToolUse,
+			ToolCalls: []provider.ToolCall{
+				toolCall("1", "write", map[string]string{"path": "a.go", "content": "package a\n"}),
+			},
+		},
+		{StopReason: provider.StopEndTurn, Text: "done"},
+	}}
+	rev := &scriptedProvider{steps: []provider.Response{
+		{
+			StopReason: provider.StopEndTurn,
+			Text:       "a.go: missing license header.",
+			Usage:      provider.Usage{InputTokens: 80, OutputTokens: 12},
+		},
+	}}
+
+	var kinds []string
+	ag, err := New(Config{Name: "t", Model: "lead-model", Workdir: dir}, lead,
+		WithReviewer(rev, "reviewer-model"),
+		WithEventHook(func(e Event) { kinds = append(kinds, e.Kind) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ag.Run(context.Background(), "write a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Review, "missing license") {
+		t.Fatalf("Review = %q", res.Review)
+	}
+	if _, ok := res.ByModel["reviewer-model"]; !ok {
+		t.Fatalf("reviewer usage not tracked: %v", res.ByModel)
+	}
+	found := false
+	for _, k := range kinds {
+		if k == "review" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no review event emitted; got %v", kinds)
+	}
+}
+
+// TestReviewSkillNoEdits: with a reviewer configured but no file changes, the
+// reviewer is never invoked and Review stays empty.
+func TestReviewSkillNoEdits(t *testing.T) {
+	dir := t.TempDir()
+	lead := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopEndTurn, Text: "nothing to change"},
+	}}
+	rev := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopEndTurn, Text: "should not run"},
+	}}
+	ag, _ := New(Config{Name: "t", Model: "m", Workdir: dir}, lead,
+		WithReviewer(rev, "reviewer-model"))
+	res, err := ag.Run(context.Background(), "just answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Review != "" {
+		t.Fatalf("expected no review, got %q", res.Review)
+	}
+	if rev.last != nil {
+		t.Fatal("reviewer session should not have been opened")
+	}
+}
+
 // TestDelegate proves the lead delegates a subtask to the worker model: the
 // worker writes the file, the lead finishes, and usage is tracked per model so
 // cost reflects the split (worker model here is priced 0, i.e. local).

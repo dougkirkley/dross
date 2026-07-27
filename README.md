@@ -53,16 +53,59 @@ Key flags: `--provider` (`anthropic` | `openai`), `--model`, `--base-url`,
 
 ### Providers
 
-Backends self-register (driver style). Two ship today:
+Backends self-register (driver style). Three ship today:
 
 - **`anthropic`** — the official Anthropic Go SDK. Prompt caching on the system
   prompt, adaptive thinking, per-turn usage.
 - **`openai`** — any OpenAI-compatible `/chat/completions` endpoint: OpenAI
   itself, or a local **ollama** server (point `--base-url` at its `/v1`). This is
   the free local tier.
+- **`bedrock`** — Anthropic models on **AWS Bedrock**, speaking the same
+  Messages API over Bedrock's transport (shares the anthropic session logic).
+  Credentials and region come from the standard AWS default chain
+  (`AWS_REGION`/`AWS_DEFAULT_REGION`, access keys, `AWS_PROFILE`, SSO, instance
+  roles). Pass a Bedrock model id or inference-profile id as `--model`, e.g.
+  `us.anthropic.claude-opus-4-5-20251101-v1:0`.
 
 Credentials: `ANTHROPIC_API_KEY` (or an `ant auth login` profile) for Anthropic;
-`--api-key` / `--base-url` for OpenAI-compatible.
+`--api-key` / `--base-url` for OpenAI-compatible; the AWS chain for Bedrock. See
+**Configuration** below for env vars and the config file.
+
+## Configuration
+
+Provider settings resolve from three layers, in increasing precedence: a JSON
+config file, environment variables, then command flags. An explicitly-set flag
+always wins; otherwise an env var beats the file, which beats the built-in
+default.
+
+**Environment variables** (the ones other tools honor):
+
+| Provider | Base URL | API key / credentials |
+|---|---|---|
+| `anthropic` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_API_KEY` |
+| `openai` | `OPENAI_BASE_URL` (or `OPENAI_API_BASE`) | `OPENAI_API_KEY` |
+| `bedrock` | `ANTHROPIC_BEDROCK_BASE_URL` (optional) | AWS default chain (`AWS_REGION`, `AWS_PROFILE`, ...) |
+
+**Config file** (JSON), searched in order: `--config <path>`,
+`$HOLOCRON_CONFIG`, `./holocron.json`, `~/.holocron/settings.json`, then the
+user config dir (`.../holocron/config.json`). First one found wins. Shape:
+
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-opus-5",
+  "base_url": "",
+  "api_key": "",
+  "style": "normal",
+  "worker": {
+    "provider": "openai",
+    "model": "qwen3-coder:30b",
+    "base_url": "https://ollama.example.com/v1"
+  }
+}
+```
+
+The `worker` block enables cost-aware delegation (below) without any flags.
 
 ## Cost-aware delegation (lead + worker)
 
@@ -80,6 +123,32 @@ holocron agent --model claude-opus-5 \
 ```
 
 Every run prints a per-model token/cost breakdown and a total.
+
+## Code review skill (separate reviewer model)
+
+Give the agent a **reviewer** model and, after a run makes file changes, that
+model reviews the collected diffs — a second opinion from a different (often
+stronger) model than did the edits. Findings are printed at the end of the run,
+emitted as a `review` event for clients, and returned in `Result.Review`. The
+reviewer's usage is tracked under its own model, so its cost shows in the
+breakdown.
+
+```bash
+holocron agent --model qwen3-coder:30b --provider openai --base-url https://ollama.example.com/v1 \
+  --reviewer-provider anthropic --reviewer-model claude-opus-5 \
+  -C ./repo "add input validation to the config loader"
+# ... run output ...
+# --- code review (claude-opus-5) ---
+# config.go: the new length check uses < where it should be <=; off-by-one …
+```
+
+Or configure it once in the config file:
+
+```json
+{ "reviewer": { "provider": "anthropic", "model": "claude-opus-5" } }
+```
+
+The reviewer only runs when at least one file was written/edited.
 
 ## Context economy
 
@@ -227,7 +296,9 @@ cmd/holocron            subcommands: agent · tui · serve · brief
 internal/agent          importable agent: tool loop, workspace, delegation, cost, brief
 internal/provider       model-agnostic registry (driver-style init())
   ├── anthropic         Anthropic Go SDK + prompt caching
+  ├── bedrock           Anthropic on AWS Bedrock (reuses anthropic session)
   └── openai            OpenAI-compatible (OpenAI, ollama)
+internal/config         provider config: JSON file + env var resolution
 internal/server         serve: session manager, SSE, HTTP API
 internal/auth           SSO: OIDC login, bearer, Cloudflare Access
 internal/artifact       capability-URL store (publish/share files)

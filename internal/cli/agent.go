@@ -18,6 +18,7 @@ func newAgentCmd() *cobra.Command {
 		workdir, model, name, identity, style             string
 		provName, baseURL, apiKey                         string
 		workerProv, workerModel, workerBaseURL, workerKey string
+		revProv, revModel, revBaseURL, revKey             string
 		sessionName                                       string
 		fresh                                             bool
 	)
@@ -31,18 +32,34 @@ func newAgentCmd() *cobra.Command {
 				return fmt.Errorf("a prompt is required")
 			}
 
-			prov, err := provider.New(provName, provider.Config{BaseURL: baseURL, APIKey: apiKey})
+			pc, err := resolveProviders(cmd, provName, model)
+			if err != nil {
+				return err
+			}
+			model = pc.Lead.Model
+			if style == "" && pc.File.Style != "" {
+				style = pc.File.Style
+			}
+
+			prov, err := provider.New(pc.Lead.Provider, provider.Config{BaseURL: pc.Lead.BaseURL, APIKey: pc.Lead.APIKey})
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
 			}
 
 			opts := []agent.Option{agent.WithOutput(cmd.OutOrStdout())}
-			if workerModel != "" {
-				wp, err := provider.New(workerProv, provider.Config{BaseURL: workerBaseURL, APIKey: workerKey})
+			if pc.WorkerEnabled {
+				wp, err := provider.New(pc.Worker.Provider, provider.Config{BaseURL: pc.Worker.BaseURL, APIKey: pc.Worker.APIKey})
 				if err != nil {
 					return fmt.Errorf("worker provider: %w", err)
 				}
-				opts = append(opts, agent.WithWorker(wp, workerModel))
+				opts = append(opts, agent.WithWorker(wp, pc.Worker.Model))
+			}
+			if pc.ReviewerEnabled {
+				rp, err := provider.New(pc.Reviewer.Provider, provider.Config{BaseURL: pc.Reviewer.BaseURL, APIKey: pc.Reviewer.APIKey})
+				if err != nil {
+					return fmt.Errorf("reviewer provider: %w", err)
+				}
+				opts = append(opts, agent.WithReviewer(rp, pc.Reviewer.Model))
 			}
 			if sessionName != "" {
 				sp, err := mustStorePath()
@@ -82,6 +99,9 @@ func newAgentCmd() *cobra.Command {
 					m, u.InputTokens, u.OutputTokens, u.CacheReadTokens, agent.Cost(m, u))
 			}
 			fmt.Fprintf(out, "total cost: $%.4f\n", res.Cost())
+			if res.Review != "" {
+				fmt.Fprintf(out, "\n--- code review (%s) ---\n%s\n", pc.Reviewer.Model, res.Review)
+			}
 			return nil
 		},
 	}
@@ -98,6 +118,10 @@ func newAgentCmd() *cobra.Command {
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation)")
 	f.StringVar(&workerBaseURL, "worker-base-url", "", "worker provider base URL")
 	f.StringVar(&workerKey, "worker-api-key", "", "worker provider API key")
+	f.StringVar(&revProv, "reviewer-provider", "anthropic", "reviewer backend")
+	f.StringVar(&revModel, "reviewer-model", "", "reviewer model id (enables the code-review skill)")
+	f.StringVar(&revBaseURL, "reviewer-base-url", "", "reviewer provider base URL")
+	f.StringVar(&revKey, "reviewer-api-key", "", "reviewer provider API key")
 	f.StringVar(&sessionName, "session", "", "named session: resume from its brief and checkpoint at the end")
 	f.BoolVar(&fresh, "fresh", false, "with --session, ignore the existing brief")
 	return cmd

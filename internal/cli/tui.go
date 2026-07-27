@@ -34,7 +34,12 @@ func newTUICmd() *cobra.Command {
 				return nil
 			}
 
-			prov, err := provider.New(provName, provider.Config{BaseURL: baseURL, APIKey: apiKey})
+			res, err := resolveProviders(cmd, provName, model)
+			if err != nil {
+				return err
+			}
+			provName, model = res.Lead.Provider, res.Lead.Model
+			prov, err := provider.New(provName, provider.Config{BaseURL: res.Lead.BaseURL, APIKey: res.Lead.APIKey})
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
 			}

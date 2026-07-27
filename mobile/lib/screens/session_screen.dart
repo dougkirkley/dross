@@ -3,12 +3,16 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import '../theme.dart';
+import '../widgets/activity.dart';
+import '../widgets/logo.dart';
+import 'chat_screen.dart' show ProseText;
 
-// Chat-like view of a session's live event stream, with an input bar. Mirrors
-// the TUI: tool calls, delegation (worker events indented), cost in the bar.
+/// Remote-session conversation. Streams the serve event log (tool calls,
+/// delegation indented, cost) styled to match the app: user bubbles, serif
+/// assistant prose, monospace tool lines.
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
-
   @override
   State<SessionScreen> createState() => _SessionScreenState();
 }
@@ -21,8 +25,6 @@ class _SessionScreenState extends State<SessionScreen> {
   void dispose() {
     _input.dispose();
     _scroll.dispose();
-    // Keep the session attached in AppState so it streams in the background;
-    // detach only if you want to stop. Here we leave it attached.
     super.dispose();
   }
 
@@ -30,7 +32,7 @@ class _SessionScreenState extends State<SessionScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
         _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
       }
     });
   }
@@ -40,40 +42,58 @@ class _SessionScreenState extends State<SessionScreen> {
     final s = context.watch<AppState>();
     final sess = s.current;
     _autoScroll();
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(sess?.model ?? 'session'),
-        actions: [
-          if (sess?.isRunning ?? false)
-            IconButton(
-              icon: const Icon(Icons.stop_circle_outlined),
-              tooltip: 'Interrupt',
-              onPressed: () => context.read<AppState>().interrupt(),
+    return SelectionArea(
+      child: Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            FlatHeader(
+              title: sess?.model ?? 'session',
+              subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
+              leading: CircleIconButton(
+                  icon: Icons.chevron_left,
+                  onTap: () => Navigator.pop(context)),
+              trailing: (sess?.isRunning ?? false)
+                  ? CircleIconButton(
+                      icon: Icons.stop,
+                      tooltip: 'Interrupt',
+                      onTap: () => context.read<AppState>().interrupt())
+                  : null,
             ),
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Text('\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
-                  style: const TextStyle(color: Color(0xFF8FC7E8))),
+            Expanded(
+              child: Builder(builder: (_) {
+                final timeline = buildTimeline(s.events);
+                return ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  itemCount: timeline.length,
+                  itemBuilder: (_, i) {
+                    final item = timeline[i];
+                    if (item is Activity) return ActivityBlock(item);
+                    return _eventRow(item as Event);
+                  },
+                );
+              }),
             ),
-          ),
-        ],
+            if (sess?.isRunning ?? false)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Row(children: [
+                  const HolocronSpinner(size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(currentActivityLabel(s.events),
+                        style: T.meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ]),
+              ),
+            _inputBar(context),
+          ],
+        ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.all(12),
-              itemCount: s.events.length,
-              itemBuilder: (_, i) => _eventRow(s.events[i]),
-            ),
-          ),
-          if (sess?.isRunning ?? false) const LinearProgressIndicator(minHeight: 2),
-          _inputBar(context),
-        ],
-      ),
-    );
+    ));
   }
 
   Widget _eventRow(Event e) {
@@ -81,73 +101,88 @@ class _SessionScreenState extends State<SessionScreen> {
     Widget content;
     switch (e.baseKind) {
       case 'prompt':
-        content = _line('you', e.data, const Color(0xFF6B7280), bold: true);
+        content = Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.82),
+            decoration: BoxDecoration(
+                color: T.surfaceAlt,
+                borderRadius: BorderRadius.circular(T.rBubble)),
+            child: Text(e.data, style: T.body),
+          ),
+        );
         break;
       case 'text':
-        content = _line('holocron', e.data, const Color(0xFF4B9CD3), bold: true);
+        content = ProseText(e.data);
         break;
       case 'tool':
-        content = _mono('→ ${e.data}', const Color(0xFF8FC7E8));
+        content = _mono('→ ${e.data}', T.accentHi);
         break;
       case 'tool-result':
-        content = _mono(e.data, const Color(0xFF4B5158), max: 3);
+        content = _mono(e.data, T.textFaint, max: 3);
         break;
       case 'checkpoint':
-        content = _mono('✓ ${e.data}', const Color(0xFF8FC7E8));
+        content = _mono('✓ ${e.data}', T.accentHi);
         break;
       case 'error':
-        content = _mono('✗ ${e.data}', const Color(0xFFE06C75));
+        content = _mono('✗ ${e.data}', T.danger);
         break;
       case 'done':
-        content = _mono('done · ${e.data}', const Color(0xFF6B7280));
+        content = _mono('done · ${e.data}', T.textFaint);
         break;
       default:
-        content = _mono(e.data, const Color(0xFF9AA0A6));
+        content = _mono(e.data, T.textDim);
     }
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 3).add(indent), child: content);
+    return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6).add(indent),
+        child: content);
   }
-
-  Widget _line(String label, String text, Color color, {bool bold = false}) => RichText(
-        text: TextSpan(children: [
-          TextSpan(
-            text: '$label  ',
-            style: TextStyle(color: color, fontWeight: bold ? FontWeight.bold : null, fontFamily: 'monospace'),
-          ),
-          TextSpan(text: text, style: const TextStyle(color: Color(0xFFE6E6E6), fontFamily: 'monospace')),
-        ]),
-      );
 
   Widget _mono(String text, Color color, {int? max}) => Text(
         text,
         maxLines: max,
         overflow: max != null ? TextOverflow.ellipsis : TextOverflow.clip,
-        style: TextStyle(color: color, fontFamily: 'monospace', fontSize: 13),
+        style: T.mono.copyWith(color: color),
       );
 
   Widget _inputBar(BuildContext context) => SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            children: [
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+            decoration: BoxDecoration(
+              color: T.surface,
+              borderRadius: BorderRadius.circular(T.rCard),
+              border: Border.all(color: T.border),
+            ),
+            child: Row(children: [
               Expanded(
                 child: TextField(
                   controller: _input,
                   minLines: 1,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    hintText: 'ask holocron…',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
+                  maxLines: 5,
+                  style: T.body,
+                  decoration: const InputDecoration.collapsed(
+                      hintText: 'Reply…',
+                      hintStyle: TextStyle(color: T.textDim)),
                   onSubmitted: (_) => _send(context),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.send, color: Color(0xFF4B9CD3)),
-                onPressed: () => _send(context),
+              GestureDetector(
+                onTap: () => _send(context),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                      color: T.accent, shape: BoxShape.circle),
+                  child: const Icon(Icons.arrow_upward, size: 20, color: T.bg),
+                ),
               ),
-            ],
+            ]),
           ),
         ),
       );

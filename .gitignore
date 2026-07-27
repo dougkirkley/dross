@@ -17,3 +17,7 @@ uploads/
 
 # editors
 .idea/
+
+# embedded web build: keep only the placeholder; real assets copied in Docker
+internal/web/dist/*
+!internal/web/dist/index.html

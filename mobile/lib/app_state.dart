@@ -1,48 +1,344 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'direct/provider.dart';
 import 'models.dart';
 
-/// AppState holds the server config and the currently-attached session's live
-/// event stream. It survives view changes so a run keeps streaming while the
-/// user navigates.
+/// AppState is the single source of truth for both worlds:
+///   - Direct mode (default): client-side chat against a provider, with an
+///     editable send queue while a reply streams.
+///   - Remote mode: attach to `holocron serve` (server-side sessions, SSE).
+/// Non-secret config lives in SharedPreferences; API keys and OAuth tokens live
+/// in the platform secure store.
 class AppState extends ChangeNotifier {
+  final _secure = const FlutterSecureStorage();
+
+  // --- config ---------------------------------------------------------
+  ConnMode mode = ConnMode.direct;
+
+  // direct: provider selection + per-provider config
+  ProviderKind providerKind = ProviderKind.openai;
+  String openaiBaseUrl = 'https://ollama.farmerjohnparmesan.com/v1';
+  String openaiKey = '';
+  String openaiModel = 'qwen3-coder:30b';
+
+  String anthropicBaseUrl = 'https://api.anthropic.com';
+  String anthropicKey = '';
+  String anthropicModel = 'claude-opus-5';
+
+  String identity = '';
+
+  // Agent permission mode (Claude-style). Enforced by the serve agent in remote
+  // mode; informational in direct mode (no tools).
+  PermissionMode permissionMode = PermissionMode.auto;
+
+  // remote (serve)
   String baseUrl = '';
   String token = '';
 
+  // --- direct state ---------------------------------------------------
+  final List<DirectChat> chats = [];
+  DirectChat? currentChat;
+
+  /// Messages typed while a reply is streaming. Editable: an item can be
+  /// dropped back out before it fires.
+  final List<String> queue = [];
+  StreamSubscription<String>? _directSub;
+
+  /// Files attached to the next message (chips shown above the input).
+  final List<Attachment> pending = [];
+
+  /// Test seam: when set, [_startTurn] uses this instead of building a real
+  /// provider from config, so streaming + queue behaviour can be driven without
+  /// a network.
+  @visibleForTesting
+  Future<DirectProvider> Function()? providerOverride;
+
+  // --- remote state (unchanged behaviour) -----------------------------
   List<Session> sessions = [];
   bool loadingSessions = false;
-  String? error;
-
-  // Currently-attached session.
   Session? current;
   final List<Event> events = [];
   StreamSubscription<Event>? _sub;
 
-  bool get configured => baseUrl.isNotEmpty;
+  String? error;
+
+  bool get isDirect => mode == ConnMode.direct;
+  bool get remoteConfigured => baseUrl.isNotEmpty;
+  bool get streaming =>
+      currentChat?.messages.isNotEmpty == true &&
+      currentChat!.messages.last.streaming;
+
+  String get currentModel => switch (providerKind) {
+        ProviderKind.openai => openaiModel,
+        ProviderKind.anthropic => anthropicModel,
+      };
 
   HolocronClient get _client => HolocronClient(baseUrl: baseUrl, token: token);
 
+  // --- load / save ----------------------------------------------------
+
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    baseUrl = prefs.getString('baseUrl') ?? '';
-    token = prefs.getString('token') ?? '';
+    final p = await SharedPreferences.getInstance();
+    mode = ConnMode.values[p.getInt('mode') ?? 0];
+    providerKind = ProviderKind.values[p.getInt('providerKind') ?? 0];
+    openaiBaseUrl = p.getString('openaiBaseUrl') ?? openaiBaseUrl;
+    openaiModel = p.getString('openaiModel') ?? openaiModel;
+    anthropicBaseUrl = p.getString('anthropicBaseUrl') ?? anthropicBaseUrl;
+    anthropicModel = p.getString('anthropicModel') ?? anthropicModel;
+    identity = p.getString('identity') ?? '';
+    permissionMode = PermissionMode.values[p.getInt('permissionMode') ?? 0];
+    baseUrl = p.getString('baseUrl') ?? '';
+    // secrets
+    openaiKey = await _secure.read(key: 'openaiKey') ?? '';
+    anthropicKey = await _secure.read(key: 'anthropicKey') ?? '';
+    token = await _secure.read(key: 'remoteToken') ?? '';
+    // chats
+    final raw = p.getString('chats');
+    if (raw != null) {
+      chats
+        ..clear()
+        ..addAll((jsonDecode(raw) as List)
+            .map((e) => DirectChat.fromJson(e as Map<String, dynamic>)));
+      chats.sort((a, b) => b.updated.compareTo(a.updated));
+    }
     notifyListeners();
-    if (configured) await refreshSessions();
+    if (!isDirect && remoteConfigured) await refreshSessions();
   }
 
-  Future<void> saveConfig(String url, String tok) async {
-    baseUrl = url.trim().replaceAll(RegExp(r'/+$'), '');
-    token = tok.trim();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('baseUrl', baseUrl);
-    await prefs.setString('token', token);
+  Future<void> saveConfig() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('mode', mode.index);
+    await p.setInt('providerKind', providerKind.index);
+    await p.setString('openaiBaseUrl', openaiBaseUrl);
+    await p.setString('openaiModel', openaiModel);
+    await p.setString('anthropicBaseUrl', anthropicBaseUrl);
+    await p.setString('anthropicModel', anthropicModel);
+    await p.setString('identity', identity);
+    await p.setInt('permissionMode', permissionMode.index);
+    await p.setString('baseUrl', baseUrl);
+    await _secure.write(key: 'openaiKey', value: openaiKey);
+    await _secure.write(key: 'anthropicKey', value: anthropicKey);
+    await _secure.write(key: 'remoteToken', value: token);
     notifyListeners();
-    if (configured) await refreshSessions();
+    if (!isDirect && remoteConfigured) await refreshSessions();
   }
+
+  Future<void> _persistChats() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+        'chats', jsonEncode(chats.map((c) => c.toJson()).toList()));
+  }
+
+  // --- direct chat ----------------------------------------------------
+
+  Future<DirectProvider> _buildProvider() async {
+    switch (providerKind) {
+      case ProviderKind.openai:
+        return OpenAICompatProvider(
+            baseUrl: openaiBaseUrl,
+            apiKey: openaiKey,
+            model: openaiModel,
+            system: identity);
+      case ProviderKind.anthropic:
+        if (anthropicKey.isEmpty) {
+          throw Exception('set an Anthropic API key under Settings');
+        }
+        return AnthropicProvider(
+            model: anthropicModel,
+            apiKey: anthropicKey,
+            baseUrl: anthropicBaseUrl,
+            identity: identity);
+    }
+  }
+
+  DirectChat newChat() {
+    final c = DirectChat(
+      id: 'c${DateTime.now().microsecondsSinceEpoch}',
+      title: 'New chat',
+      messages: [],
+      updated: DateTime.now(),
+    );
+    chats.insert(0, c);
+    currentChat = c;
+    queue.clear();
+    notifyListeners();
+    return c;
+  }
+
+  void openChat(DirectChat c) {
+    _directSub?.cancel();
+    currentChat = c;
+    queue.clear();
+    notifyListeners();
+  }
+
+  Future<void> deleteChat(DirectChat c) async {
+    chats.remove(c);
+    if (currentChat == c) currentChat = null;
+    await _persistChats();
+    notifyListeners();
+  }
+
+  /// Switches between direct (Chats) and remote (Code) views; persisted.
+  void setMode(ConnMode m) {
+    if (mode == m) return;
+    mode = m;
+    notifyListeners();
+    SharedPreferences.getInstance().then((p) => p.setInt('mode', m.index));
+    if (m == ConnMode.remote && remoteConfigured) refreshSessions();
+  }
+
+  void setPermissionMode(PermissionMode m) {
+    permissionMode = m;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((p) => p.setInt('permissionMode', m.index));
+  }
+
+  void addAttachment(Attachment a) {
+    pending.add(a);
+    notifyListeners();
+  }
+
+  void removeAttachment(int i) {
+    if (i >= 0 && i < pending.length) {
+      pending.removeAt(i);
+      notifyListeners();
+    }
+  }
+
+  /// Folds attachments into the message text. Text-like files are inlined in a
+  /// fenced block; other files get a marker (direct-mode providers here are
+  /// text-only). Remote mode uploads files separately.
+  String _composeWithAttachments(String text, List<Attachment> atts) {
+    if (atts.isEmpty) return text;
+    final b = StringBuffer();
+    for (final a in atts) {
+      if (a.text != null && a.text!.isNotEmpty) {
+        b.writeln('Attached file `${a.name}`:\n```\n${a.text}\n```\n');
+      } else {
+        b.writeln(
+            '[attached ${a.name}${a.mime.isEmpty ? '' : ' (${a.mime})'} — not inlined]\n');
+      }
+    }
+    b.write(text);
+    return b.toString().trim();
+  }
+
+  /// Sends [text] (plus any pending attachments) in the current chat. If a reply
+  /// is already streaming, the message is queued (visible, removable) and fires
+  /// when the turn completes.
+  Future<void> sendDirect(String text) async {
+    final atts = List<Attachment>.from(pending);
+    final composed = _composeWithAttachments(text.trim(), atts);
+    if (composed.isEmpty) return;
+    pending.clear();
+    currentChat ??= newChat();
+    if (streaming) {
+      queue.add(composed);
+      notifyListeners();
+      return;
+    }
+    await _startTurn(composed);
+  }
+
+  /// Removes queued message [i] and returns its text so the UI can drop it back
+  /// into the input for editing ("drop out of the queue").
+  String removeQueued(int i) {
+    if (i < 0 || i >= queue.length) return '';
+    final s = queue.removeAt(i);
+    notifyListeners();
+    return s;
+  }
+
+  /// Promotes queued message [i] to the current turn: interrupts the in-flight
+  /// reply and immediately runs the queued message. Mirrors the TUI's Ctrl+C
+  /// behaviour (default promotes the head of the queue).
+  void promoteQueued([int i = 0]) {
+    if (i < 0 || i >= queue.length) return;
+    final text = queue.removeAt(i);
+    _directSub?.cancel();
+    _directSub = null;
+    final m = currentChat?.messages;
+    if (m != null && m.isNotEmpty && m.last.streaming) {
+      m.last.streaming = false;
+      if (m.last.text.isEmpty) m.last.text = '(interrupted)';
+    }
+    _startTurn(text);
+  }
+
+  Future<void> _startTurn(String userText) async {
+    final chat = currentChat!;
+    chat.messages.add(ChatMessage(role: 'user', text: userText));
+    final assistant = ChatMessage(role: 'assistant', streaming: true);
+    chat.messages.add(assistant);
+    if (chat.title == 'New chat' || chat.title.isEmpty) {
+      chat.title =
+          userText.length > 48 ? '${userText.substring(0, 48)}…' : userText;
+    }
+    chat.updated = DateTime.now();
+    _bumpChat(chat);
+    notifyListeners();
+
+    try {
+      final prov = await (providerOverride ?? _buildProvider)();
+      // History excludes the still-empty streaming assistant turn.
+      final history = chat.messages.sublist(0, chat.messages.length - 1);
+      _directSub = prov.stream(history).listen(
+        (delta) {
+          assistant.text += delta;
+          notifyListeners();
+        },
+        onDone: () => _finishTurn(assistant),
+        onError: (e) {
+          assistant.text += assistant.text.isEmpty ? '' : '\n\n';
+          assistant.text += '⚠ $e';
+          _finishTurn(assistant);
+        },
+        cancelOnError: true,
+      );
+    } catch (e) {
+      assistant.text = '⚠ $e';
+      _finishTurn(assistant);
+    }
+  }
+
+  void _finishTurn(ChatMessage assistant) {
+    assistant.streaming = false;
+    _directSub = null;
+    _persistChats();
+    notifyListeners();
+    // Fire the next queued message, if any.
+    if (queue.isNotEmpty) {
+      final next = queue.removeAt(0);
+      _startTurn(next);
+    }
+  }
+
+  void interruptDirect() {
+    _directSub?.cancel();
+    _directSub = null;
+    final m = currentChat?.messages;
+    if (m != null && m.isNotEmpty && m.last.streaming) {
+      m.last.streaming = false;
+      if (m.last.text.isEmpty) m.last.text = '(interrupted)';
+    }
+    _persistChats();
+    notifyListeners();
+  }
+
+  void _bumpChat(DirectChat c) {
+    chats.remove(c);
+    chats.insert(0, c);
+  }
+
+  // --- remote (serve) -------------------------------------------------
 
   Future<void> refreshSessions() async {
     loadingSessions = true;
@@ -60,7 +356,8 @@ class AppState extends ChangeNotifier {
 
   Future<Session?> createSession({String? model, String? workerModel}) async {
     try {
-      final s = await _client.createSession(model: model, workerModel: workerModel);
+      final s =
+          await _client.createSession(model: model, workerModel: workerModel);
       await refreshSessions();
       return s;
     } catch (e) {
@@ -70,7 +367,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// attach loads history for a session and starts tailing its live stream.
   Future<void> attach(Session s) async {
     await _sub?.cancel();
     current = s;
@@ -99,7 +395,6 @@ class AppState extends ChangeNotifier {
         }
       },
       onDone: () {
-        // Stream closed (e.g. backgrounded). Reconnect from the last seq.
         if (current?.id == s.id) _startStream();
       },
       onError: (_) {},
@@ -146,6 +441,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _sub?.cancel();
+    _directSub?.cancel();
     super.dispose();
   }
 }

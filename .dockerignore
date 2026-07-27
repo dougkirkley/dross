@@ -1,0 +1,12 @@
+.git
+holocron
+*.out
+frontend/node_modules
+mobile/.dart_tool
+mobile/android
+mobile/ios
+mobile/linux
+mobile/macos
+mobile/windows
+mobile/build/ios
+mobile/build/macos

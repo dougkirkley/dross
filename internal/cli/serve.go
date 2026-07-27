@@ -31,13 +31,18 @@ func newServeCmd() *cobra.Command {
 		Short: "Run the HTTP + SSE server (sessions, remote control)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			lead, err := provider.New(provName, provider.Config{BaseURL: baseURL, APIKey: apiKey})
+			res, err := resolveProviders(cmd, provName, model)
+			if err != nil {
+				return err
+			}
+			provName, model = res.Lead.Provider, res.Lead.Model
+			lead, err := provider.New(provName, provider.Config{BaseURL: res.Lead.BaseURL, APIKey: res.Lead.APIKey})
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
 			}
 			var worker provider.Provider
-			if workerBaseURL != "" || workerKey != "" {
-				worker, err = provider.New(workerProv, provider.Config{BaseURL: workerBaseURL, APIKey: workerKey})
+			if res.Worker.BaseURL != "" || res.Worker.APIKey != "" || (res.File.Worker != nil) {
+				worker, err = provider.New(res.Worker.Provider, provider.Config{BaseURL: res.Worker.BaseURL, APIKey: res.Worker.APIKey})
 				if err != nil {
 					return fmt.Errorf("worker provider: %w", err)
 				}

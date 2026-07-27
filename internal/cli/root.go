@@ -15,6 +15,7 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().String("config", "", "path to JSON config file (default: ./holocron.json or user config dir)")
 	root.AddCommand(
 		newAgentCmd(),
 		newServeCmd(),
