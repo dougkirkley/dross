@@ -64,6 +64,7 @@ func DemoRunningView(width, height int) string {
 	}
 	m.running = true
 	m.phraseIdx = 2 // "Decrypting the holocron"
+	m.tick = 40     // ~8s elapsed at 5 fps
 	m.cost = 0.0091
 	return m.View()
 }

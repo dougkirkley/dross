@@ -249,7 +249,8 @@ func (m Model) View() string {
 		// While working, show the spinner + rotating phrase as a live line at the
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
-		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…")
+		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
+			metaStyle.Render("  "+m.runStats())
 		if content != "" {
 			content += "\n"
 		}
@@ -276,18 +277,24 @@ func (m Model) welcome() string {
 
 func (m Model) header() string {
 	left := logoStyle.Render("◆ holocron")
-	toks := ""
-	if m.inTok > 0 || m.outTok > 0 {
-		toks = metaStyle.Render(fmt.Sprintf("↑%s ↓%s  ", humanTokens(m.inTok), humanTokens(m.outTok)))
-	}
-	right := metaStyle.Render(m.model+"  ·  "+m.provider) + "   " + toks +
-		costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
+	right := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap) + right
 	return headerBar.Width(m.width).Render(bar)
+}
+
+// runStats renders the live token usage + elapsed time in parentheses, shown
+// inline with the working spinner/phrase.
+func (m Model) runStats() string {
+	var parts []string
+	if m.inTok > 0 || m.outTok > 0 {
+		parts = append(parts, fmt.Sprintf("↑%s ↓%s", humanTokens(m.inTok), humanTokens(m.outTok)))
+	}
+	parts = append(parts, fmt.Sprintf("%ds", m.tick/5)) // spinner runs at 5 fps
+	return "(" + strings.Join(parts, " · ") + ")"
 }
 
 func (m Model) footer() string {
