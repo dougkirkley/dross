@@ -124,11 +124,12 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 	ti.Focus()
 
 	sp := spinner.New()
-	// ASCII line frames render on every terminal/font — the default braille Dot
-	// (and even quadrant circles) show as tofu boxes in many fonts.
+	// A spinning holocron: the crystal cycles hollow → faceted → filled →
+	// faceted, as if catching light while it turns. These diamond glyphs render
+	// widely (unlike braille/quadrant, which box out in many fonts).
 	sp.Spinner = spinner.Spinner{
-		Frames: []string{"|", "/", "-", "\\"},
-		FPS:    time.Second / 10,
+		Frames: []string{"◇", "◈", "◆", "◈"},
+		FPS:    time.Second / 5,
 	}
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
