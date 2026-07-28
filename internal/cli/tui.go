@@ -89,22 +89,32 @@ func newTUICmd() *cobra.Command {
 			projectCtx := loadProjectContext(workdir) // AGENTS.md / CLAUDE.md
 
 			var prog *tea.Program
+			// One persistent agent per (provider, model) so the conversation is
+			// remembered across prompts; rebuilt when the model/provider changes.
+			var conv *agent.Agent
+			var convKey string
 			run := func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error) {
 				if st.prov == nil || st.model == "" {
 					return nil, fmt.Errorf("no model configured — use /model to set up a provider")
 				}
-				opts := []agent.Option{agent.WithEventHook(emit), agent.WithPermission(mode)}
-				if prog != nil {
-					opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
-						return tui.Ask(prog, req)
-					}))
+				key := st.name + "|" + st.model
+				if conv == nil || key != convKey {
+					opts := []agent.Option{agent.WithConversation()}
+					if prog != nil {
+						opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
+							return tui.Ask(prog, req)
+						}))
+					}
+					a, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir, Identity: projectCtx},
+						st.prov, opts...)
+					if err != nil {
+						return nil, err
+					}
+					conv, convKey = a, key
 				}
-				ag, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir, Identity: projectCtx},
-					st.prov, opts...)
-				if err != nil {
-					return nil, err
-				}
-				return ag.Run(ctx, prompt)
+				conv.SetEventHook(emit)
+				conv.SetPermission(mode)
+				return conv.Run(ctx, prompt)
 			}
 
 			if once != "" {
@@ -113,6 +123,11 @@ func newTUICmd() *cobra.Command {
 			}
 			mdl := tui.New("holocron", st.model, st.name, run)
 			mdl.SetPhrases(res.File.Phrases)
+			mdl.SetReset(func() {
+				if conv != nil {
+					conv.ResetConversation()
+				}
+			})
 			// /model: list the configured provider's models, set up a provider,
 			// and switch models. run() reads st, so updates take effect next turn.
 			mdl.SetModelPicker(

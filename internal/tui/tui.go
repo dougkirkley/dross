@@ -244,7 +244,8 @@ type Model struct {
 	modelPickerOpen bool
 	modelSel        int
 
-	slashSel int // highlighted row in slash-command autocomplete
+	slashSel int    // highlighted row in slash-command autocomplete
+	reset    func() // clears persistent conversation memory (/clear)
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -421,6 +422,9 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 	m.remoteLink = link
 }
 
+// SetReset wires /clear to drop persistent conversation memory.
+func (m *Model) SetReset(fn func()) { m.reset = fn }
+
 // SetModelPicker wires /model: list returns the configured provider's models
 // (nil if none), setup configures a provider from (kind, baseURL, apiKey) and
 // returns its models, onPick switches the model for subsequent runs.
@@ -497,6 +501,9 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.shellOrder, m.shells = nil, nil
 		m.vp.SetContent("")
+		if m.reset != nil {
+			m.reset() // drop conversation memory too
+		}
 		return true, nil
 	case "/init":
 		m.input.Reset()

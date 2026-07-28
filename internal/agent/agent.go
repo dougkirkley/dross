@@ -131,6 +131,19 @@ func WithPermission(mode string) Option {
 	return func(a *Agent) { a.permMode = PermMode(strings.ToLower(strings.TrimSpace(mode))) }
 }
 
+// WithConversation keeps the provider session alive across Run calls, so the
+// agent remembers prior turns (a persistent conversation). Without it, each Run
+// starts fresh — the default for one-shot and server use.
+func WithConversation() Option { return func(a *Agent) { a.conv = true } }
+
+// SetEventHook, SetPermission, and ResetConversation let a long-lived agent (see
+// WithConversation) be re-tuned between turns without rebuilding it.
+func (a *Agent) SetEventHook(fn func(Event)) { a.hook = fn }
+func (a *Agent) SetPermission(mode string) {
+	a.permMode = PermMode(strings.ToLower(strings.TrimSpace(mode)))
+}
+func (a *Agent) ResetConversation() { a.sess = nil }
+
 // PublishFunc stores a file and returns a shareable URL for it.
 type PublishFunc func(name string, data []byte, mime string) (url string, err error)
 
@@ -234,6 +247,8 @@ type Agent struct {
 	publish      PublishFunc
 	asker        AskFunc
 	permMode     PermMode
+	conv         bool             // keep the session across Run calls
+	sess         provider.Session // persisted session when conv is set
 	resume       string
 	checkpoint   func(brief string) error
 	emitMu       sync.Mutex // serializes emit across parallel workers
@@ -305,15 +320,27 @@ const maxTurns = 40
 
 // Run drives the agent to completion on prompt.
 func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
-	sess := a.prov.NewSession(provider.SessionConfig{
-		System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
-		Tools:     toolDefs(a.worker != nil, a.publish != nil, a.asker != nil),
-		Model:     a.cfg.Model,
-		MaxTokens: a.cfg.MaxTokens,
-	})
+	// In conversation mode the session persists across Run calls so prior turns
+	// are remembered; otherwise each Run starts fresh.
+	sess := a.sess
+	fresh := sess == nil
+	if fresh {
+		sess = a.prov.NewSession(provider.SessionConfig{
+			System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
+			Tools:     toolDefs(a.worker != nil, a.publish != nil, a.asker != nil),
+			Model:     a.cfg.Model,
+			MaxTokens: a.cfg.MaxTokens,
+		})
+		if a.conv {
+			a.sess = sess
+		}
+	}
 
 	res := &Result{}
-	in := provider.Input{Text: seedPrompt(a.resume, prompt)}
+	in := provider.Input{Text: prompt}
+	if fresh {
+		in.Text = seedPrompt(a.resume, prompt) // resume brief only seeds a new session
+	}
 
 	done := false
 	for res.Turns < maxTurns && !done {

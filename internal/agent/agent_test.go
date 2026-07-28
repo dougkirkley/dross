@@ -519,3 +519,29 @@ func TestPermission_ManualDeny(t *testing.T) {
 		t.Fatal("manual deny must not write the file")
 	}
 }
+
+// TestConversationMemory verifies WithConversation reuses one session across Run
+// calls (the second Run continues where the first left off), while the default
+// starts fresh each time.
+func TestConversationMemory(t *testing.T) {
+	steps := []provider.Response{
+		{StopReason: provider.StopEndTurn, Text: "first"},
+		{StopReason: provider.StopEndTurn, Text: "second"},
+	}
+	// With memory: second Run advances to the second scripted response.
+	prov := &scriptedProvider{steps: steps}
+	ag, _ := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, prov, WithConversation())
+	r1, _ := ag.Run(context.Background(), "a")
+	r2, _ := ag.Run(context.Background(), "b")
+	if r1.Text != "first" || r2.Text != "second" {
+		t.Fatalf("conversation should continue: r1=%q r2=%q", r1.Text, r2.Text)
+	}
+	// Without memory: each Run starts a fresh session (step 0 again).
+	prov2 := &scriptedProvider{steps: steps}
+	ag2, _ := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, prov2)
+	s1, _ := ag2.Run(context.Background(), "a")
+	s2, _ := ag2.Run(context.Background(), "b")
+	if s1.Text != "first" || s2.Text != "first" {
+		t.Fatalf("stateless should restart: s1=%q s2=%q", s1.Text, s2.Text)
+	}
+}
