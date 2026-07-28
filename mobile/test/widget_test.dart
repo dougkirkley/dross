@@ -20,6 +20,6 @@ void main() {
 
     expect(find.text('Chats'), findsOneWidget);
     expect(find.text('New chat'), findsOneWidget);
-    expect(find.text('cost-aware coding, in your pocket'), findsOneWidget);
+    expect(find.text('Cost-aware coding,\nin your pocket.'), findsOneWidget);
   });
 }

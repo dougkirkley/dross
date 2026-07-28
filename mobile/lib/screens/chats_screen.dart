@@ -94,19 +94,29 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ),
       );
 
-  Widget _empty() => const Center(
+  Widget _empty() => Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.fromLTRB(36, 0, 36, 80),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              HolocronLogo(size: 128),
-              SizedBox(height: 26),
-              Text('cost-aware coding, in your pocket',
-                  style: T.meta, textAlign: TextAlign.center),
-              SizedBox(height: 6),
-              Text('Tap New chat to talk to your model directly — no server needed.',
+              const HolocronLogo(size: 132),
+              const SizedBox(height: 28),
+              // Serif tagline (Source Serif) for a calmer, editorial feel.
+              Text('Cost-aware coding,\nin your pocket.',
+                  style: T.prose.copyWith(
+                      fontSize: 22, height: 1.35, color: T.textDim),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 14),
+              const Text('Talk to your model directly — no server needed.',
                   style: T.metaFaint, textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              // Subtle nudge toward the New chat pill.
+              const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.south_east, size: 15, color: T.textFaint),
+                SizedBox(width: 6),
+                Text('Start a new chat', style: T.metaFaint),
+              ]),
             ],
           ),
         ),
