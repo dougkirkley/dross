@@ -57,7 +57,7 @@ class Activity {
       case 'edit':
         return n == 1 ? 'edited a file' : 'edited $n files';
       case 'bash':
-        return n == 1 ? 'ran a command' : 'ran $n commands';
+        return n == 1 ? 'ran a shell command' : 'ran $n shell commands';
       case 'read':
         return n == 1 ? 'read a file' : 'read $n files';
       case 'search':
@@ -84,8 +84,22 @@ List<Object> buildTimeline(List<Event> events) {
     }
   }
 
+  // Map background-shell ids to their command, so a shell:exit can name it.
+  final shellCmd = {for (final s in buildShells(events)) s.id: s.command};
+
   for (final e in events) {
-    if (e.isShell) continue; // background shells render in the tasks sheet
+    // Background shells live in the tasks sheet; only surface a line when one
+    // finishes, so the conversation shows "Ran a shell command".
+    if (e.isShell) {
+      if (e.kind == 'shell:exit') {
+        final id = e.data.split('\x1F').first;
+        final cmd = shellCmd[id] ?? '';
+        (cur ??= Activity()).steps.add(ActStep(
+            icon: Icons.terminal,
+            label: cmd.isEmpty ? 'Ran a shell command' : 'Ran  ${_trim(cmd)}'));
+      }
+      continue;
+    }
     switch (e.baseKind) {
       case 'prompt':
       case 'text':
