@@ -85,6 +85,7 @@ List<Object> buildTimeline(List<Event> events) {
   }
 
   for (final e in events) {
+    if (e.isShell) continue; // background shells render in the tasks sheet
     switch (e.baseKind) {
       case 'prompt':
       case 'text':

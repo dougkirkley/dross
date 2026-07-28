@@ -146,19 +146,77 @@ class Session {
 
 class Event {
   final int seq;
-  final String kind; // prompt | text | tool | tool-result | worker:* | done | error | checkpoint
+  final String kind; // prompt | text | tool | tool-result | worker:* | shell:* | done | error | checkpoint
   final String data;
+  final DateTime? time;
 
-  Event({required this.seq, required this.kind, required this.data});
+  Event({required this.seq, required this.kind, required this.data, this.time});
 
   factory Event.fromJson(Map<String, dynamic> j) => Event(
         seq: j['seq'] as int,
         kind: j['kind'] as String? ?? '',
         data: j['data'] as String? ?? '',
+        time: DateTime.tryParse(j['time'] as String? ?? ''),
       );
 
   bool get isWorker => kind.startsWith('worker:');
   String get baseKind => isWorker ? kind.substring('worker:'.length) : kind;
+  bool get isShell => kind.startsWith('shell:');
+}
+
+/// A background shell reconstructed from shell:start/output/exit events.
+class ShellTask {
+  ShellTask({required this.id, required this.command, this.startedAt});
+  final String id;
+  final String command;
+  final DateTime? startedAt;
+  final StringBuffer _output = StringBuffer();
+  bool running = true;
+  String exit = '';
+  DateTime? endedAt;
+
+  String get output => _output.toString();
+  void append(String s) => _output.write(s);
+
+  Duration get runtime {
+    final start = startedAt;
+    if (start == null) return Duration.zero;
+    return (endedAt ?? DateTime.now()).difference(start);
+  }
+}
+
+/// Reconstructs background shells from a session's event list, newest first.
+List<ShellTask> buildShells(List<Event> events) {
+  final byId = <String, ShellTask>{};
+  final order = <String>[];
+  ({String id, String rest}) split(String data) {
+    final i = data.indexOf('\x1F');
+    return i >= 0
+        ? (id: data.substring(0, i), rest: data.substring(i + 1))
+        : (id: data, rest: '');
+  }
+
+  for (final e in events) {
+    if (!e.isShell) continue;
+    final p = split(e.data);
+    switch (e.kind) {
+      case 'shell:start':
+        if (!byId.containsKey(p.id)) {
+          byId[p.id] = ShellTask(id: p.id, command: p.rest, startedAt: e.time);
+          order.add(p.id);
+        }
+      case 'shell:output':
+        byId[p.id]?.append(p.rest);
+      case 'shell:exit':
+        final s = byId[p.id];
+        if (s != null) {
+          s.running = false;
+          s.exit = p.rest;
+          s.endedAt = e.time;
+        }
+    }
+  }
+  return order.reversed.map((id) => byId[id]!).toList();
 }
 
 /// Parsed payload of an "edit" event: a file write/edit with line counts and a

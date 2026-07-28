@@ -217,6 +217,10 @@ type Agent struct {
 	resume       string
 	checkpoint   func(brief string) error
 	emitMu       sync.Mutex // serializes emit across parallel workers
+
+	shellMu  sync.Mutex // guards the background-shell registry
+	shells   []*shell
+	shellSeq int
 }
 
 // New builds an agent from cfg using p as its lead model backend.
@@ -539,12 +543,25 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(out, err)
 	case "bash":
 		var in struct {
-			Command string `json:"command"`
+			Command    string `json:"command"`
+			Background bool   `json:"background"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
+		if in.Background {
+			return a.startBackground(ctx, in.Command)
+		}
 		return orErr(a.ws.runBash(in.Command))
+	case "shell_output":
+		var in struct {
+			ID   string `json:"id"`
+			Kill bool   `json:"kill"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return a.shellOutput(in.ID, in.Kill)
 	case "delegate":
 		var in struct {
 			Task  string   `json:"task"`

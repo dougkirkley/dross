@@ -131,9 +131,21 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "bash",
-			Description: "Run a shell command with the workspace as the working directory. Use for building, running tests, searching, and listing files.",
-			Properties:  map[string]any{"command": strProp("The shell command to run.")},
-			Required:    []string{"command"},
+			Description: "Run a shell command with the workspace as the working directory. Use for building, running tests, searching, and listing files. Set background=true for a long-running command (a dev server, watcher, tail); it returns a shell id immediately instead of blocking, and you read its output later with shell_output.",
+			Properties: map[string]any{
+				"command":    strProp("The shell command to run."),
+				"background": map[string]any{"type": "boolean", "description": "Run detached and return a shell id instead of waiting. Default false."},
+			},
+			Required: []string{"command"},
+		},
+		{
+			Name:        "shell_output",
+			Description: "Read a background shell's status, runtime, and captured output by id (from a background bash call). Set kill=true to stop it.",
+			Properties: map[string]any{
+				"id":   strProp("The background shell id (e.g. sh_1)."),
+				"kill": map[string]any{"type": "boolean", "description": "Stop the shell before returning. Default false."},
+			},
+			Required: []string{"id"},
 		},
 	}
 	if hasWorker {

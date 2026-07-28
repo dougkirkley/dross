@@ -147,6 +147,10 @@ type Model struct {
 
 	queue []string // messages typed while a run is in flight; drained on done
 
+	// background shells started by the bash tool (background=true)
+	shellOrder []string
+	shells     map[string]*shellInfo
+
 	// live subagent tree, shown under the prompt while workers run
 	workerOrder []string            // worker tags, in first-seen order
 	workerAct   map[string]string   // worker tag -> present-tense activity
@@ -538,6 +542,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tick, m.phraseIdx = 0, 0
 				m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 				m.workerSel, m.workerFocus = 0, ""
+				m.shellOrder, m.shells = nil, nil
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
@@ -572,6 +577,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tick, m.phraseIdx = 0, 0
 			m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 			m.workerSel, m.workerFocus = 0, ""
+			m.shellOrder, m.shells = nil, nil
 			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
 		}
 	case askMsg:
@@ -638,7 +644,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
+			metaStyle.Render("  "+m.runStats()) + m.shellsTree() + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
@@ -775,6 +781,77 @@ func toolTargetPath(args string) string {
 // workerTree renders the live subagent panel shown under the spinner: the lead
 // as "● main" plus each active worker as "○ <tag> <activity>". Empty when no
 // workers have run this turn.
+// shellInfo tracks a background shell for the TUI viewer.
+type shellInfo struct {
+	command string
+	running bool
+	exit    string
+	start   time.Time
+}
+
+// trackShell updates the background-shell registry from a shell:* event.
+func (m *Model) trackShell(kind, data string) {
+	id, rest := parseWorkerData(data) // reuse the unit-separator split
+	if m.shells == nil {
+		m.shells = map[string]*shellInfo{}
+	}
+	switch kind {
+	case "shell:start":
+		if _, ok := m.shells[id]; !ok {
+			m.shellOrder = append(m.shellOrder, id)
+		}
+		m.shells[id] = &shellInfo{command: rest, running: true, start: time.Now()}
+	case "shell:exit":
+		if s := m.shells[id]; s != nil {
+			s.running = false
+			s.exit = rest
+		}
+	case "shell:output":
+		// output is streamed; the TUI shows status inline, full output lives in
+		// the mobile viewer. (No-op here beyond keeping the shell known.)
+	}
+}
+
+// shellsTree lists background shells under the spinner while any are known.
+func (m Model) shellsTree() string {
+	if len(m.shellOrder) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, id := range m.shellOrder {
+		s := m.shells[id]
+		if s == nil {
+			continue
+		}
+		state := s.exit
+		if s.running {
+			state = fmt.Sprintf("running %ds", int(time.Since(s.start).Seconds()))
+		}
+		b.WriteString("\n" + workerTag.Render("  ⚙ "+id+" ") +
+			resultStyle.Render(truncate(oneLine(s.command), 46)) + "  " +
+			metaStyle.Render(state))
+	}
+	return b.String()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// runningShells counts shells still executing.
+func (m Model) runningShells() int {
+	n := 0
+	for _, s := range m.shells {
+		if s.running {
+			n++
+		}
+	}
+	return n
+}
+
 // queueStrip lists messages queued during the current run, newest last, with a
 // hint that ↑ edits the most recent one.
 func (m Model) queueStrip() string {
@@ -1045,8 +1122,11 @@ func (m Model) footer() string {
 	// and the mode line.
 	line := promptMark.Render("› ") + m.input.View()
 	box := inputBox.Width(m.width - 2).Render(line)
-	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode") +
-		metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
+	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
+	if n := m.runningShells(); n > 0 {
+		mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
+	}
+	mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
 	out := box + "\n" + "  " + mode
 	// The live subagent tree sits under the prompt while workers run, the way
 	// Claude Code shows its subagents.
@@ -1059,6 +1139,10 @@ func (m Model) footer() string {
 }
 
 func (m *Model) applyEvent(e agent.Event) {
+	if strings.HasPrefix(e.Kind, "shell:") {
+		m.trackShell(e.Kind, e.Data)
+		return
+	}
 	worker := strings.HasPrefix(e.Kind, "worker:")
 	kind := strings.TrimPrefix(e.Kind, "worker:")
 	indent := ""

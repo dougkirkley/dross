@@ -8,6 +8,7 @@ import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
+import '../widgets/tasks_sheet.dart';
 import 'chat_screen.dart' show ProseText;
 
 /// Remote-session conversation. Streams the serve event log (tool calls,
@@ -66,16 +67,21 @@ class _SessionScreenState extends State<SessionScreen> {
             Expanded(
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);
-                final running = sess?.isRunning ?? false;
-                // The live spinner/label rides at the end of the conversation
-                // (right under the last prompt), not pinned at the bottom.
-                final count = timeline.length + (running ? 1 : 0);
+                final shells = buildShells(s.events);
+                final runningShells =
+                    shells.where((x) => x.running).length;
+                // Trailing items after the conversation: the live spinner (while
+                // the turn runs) and a "N running task" link (background shells).
+                final trailing = <Widget>[
+                  if (sess?.isRunning ?? false) _runningRow(s),
+                  if (runningShells > 0) _tasksLink(context, shells, runningShells),
+                ];
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  itemCount: count,
+                  itemCount: timeline.length + trailing.length,
                   itemBuilder: (_, i) {
-                    if (i == timeline.length) return _runningRow(s);
+                    if (i >= timeline.length) return trailing[i - timeline.length];
                     final item = timeline[i];
                     if (item is Activity) return ActivityBlock(item);
                     return _eventRow(item as Event);
@@ -90,6 +96,23 @@ class _SessionScreenState extends State<SessionScreen> {
       ),
     ));
   }
+
+  Widget _tasksLink(BuildContext context, List<ShellTask> shells, int running) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => showBackgroundTasksSheet(context, shells),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Text('✻ ', style: TextStyle(color: T.accentHi, fontSize: 15)),
+            Text('$running running task${running == 1 ? '' : 's'}',
+                style: const TextStyle(
+                    color: T.accentHi,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      );
 
   Widget _runningRow(AppState s) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
