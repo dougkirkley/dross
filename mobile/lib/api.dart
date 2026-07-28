@@ -61,6 +61,20 @@ class HolocronClient {
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
+  /// Uploads a file into the server workspace (multipart field "asset") and
+  /// returns its workspace-relative path (e.g. uploads/foo.png).
+  Future<String> upload(List<int> bytes, String filename) async {
+    final req = http.MultipartRequest('POST', _uri('api/upload'));
+    if (token != null && token!.isNotEmpty) {
+      req.headers['Authorization'] = 'Bearer $token';
+    }
+    req.files.add(http.MultipartFile.fromBytes('asset', bytes, filename: filename));
+    final resp = await http.Response.fromStream(await req.send());
+    _check(resp);
+    final body = jsonDecode(resp.body) as Map<String, dynamic>;
+    return body['path'] as String? ?? '';
+  }
+
   Future<void> deleteSession(String id) async {
     final r = await http.delete(_uri('api/sessions/$id'), headers: _headers);
     _check(r);

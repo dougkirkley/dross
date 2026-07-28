@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
@@ -220,6 +221,7 @@ class _SessionScreenState extends State<SessionScreen> {
           ),
           child: Column(
             children: [
+              if (s.remotePending.isNotEmpty) _attachChips(context, s),
               Row(children: [
                 Expanded(
                   child: TextField(
@@ -249,6 +251,8 @@ class _SessionScreenState extends State<SessionScreen> {
               ]),
               const SizedBox(height: 8),
               Row(children: [
+                _circleAction(Icons.add, () => _pickFile(context)),
+                const SizedBox(width: 8),
                 Flexible(
                   child: OutlineChip(
                     onTap: () => showServerModelSheet(context),
@@ -274,4 +278,68 @@ class _SessionScreenState extends State<SessionScreen> {
     _input.clear();
     context.read<AppState>().sendPrompt(text);
   }
+
+  Widget _circleAction(IconData icon, VoidCallback onTap) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: T.border),
+          ),
+          child: Icon(icon, size: 18, color: T.text),
+        ),
+      );
+
+  Future<void> _pickFile(BuildContext context) async {
+    final picked = await pickFile();
+    if (picked == null || !context.mounted) return;
+    final err = await context.read<AppState>().attachRemote(picked);
+    if (err != null && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Upload failed: $err')));
+    }
+  }
+
+  Widget _attachChips(BuildContext context, AppState s) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (int i = 0; i < s.remotePending.length; i++)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+                  decoration: BoxDecoration(
+                    color: T.surfaceAlt,
+                    borderRadius: BorderRadius.circular(T.rPill),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.attach_file, size: 15, color: T.textDim),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 160),
+                      child: Text(s.remotePending[i].name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: T.text, fontSize: 13)),
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          context.read<AppState>().removeRemotePending(i),
+                      child: const Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Icon(Icons.close, size: 16, color: T.textDim),
+                      ),
+                    ),
+                  ]),
+                ),
+            ],
+          ),
+        ),
+      );
 }

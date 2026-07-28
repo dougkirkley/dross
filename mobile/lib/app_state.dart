@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'direct/provider.dart';
 import 'models.dart';
+import 'util/file_pick.dart';
 
 /// AppState is the single source of truth for both worlds:
 ///   - Direct mode (default): client-side chat against a provider, with an
@@ -411,6 +412,43 @@ class AppState extends ChangeNotifier {
 
   // --- remote (serve) -------------------------------------------------
 
+  /// Files uploaded to the current remote session's workspace, awaiting the next
+  /// prompt (which references them so the agent can read them).
+  final List<({String name, String path})> remotePending = [];
+
+  /// Uploads [f] into the server workspace and stages it for the next prompt.
+  /// Returns an error string, or null on success.
+  Future<String?> attachRemote(PickedFile f) async {
+    try {
+      final path = await _client.upload(f.bytes, f.name);
+      remotePending.add((name: f.name, path: path));
+      notifyListeners();
+      return null;
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return e.toString();
+    }
+  }
+
+  void removeRemotePending(int i) {
+    if (i >= 0 && i < remotePending.length) {
+      remotePending.removeAt(i);
+      notifyListeners();
+    }
+  }
+
+  String _withRemoteAttachments(String text) {
+    if (remotePending.isEmpty) return text;
+    final b = StringBuffer('Files uploaded to the workspace:\n');
+    for (final a in remotePending) {
+      b.writeln('- ${a.path}');
+    }
+    b.writeln();
+    b.write(text);
+    return b.toString();
+  }
+
   /// Runs the server's Google SSO flow and stores the returned session token as
   /// the remote bearer. On native it opens an external browser (custom-scheme
   /// callback); on web the same-origin session cookie already covers API calls,
@@ -513,6 +551,7 @@ class AppState extends ChangeNotifier {
     current = s;
     events.clear();
     queue.clear();
+    remotePending.clear();
     notifyListeners();
     try {
       events.addAll(await _client.events(s.id));
@@ -560,13 +599,15 @@ class AppState extends ChangeNotifier {
   Future<void> sendPrompt(String text) async {
     final s = current;
     if (s == null || text.trim().isEmpty) return;
+    final composed = _withRemoteAttachments(text.trim());
+    remotePending.clear();
     if (s.isRunning) {
-      queue.add(text.trim());
+      queue.add(composed);
       notifyListeners();
       return;
     }
     try {
-      await _client.prompt(s.id, text.trim());
+      await _client.prompt(s.id, composed);
       await _refreshCurrent();
       notifyListeners();
     } catch (e) {
