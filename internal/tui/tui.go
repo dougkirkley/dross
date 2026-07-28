@@ -151,6 +151,10 @@ type Model struct {
 	shellOrder []string
 	shells     map[string]*shellInfo
 
+	// the foreground bash command currently executing (blank when none)
+	bashCmd   string
+	bashStart time.Time
+
 	// live subagent tree, shown under the prompt while workers run
 	workerOrder []string            // worker tags, in first-seen order
 	workerAct   map[string]string   // worker tag -> present-tense activity
@@ -543,6 +547,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 				m.workerSel, m.workerFocus = 0, ""
 				m.shellOrder, m.shells = nil, nil
+				m.bashCmd = ""
 				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
@@ -578,6 +583,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 			m.workerSel, m.workerFocus = 0, ""
 			m.shellOrder, m.shells = nil, nil
+			m.bashCmd = ""
 			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
 		}
 	case askMsg:
@@ -643,8 +649,8 @@ func (m Model) View() string {
 		// While working, show the spinner + rotating phrase as a live line at the
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
-		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats()) + m.jobsSuffix() + m.queueStrip()
+		work := m.bashBlock() + m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
+			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
@@ -812,14 +818,37 @@ func (m *Model) trackShell(kind, data string) {
 	}
 }
 
-// jobsSuffix appends the running background-shell count to the spinner line,
-// e.g. "  1 running job".
-func (m Model) jobsSuffix() string {
-	n := m.runningShells()
-	if n == 0 {
+// bashBlock renders the foreground bash command currently executing as a
+// "Running N shell command(s) · Ns…" header with the command lines, shown above
+// the spinner. Empty when no foreground command is running.
+func (m Model) bashBlock() string {
+	if m.bashCmd == "" {
 		return ""
 	}
-	return costStyle.Render(fmt.Sprintf("  %d running job%s", n, plural(n)))
+	var lines []string
+	for _, l := range strings.Split(m.bashCmd, "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	elapsed := int(time.Since(m.bashStart).Seconds())
+	var b strings.Builder
+	b.WriteString(checkStyle.Render("● ") +
+		agentText.Render(fmt.Sprintf("Running %d shell command%s ", len(lines), plural(len(lines)))) +
+		metaStyle.Render(fmt.Sprintf("· %ds…", elapsed)))
+	width := m.width - 8
+	if width < 20 {
+		width = 20
+	}
+	b.WriteString("\n" + resultStyle.Render("  └ $ "+truncate(lines[0], width)))
+	for _, l := range lines[1:] {
+		b.WriteString("\n" + resultStyle.Render("      "+truncate(l, width)))
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func plural(n int) string {
@@ -1144,6 +1173,7 @@ func (m *Model) applyEvent(e agent.Event) {
 	case "text":
 		if !worker {
 			m.lastText = truncate(oneLine(e.Data), 70)
+			m.bashCmd = "" // a message means the foreground command finished
 		}
 		width := m.width - 14
 		lines := wrap(e.Data, width)
@@ -1153,8 +1183,26 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
+		if !worker {
+			// Surface a foreground bash command live (the "Running N shell
+			// commands…" block); background bash is a shell, tracked separately.
+			if name == "bash" {
+				var a struct {
+					Command    string `json:"command"`
+					Background bool   `json:"background"`
+				}
+				if json.Unmarshal([]byte(args), &a) == nil && !a.Background {
+					m.bashCmd, m.bashStart = a.Command, time.Now()
+				}
+			} else {
+				m.bashCmd = ""
+			}
+		}
 		m.append(indent + startGlyph.Render("▸ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
 	case "tool-result":
+		if !worker {
+			m.bashCmd = ""
+		}
 		m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
 	case "edit":
 		var ed struct {

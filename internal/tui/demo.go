@@ -1,10 +1,17 @@
 package tui
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/dougkirkley/holocron/internal/agent"
 )
+
+// jsonString returns s as a JSON-quoted string, for building demo tool args.
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
 
 // DemoWelcomeView renders the empty-state splash (big logo) for screenshots.
 // variant selects the logo style (see renderLogo).
@@ -134,27 +141,29 @@ func DemoShellsView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	m.append(youLabel.Render("you") + "  bring up the dev server and run the watcher")
+	m.append(youLabel.Render("you") + "  reconcile flux and check the live selectors")
+	cmd := "cd /workspace/k8s-homelab\n" +
+		"for k in infra-core infra-controllers ionic-system; do\n" +
+		"kubectl annotate kustomization -n flux-system $k reconcile.fluxcd.io/requestedAt=\"$(date -u +%Y-%m)\"; done"
 	for _, e := range []agent.Event{
-		{Kind: "text", Data: "Starting the dev server and a test watcher in the background."},
-		{Kind: "tool", Data: `bash {"command":"npm run dev","background":true}`},
-		{Kind: "shell:start", Data: "sh_1\x1fnpm run dev"},
-		{Kind: "shell:output", Data: "sh_1\x1fVITE ready on http://localhost:5173\n"},
-		{Kind: "tool", Data: `bash {"command":"go test ./... -watch","background":true}`},
-		{Kind: "shell:start", Data: "sh_2\x1fgo test ./... -watch"},
-		{Kind: "shell:exit", Data: "sh_2\x1fexited 0"},
-		{Kind: "usage", Data: `{"in":14200,"out":720}`},
+		{Kind: "text", Data: "Kicking a tail in the background, then reconciling flux."},
+		{Kind: "tool", Data: `bash {"command":"kubectl logs -f deploy/holocron-web -n media","background":true}`},
+		{Kind: "shell:start", Data: "sh_1\x1fkubectl logs -f deploy/holocron-web -n media"},
+		{Kind: "usage", Data: `{"in":18200,"out":859}`},
+		// A foreground bash currently executing (drives the "Running N shell
+		// commands…" block); no tool-result yet.
+		{Kind: "tool", Data: `bash {"command":` + jsonString(cmd) + `}`},
 	} {
 		m.applyEvent(e)
 	}
-	// Backdate the running shell so it shows a realistic runtime.
 	if s := m.shells["sh_1"]; s != nil {
-		s.start = m.shells["sh_1"].start.Add(-3 * time.Minute)
+		s.start = s.start.Add(-3 * time.Minute)
 	}
+	m.bashStart = m.bashStart.Add(-17 * time.Second)
 	m.running = true
 	m.phraseIdx = 6
-	m.tick = 45
-	m.cost = 0.0113
+	m.tick = 95 * 5
+	m.cost = 0.0206
 	return m.View()
 }
 
