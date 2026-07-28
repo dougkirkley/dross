@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -173,6 +174,7 @@ type Model struct {
 	vp          viewport.Model
 	input       textinput.Model
 	sp          spinner.Model
+	usageBar    progress.Model
 	running     bool
 	width       int
 	height      int
@@ -276,12 +278,15 @@ func New(agentName, model, provider string, run func(ctx context.Context, prompt
 	}
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
+	bar := progress.New(progress.WithGradient("#2B6C8F", "#8FC7E8"), progress.WithoutPercentage())
+
 	return Model{
 		agentName:   agentName,
 		model:       model,
 		provider:    provider,
 		input:       ti,
 		sp:          sp,
+		usageBar:    bar,
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant: 1, // gradient fade (default)
@@ -473,12 +478,33 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.input.Reset()
 		who := m.provider
 		if m.model != "" {
-			who += " · " + m.model
+			if who != "" {
+				who += " · "
+			}
+			who += m.model
 		}
-		m.append(agentLabel.Render("Usage") + metaStyle.Render("  "+strings.TrimPrefix(who, " · ")))
-		m.append(metaStyle.Render(fmt.Sprintf("  turns   %d", m.turns)))
-		m.append(metaStyle.Render(fmt.Sprintf("  tokens  ↑ %s  ↓ %s", humanTokens(m.inTok), humanTokens(m.outTok))))
-		m.append(metaStyle.Render(fmt.Sprintf("  cost    $%.4f", m.cost)))
+		win := contextWindow(m.model)
+		pct := float64(m.inTok) / float64(win)
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 1 {
+			pct = 1
+		}
+		w := m.width - 14
+		if w > 48 {
+			w = 48
+		}
+		if w < 10 {
+			w = 10
+		}
+		m.usageBar.Width = w
+		m.append(agentLabel.Render("Usage") + metaStyle.Render("  "+who))
+		m.append(m.usageBar.ViewAs(pct) + metaStyle.Render(fmt.Sprintf("  %d%% context", int(pct*100+0.5))))
+		m.append(metaStyle.Render(fmt.Sprintf("  context  %s / %s", humanTokens(m.inTok), humanTokens(win))))
+		m.append(metaStyle.Render(fmt.Sprintf("  turns    %d", m.turns)))
+		m.append(metaStyle.Render(fmt.Sprintf("  tokens   ↑ %s  ↓ %s", humanTokens(m.inTok), humanTokens(m.outTok))))
+		m.append(metaStyle.Render(fmt.Sprintf("  cost     $%.4f", m.cost)))
 		return true, nil
 	case "/model":
 		m.input.Reset()
@@ -1651,6 +1677,28 @@ func humanTokens(n int64) string {
 		return fmt.Sprintf("%d", n)
 	}
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
+}
+
+// contextWindow is the approximate token context window for a model, for the
+// /usage bar. Values are indicative, not exact.
+func contextWindow(model string) int64 {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "opus"), strings.Contains(m, "sonnet"), strings.Contains(m, "haiku"):
+		return 200000
+	case strings.Contains(m, "qwen"):
+		return 32768
+	case strings.Contains(m, "llama"):
+		return 131072
+	case strings.Contains(m, "deepseek"):
+		return 16384
+	case strings.Contains(m, "gemma"):
+		return 8192
+	case strings.Contains(m, "gpt"):
+		return 128000
+	default:
+		return 128000
+	}
 }
 
 func (m *Model) append(line string) {
