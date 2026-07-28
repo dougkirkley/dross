@@ -98,7 +98,9 @@ List<Object> buildTimeline(List<Event> events) {
         final step = _toolStep(e.data);
         if (step != null) (cur ??= Activity()).steps.add(step);
       case 'tool-result':
-        break; // detail; not shown in the summary
+      case 'usage': // token counter, not an activity step
+      case 'answer':
+        break; // not shown as a step
       case 'compact':
         (cur ??= Activity()).steps.add(ActStep(
             icon: Icons.compress,
@@ -152,7 +154,11 @@ String currentActivityLabel(List<Event> events) {
 String _present(String label) {
   if (label.startsWith('Read ')) return 'Reading ${label.substring(5)}';
   if (label == 'Ran a command') return 'Running a command';
+  if (label.startsWith('Ran  ')) return 'Running ${label.substring(5)}';
   if (label == 'Delegated to worker') return 'Delegating to worker';
+  if (label.startsWith('Delegated  ')) {
+    return 'Delegating ${label.substring(11)}';
+  }
   if (label == 'Published an artifact') return 'Publishing an artifact';
   if (label == 'Searched the web') return 'Searching the web';
   return label;
@@ -170,9 +176,17 @@ ActStep? _toolStep(String data) {
       return ActStep(
           icon: Icons.description_outlined, label: 'Read ${_argPath(arg)}');
     case 'bash':
-      return ActStep(icon: Icons.terminal, label: 'Ran a command');
+      final cmd = _argField(arg, 'command');
+      return ActStep(
+          icon: Icons.terminal,
+          label: cmd.isEmpty ? 'Ran a command' : 'Ran  ${_trim(cmd)}');
     case 'delegate':
-      return ActStep(icon: Icons.call_split, label: 'Delegated to worker');
+      final task = _argField(arg, 'task');
+      return ActStep(
+          icon: Icons.call_split,
+          label: task.isEmpty
+              ? 'Delegated to worker'
+              : 'Delegated  ${_trim(task)}');
     case 'publish':
       return ActStep(icon: Icons.link, label: 'Published an artifact');
     case 'web_search':
@@ -190,6 +204,23 @@ String _argPath(String arg) {
   } catch (_) {
     return 'a file';
   }
+}
+
+/// Pulls a string field out of a tool's JSON args (e.g. "command", "task").
+String _argField(String arg, String key) {
+  try {
+    final j = jsonDecode(arg) as Map<String, dynamic>;
+    final v = j[key];
+    return v is String ? v.trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/// Collapses whitespace and clips to a single readable line.
+String _trim(String s, [int max = 56]) {
+  final one = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return one.length <= max ? one : '${one.substring(0, max - 1)}…';
 }
 
 /// The collapsed activity line under a message.
