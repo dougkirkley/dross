@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'util/http_client.dart';
 
 class ApiException implements Exception {
   final int status;
@@ -22,6 +23,10 @@ class HolocronClient {
   final String baseUrl; // e.g. https://holocron.example.com
   final String? token;
 
+  // On web this sends the same-origin SSO cookie (withCredentials); on native
+  // it's a plain client and auth travels as the bearer token.
+  final http.Client _http = createHttpClient();
+
   Uri _uri(String path) => Uri.parse('$baseUrl/$path');
 
   Map<String, String> get _headers => {
@@ -38,7 +43,7 @@ class HolocronClient {
   // --- sessions ---------------------------------------------------------
 
   Future<List<Session>> listSessions() async {
-    final r = await http.get(_uri('api/sessions'), headers: _headers);
+    final r = await _http.get(_uri('api/sessions'), headers: _headers);
     _check(r);
     final list = (jsonDecode(r.body)['sessions'] as List? ?? []);
     return list.map((e) => Session.fromJson(e as Map<String, dynamic>)).toList();
@@ -50,13 +55,13 @@ class HolocronClient {
       if (workerModel != null) 'worker_model': workerModel,
       if (style != null) 'style': style,
     });
-    final r = await http.post(_uri('api/sessions'), headers: _headers, body: body);
+    final r = await _http.post(_uri('api/sessions'), headers: _headers, body: body);
     _check(r);
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
   Future<Session> getSession(String id) async {
-    final r = await http.get(_uri('api/sessions/$id'), headers: _headers);
+    final r = await _http.get(_uri('api/sessions/$id'), headers: _headers);
     _check(r);
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
@@ -69,19 +74,19 @@ class HolocronClient {
       req.headers['Authorization'] = 'Bearer $token';
     }
     req.files.add(http.MultipartFile.fromBytes('asset', bytes, filename: filename));
-    final resp = await http.Response.fromStream(await req.send());
+    final resp = await http.Response.fromStream(await _http.send(req));
     _check(resp);
     final body = jsonDecode(resp.body) as Map<String, dynamic>;
     return body['path'] as String? ?? '';
   }
 
   Future<void> deleteSession(String id) async {
-    final r = await http.delete(_uri('api/sessions/$id'), headers: _headers);
+    final r = await _http.delete(_uri('api/sessions/$id'), headers: _headers);
     _check(r);
   }
 
   Future<Session> updateSessionModel(String id, String model) async {
-    final r = await http.patch(_uri('api/sessions/$id'),
+    final r = await _http.patch(_uri('api/sessions/$id'),
         headers: _headers, body: jsonEncode({'model': model}));
     _check(r);
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
@@ -89,7 +94,7 @@ class HolocronClient {
 
   /// The models the server offers (GET /api/models -> {models, current}).
   Future<List<String>> serverModels() async {
-    final r = await http.get(_uri('api/models'), headers: _headers);
+    final r = await _http.get(_uri('api/models'), headers: _headers);
     _check(r);
     final body = jsonDecode(r.body) as Map<String, dynamic>;
     final list = (body['models'] as List?) ?? const [];
@@ -97,25 +102,25 @@ class HolocronClient {
   }
 
   Future<void> prompt(String id, String text) async {
-    final r = await http.post(_uri('api/sessions/$id/prompt'),
+    final r = await _http.post(_uri('api/sessions/$id/prompt'),
         headers: _headers, body: jsonEncode({'prompt': text}));
     _check(r);
   }
 
   Future<void> interrupt(String id) async {
-    final r = await http.post(_uri('api/sessions/$id/interrupt'), headers: _headers);
+    final r = await _http.post(_uri('api/sessions/$id/interrupt'), headers: _headers);
     _check(r);
   }
 
   Future<List<Event>> events(String id, {int after = 0}) async {
-    final r = await http.get(_uri('api/sessions/$id/events?after=$after'), headers: _headers);
+    final r = await _http.get(_uri('api/sessions/$id/events?after=$after'), headers: _headers);
     _check(r);
     final list = (jsonDecode(r.body)['events'] as List? ?? []);
     return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<PublishResult> publish(String path) async {
-    final r = await http.post(_uri('api/artifacts'),
+    final r = await _http.post(_uri('api/artifacts'),
         headers: _headers, body: jsonEncode({'path': path}));
     _check(r);
     return PublishResult.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
@@ -129,7 +134,7 @@ class HolocronClient {
   Stream<Event> streamEvents(String id, {int after = 0}) async* {
     final req = http.Request('GET', _uri('api/sessions/$id/stream?after=$after'));
     req.headers.addAll({..._headers, 'Accept': 'text/event-stream'});
-    final resp = await http.Client().send(req);
+    final resp = await _http.send(req);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException(resp.statusCode, '');
     }
