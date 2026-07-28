@@ -3,10 +3,69 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/dougkirkley/holocron/internal/config"
+	"github.com/dougkirkley/holocron/internal/provider"
 )
+
+// leadState is the TUI's mutable lead provider, reconfigurable via /model.
+type leadState struct {
+	name    string // display kind: ollama / openai / anthropic
+	baseURL string
+	apiKey  string
+	model   string
+	prov    provider.Provider
+}
+
+// providerImpl maps a user-facing provider kind to a registered provider name.
+// "ollama" is OpenAI-compatible, so it uses the openai backend with a base URL.
+func providerImpl(kind string) string {
+	if kind == "ollama" {
+		return "openai"
+	}
+	return kind
+}
+
+func baseNote(base string) string {
+	if base == "" {
+		return ""
+	}
+	return " at " + base
+}
+
+// saveLeadProvider persists the lead provider to the config file so it sticks
+// across sessions. It writes the impl provider name (so provider.New works on
+// reload) plus base URL, key, and model, merging into any existing file.
+func saveLeadProvider(explicit string, st *leadState) error {
+	f, path, err := config.Load(explicit)
+	if err != nil {
+		f = &config.File{}
+	}
+	if path == "" {
+		dir, derr := os.UserConfigDir()
+		if derr != nil {
+			return derr
+		}
+		path = filepath.Join(dir, "holocron", "config.json")
+	}
+	f.Provider = providerImpl(st.name)
+	f.BaseURL = st.baseURL
+	f.APIKey = st.apiKey
+	f.Model = st.model
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
+}
 
 // fetchModelIDs lists the models a provider serves, for the TUI /model picker.
 // For OpenAI-compatible backends (including ollama) it calls GET {baseURL}/models

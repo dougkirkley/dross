@@ -3,7 +3,11 @@
 // so commands can be built and exercised in tests without a process.
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"os"
+
+	"github.com/spf13/cobra"
+)
 
 const defaultModel = "claude-opus-5"
 
@@ -29,7 +33,11 @@ func NewRootCmd() *cobra.Command {
 	return root
 }
 
-// Execute runs the CLI.
+// Execute runs the CLI. With no arguments, holocron launches the TUI.
 func Execute() error {
-	return NewRootCmd().Execute()
+	root := NewRootCmd()
+	if len(os.Args) < 2 {
+		root.SetArgs([]string{"tui"})
+	}
+	return root.Execute()
 }

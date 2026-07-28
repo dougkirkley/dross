@@ -70,21 +70,34 @@ func newTUICmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			provName, model = res.Lead.Provider, res.Lead.Model
-			prov, err := provider.New(provName, provider.Config{BaseURL: res.Lead.BaseURL, APIKey: res.Lead.APIKey})
-			if err != nil {
-				return fmt.Errorf("provider: %w", err)
+			// Mutable lead-provider state. Empty when nothing is configured —
+			// there is no default provider; the user sets one up via /model.
+			st := &leadState{
+				name:    res.Lead.Provider,
+				baseURL: res.Lead.BaseURL,
+				apiKey:  res.Lead.APIKey,
+				model:   res.Lead.Model,
 			}
+			if st.name != "" {
+				// A bad stored config shouldn't block the TUI; leave prov nil and
+				// let /model reconfigure.
+				st.prov, _ = provider.New(providerImpl(st.name), provider.Config{BaseURL: st.baseURL, APIKey: st.apiKey})
+			}
+			cfgPath, _ := cmd.Flags().GetString("config")
+
 			var prog *tea.Program
 			run := func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error) {
+				if st.prov == nil || st.model == "" {
+					return nil, fmt.Errorf("no model configured — use /model to set up a provider")
+				}
 				opts := []agent.Option{agent.WithEventHook(emit)}
 				if prog != nil {
 					opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
 						return tui.Ask(prog, req)
 					}))
 				}
-				ag, err := agent.New(agent.Config{Name: "holocron", Model: model, Workdir: workdir},
-					prov, opts...)
+				ag, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir},
+					st.prov, opts...)
 				if err != nil {
 					return nil, err
 				}
@@ -92,19 +105,37 @@ func newTUICmd() *cobra.Command {
 			}
 
 			if once != "" {
-				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "holocron", model, provName, run, once))
+				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "holocron", st.model, st.name, run, once))
 				return nil
 			}
-			mdl := tui.New("holocron", model, provName, run)
+			mdl := tui.New("holocron", st.model, st.name, run)
 			mdl.SetPhrases(res.File.Phrases)
-			// /model: list the lead provider's served models and switch among
-			// them. run() reads `model`, so reassigning it here takes effect on
-			// the next prompt.
+			// /model: list the configured provider's models, set up a provider,
+			// and switch models. run() reads st, so updates take effect next turn.
 			mdl.SetModelPicker(
 				func() []tui.ModelGroup {
-					return []tui.ModelGroup{{Provider: provName, Models: fetchModelIDs(provName, res.Lead.BaseURL, res.Lead.APIKey)}}
+					if st.prov == nil {
+						return nil
+					}
+					return []tui.ModelGroup{{Provider: st.name, Models: fetchModelIDs(st.name, st.baseURL, st.apiKey)}}
 				},
-				func(id string) { model = id },
+				func(kind, base, key string) ([]tui.ModelGroup, error) {
+					if kind == "ollama" && base == "" {
+						base = "http://localhost:11434/v1"
+					}
+					p, err := provider.New(providerImpl(kind), provider.Config{BaseURL: base, APIKey: key})
+					if err != nil {
+						return nil, err
+					}
+					ids := fetchModelIDs(kind, base, key)
+					if len(ids) == 0 {
+						return nil, fmt.Errorf("no models from %s%s", kind, baseNote(base))
+					}
+					st.name, st.baseURL, st.apiKey, st.prov = kind, base, key, p
+					_ = saveLeadProvider(cfgPath, st)
+					return []tui.ModelGroup{{Provider: kind, Models: ids}}, nil
+				},
+				func(id string) { st.model = id; _ = saveLeadProvider(cfgPath, st) },
 			)
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
@@ -131,9 +162,12 @@ func newTUICmd() *cobra.Command {
 								return err
 							}
 						}
+						if st.prov == nil {
+							return fmt.Errorf("no provider — use /model to set one up first")
+						}
 						return relay.RunDevice(ctx, relay.DeviceOptions{
 							Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
-							Lead: prov, LeadModel: model, Worker: worker, WorkerModel: res.Worker.Model,
+							Lead: st.prov, LeadModel: st.model, Worker: worker, WorkerModel: res.Worker.Model,
 							Log: logf,
 						})
 					})
@@ -161,8 +195,8 @@ func newTUICmd() *cobra.Command {
 	f.IntVar(&width, "width", 96, "width for --render/--once")
 	f.IntVar(&height, "height", 28, "height for --render/--once")
 	f.StringVarP(&workdir, "workdir", "C", ".", "workspace root")
-	f.StringVar(&model, "model", defaultModel, "model")
-	f.StringVar(&provName, "provider", "anthropic", "provider")
+	f.StringVar(&model, "model", "", "model (default: none — set up via /model)")
+	f.StringVar(&provName, "provider", "", "provider (default: none — set up via /model)")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
 	f.StringVar(&server, "server", "", "holocron server for /login and /rc device linking")

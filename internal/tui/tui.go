@@ -109,8 +109,12 @@ type ModelGroup struct {
 	Models   []string
 }
 
-// modelsMsg delivers fetched models into the loop to open the picker.
-type modelsMsg struct{ groups []ModelGroup }
+// modelsMsg delivers fetched models into the loop to open the picker (or an
+// error from provider setup).
+type modelsMsg struct {
+	groups []ModelGroup
+	err    error
+}
 
 // slashCmd is a "/command" offered by autocomplete.
 type slashCmd struct{ name, desc string }
@@ -219,14 +223,18 @@ type Model struct {
 	remoteLink   func(ctx context.Context, log func(string)) error // advertise this machine
 	remoteLinked bool
 
-	// /model picker. modelFetch lists available models by provider; onModel
-	// switches the model used for subsequent runs.
-	modelFetch      func() []ModelGroup
+	// /model picker. modelList lists the configured provider's models;
+	// modelSetup configures a provider (kind, base URL, key) and returns its
+	// models; onModel switches the model used for subsequent runs.
+	modelList       func() []ModelGroup
+	modelSetup      func(kind, baseURL, apiKey string) ([]ModelGroup, error)
 	onModel         func(id string)
 	modelGroups     []ModelGroup
 	modelFlat       []string // selectable ids, in display order
 	modelPickerOpen bool
 	modelSel        int
+
+	slashSel int // highlighted row in slash-command autocomplete
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -400,10 +408,16 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 	m.remoteLink = link
 }
 
-// SetModelPicker wires /model: fetch lists available models by provider, onPick
-// switches the model used for subsequent runs.
-func (m *Model) SetModelPicker(fetch func() []ModelGroup, onPick func(id string)) {
-	m.modelFetch = fetch
+// SetModelPicker wires /model: list returns the configured provider's models
+// (nil if none), setup configures a provider from (kind, baseURL, apiKey) and
+// returns its models, onPick switches the model for subsequent runs.
+func (m *Model) SetModelPicker(
+	list func() []ModelGroup,
+	setup func(kind, baseURL, apiKey string) ([]ModelGroup, error),
+	onPick func(id string),
+) {
+	m.modelList = list
+	m.modelSetup = setup
 	m.onModel = onPick
 }
 
@@ -426,18 +440,71 @@ func (m Model) matchSlash() []slashCmd {
 	return out
 }
 
-// handleSlash runs a "/command" typed at the prompt. It returns (handled, cmd);
-// handled=false means the text is a normal prompt, not a command.
+// resolveSlash maps a possibly-partial "/cmd" to a full command name by exact or
+// prefix match (first match wins on ties, matching the autocomplete Tab target).
+// Returns "" when nothing matches.
+func resolveSlash(name string) string {
+	for _, c := range slashCommands {
+		if c.name == name {
+			return c.name
+		}
+	}
+	for _, c := range slashCommands {
+		if strings.HasPrefix(c.name, name) {
+			return c.name
+		}
+	}
+	return ""
+}
+
+// handleSlash runs a "/command" typed at the prompt. Any "/"-prefixed input is
+// handled here (resolved by prefix, or reported as unknown) so it never leaks to
+// the agent as a prompt.
 func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
-	switch strings.Fields(text)[0] {
+	name := resolveSlash(strings.Fields(text)[0])
+	if name == "" {
+		m.append(errStyle.Render("unknown command: " + strings.Fields(text)[0]))
+		m.input.Reset()
+		return true, nil
+	}
+	switch name {
 	case "/model":
 		m.input.Reset()
-		if m.modelFetch == nil {
+		args := strings.Fields(text)[1:]
+		// "/model <kind> [baseURL] [apiKey]" sets up a provider; bare "/model"
+		// lists the configured provider's models.
+		if len(args) > 0 {
+			if m.modelSetup == nil {
+				m.append(metaStyle.Render("provider setup not available"))
+				return true, nil
+			}
+			kind := args[0]
+			base, key := "", ""
+			if len(args) > 1 {
+				base = args[1]
+			}
+			if len(args) > 2 {
+				key = args[2]
+			}
+			setup := m.modelSetup
+			m.append(metaStyle.Render("configuring " + kind + " …"))
+			return true, func() tea.Msg {
+				g, err := setup(kind, base, key)
+				return modelsMsg{groups: g, err: err}
+			}
+		}
+		if m.modelList == nil {
 			m.append(metaStyle.Render("model switching not available"))
 			return true, nil
 		}
-		fetch := m.modelFetch
-		return true, func() tea.Msg { return modelsMsg{groups: fetch()} }
+		list := m.modelList
+		return true, func() tea.Msg {
+			g := list()
+			if len(g) == 0 {
+				return modelsMsg{err: fmt.Errorf("no provider configured — use: /model <ollama|openai|anthropic> [baseURL] [apiKey]")}
+			}
+			return modelsMsg{groups: g}
+		}
 	case "/login":
 		m.input.Reset()
 		if m.remoteLogin == nil {
@@ -475,7 +542,10 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		}()
 		return true, m.pump()
 	}
-	return false, nil
+	// resolveSlash returned a name we handle above; anything else is unknown.
+	m.append(errStyle.Render("unknown command: " + name))
+	m.input.Reset()
+	return true, nil
 }
 
 func (m Model) phrase() string {
@@ -530,12 +600,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Tab autocompletes a slash command to the first match.
-		if msg.String() == "tab" {
-			if ms := m.matchSlash(); len(ms) > 0 {
-				m.input.SetValue(ms[0].name)
-				m.input.CursorEnd()
+		// Slash-command autocomplete: navigate matches with up/down, complete
+		// with tab, run the highlighted one with enter.
+		if ms := m.matchSlash(); len(ms) > 0 {
+			if m.slashSel >= len(ms) {
+				m.slashSel = len(ms) - 1
+			}
+			switch msg.String() {
+			case "up":
+				if m.slashSel > 0 {
+					m.slashSel--
+				}
 				return m, nil
+			case "down":
+				if m.slashSel < len(ms)-1 {
+					m.slashSel++
+				}
+				return m, nil
+			case "tab", "right":
+				m.input.SetValue(ms[m.slashSel].name)
+				m.input.CursorEnd()
+				m.slashSel = 0
+				return m, nil
+			case "enter":
+				cmd := ms[m.slashSel].name
+				m.slashSel = 0
+				_, c := m.handleSlash(cmd)
+				return m, c
 			}
 		}
 		// Session switcher overlay captures keys.
@@ -785,6 +876,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.append(errStyle.Render(msg.err.Error()))
 		}
 	case modelsMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render(msg.err.Error()))
+			break
+		}
 		m.modelGroups = msg.groups
 		m.modelFlat = m.modelFlat[:0]
 		for _, g := range msg.groups {
@@ -1404,10 +1499,14 @@ func (m Model) footer() string {
 	var suggest string
 	if !m.running {
 		if ms := m.matchSlash(); len(ms) > 0 {
+			sel := m.slashSel
+			if sel >= len(ms) {
+				sel = len(ms) - 1
+			}
 			var rows []string
 			for i, c := range ms {
 				cur, style := "  ", metaStyle
-				if i == 0 {
+				if i == sel {
 					cur, style = promptMark.Render("› "), agentText
 				}
 				rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
