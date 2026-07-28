@@ -215,11 +215,17 @@ func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 	nonce := hex.EncodeToString(randomBytes(16))
 	verifier := oauth2.GenerateVerifier()
 	next := safeNext(r.URL.Query().Get("next"))
-	// mode=app: native clients that capture the callback via a custom scheme and
-	// carry the session as a bearer token instead of a cookie.
+	// mode=app: native clients capture the callback via a custom scheme.
+	// mode=cli: local tools capture it at a loopback redirect (?redirect=...);
+	// both carry the session as a bearer token instead of a cookie.
 	mode := ""
-	if r.URL.Query().Get("mode") == "app" {
+	switch r.URL.Query().Get("mode") {
+	case "app":
 		mode = "app"
+	case "cli":
+		if red := r.URL.Query().Get("redirect"); loopbackURL(red) {
+			mode = "cli|" + red
+		}
 	}
 
 	// Stash state|nonce|verifier|next|mode in a short-lived signed cookie.
@@ -280,10 +286,18 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 	a.clearCookie(w, stateCookie)
 	session := a.signSession(claims.Email)
 
-	// Native app clients get the session handed back through a custom-scheme
-	// redirect and send it as a bearer token; browsers get a session cookie.
+	// Native app clients get the session via a custom-scheme redirect; CLI/TUI
+	// tools via a loopback redirect; browsers get a session cookie.
 	if mode == "app" {
 		http.Redirect(w, r, appCallbackScheme+"?session="+url.QueryEscape(session), http.StatusFound)
+		return
+	}
+	if red, ok := strings.CutPrefix(mode, "cli|"); ok && loopbackURL(red) {
+		sep := "?"
+		if strings.Contains(red, "?") {
+			sep = "&"
+		}
+		http.Redirect(w, r, red+sep+"token="+url.QueryEscape(session), http.StatusFound)
 		return
 	}
 	a.setCookie(w, sessionCookie, session, sessionTTL)
@@ -293,6 +307,17 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 // appCallbackScheme is the custom-scheme URL native clients register to capture
 // the session token from the OIDC callback.
 const appCallbackScheme = "holocron://auth"
+
+// loopbackURL reports whether u is an http URL on 127.0.0.1/localhost — the only
+// redirect target allowed for the CLI login flow (prevents token exfiltration).
+func loopbackURL(u string) bool {
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme != "http" {
+		return false
+	}
+	h := p.Hostname()
+	return h == "127.0.0.1" || h == "localhost" || h == "::1"
+}
 
 // Logout clears the session cookie.
 func (a *Authenticator) Logout(w http.ResponseWriter, r *http.Request) {

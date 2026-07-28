@@ -61,12 +61,21 @@ func newRCCmd() *cobra.Command {
 			url := strings.TrimRight(server, "/") + "/api/device/connect"
 			url = strings.Replace(strings.Replace(url, "https://", "wss://", 1), "http://", "ws://", 1)
 			opts := &websocket.DialOptions{}
-			if token != "" {
-				opts.HTTPHeader = map[string][]string{"Authorization": {"Bearer " + token}}
-			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "linking %q to %s …\n", name, server)
 			ctx := cmd.Context()
+			// Authenticate as the SSO user (stored session, or sign in now).
+			if token == "" {
+				token = loadSessionToken(server)
+			}
+			if token == "" {
+				fmt.Fprintln(out, "no session — opening browser to sign in…")
+				token, err = ssoLogin(ctx, server)
+				if err != nil {
+					return fmt.Errorf("login: %w", err)
+				}
+			}
+			opts.HTTPHeader = map[string][]string{"Authorization": {"Bearer " + token}}
+			fmt.Fprintf(out, "linking %q to %s …\n", name, server)
 			c, _, err := websocket.Dial(ctx, url, opts)
 			if err != nil {
 				return fmt.Errorf("dial %s: %w", url, err)

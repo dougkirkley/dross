@@ -2,12 +2,14 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/dougkirkley/holocron/internal/auth"
 	"github.com/dougkirkley/holocron/internal/relay"
 )
 
@@ -63,6 +65,16 @@ func (h *deviceHub) remove(id string) {
 // handleDeviceConnect is the relay endpoint a device dials into. It reads the
 // hello, then pumps frames both ways until the connection drops.
 func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
+	// Require a real SSO identity for device linking, so a session is always
+	// tied to the logged-in user — the shared static token (identity
+	// "api-token") is not enough here.
+	if s.auth != nil {
+		email := auth.Identity(r)
+		if email == "" || !strings.Contains(email, "@") {
+			http.Error(w, "device linking requires SSO login", http.StatusForbidden)
+			return
+		}
+	}
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
