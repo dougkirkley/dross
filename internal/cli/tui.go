@@ -88,11 +88,11 @@ func newTUICmd() *cobra.Command {
 			cfgPath, _ := cmd.Flags().GetString("config")
 
 			var prog *tea.Program
-			run := func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error) {
+			run := func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error) {
 				if st.prov == nil || st.model == "" {
 					return nil, fmt.Errorf("no model configured — use /model to set up a provider")
 				}
-				opts := []agent.Option{agent.WithEventHook(emit)}
+				opts := []agent.Option{agent.WithEventHook(emit), agent.WithPermission(mode)}
 				if prog != nil {
 					opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
 						return tui.Ask(prog, req)

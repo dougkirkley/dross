@@ -60,6 +60,9 @@ var (
 			Padding(0, 1)
 )
 
+// RunFunc executes one prompt under a permission mode, streaming events via emit.
+type RunFunc func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error)
+
 // EventMsg carries an agent event into the Bubble Tea loop.
 type EventMsg agent.Event
 
@@ -217,7 +220,7 @@ type Model struct {
 
 	lines []string // rendered log lines
 
-	run  func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error)
+	run  RunFunc
 	msgs chan tea.Msg
 
 	// remote device linking (/login + /rc). Nil when the TUI was started
@@ -245,13 +248,13 @@ type Model struct {
 // TUI model, and returns the final rendered frame. Used to capture a live run
 // (against a real model) as a single screenshot without keystroke injection.
 func RenderRun(ctx context.Context, width, height int, agentName, model, provider string,
-	run func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error),
+	run RunFunc,
 	prompt string) string {
 	m := New(agentName, model, provider, run)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  " + prompt)
-	res, err := run(ctx, prompt, func(e agent.Event) { m.applyEvent(e) })
+	res, err := run(ctx, prompt, "", func(e agent.Event) { m.applyEvent(e) })
 	if err != nil {
 		m.applyEvent(agent.Event{Kind: "error", Data: err.Error()})
 	}
@@ -263,7 +266,7 @@ func RenderRun(ctx context.Context, width, height int, agentName, model, provide
 }
 
 // New builds a TUI. run executes a prompt, calling emit for each event.
-func New(agentName, model, provider string, run func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error)) Model {
+func New(agentName, model, provider string, run RunFunc) Model {
 	ti := textinput.New()
 	ti.Placeholder = "ask holocron to build, edit, or run something…"
 	ti.Prompt = ""
@@ -1786,8 +1789,9 @@ func (m *Model) layout() {
 // startRun spawns the agent run; events and the final doneMsg flow through msgs.
 func (m Model) startRun(prompt string) tea.Cmd {
 	return func() tea.Msg {
+		mode := modeLabels[m.modeIdx]
 		go func() {
-			res, err := m.run(context.Background(), prompt, func(e agent.Event) {
+			res, err := m.run(context.Background(), prompt, mode, func(e agent.Event) {
 				m.msgs <- EventMsg(e)
 			})
 			m.msgs <- doneMsg{res: res, err: err}

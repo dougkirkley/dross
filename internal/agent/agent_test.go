@@ -472,3 +472,50 @@ func TestWorkspace_Confinement(t *testing.T) {
 		t.Fatalf("resolve of in-tree path failed: %v", err)
 	}
 }
+
+// TestPermission_PlanBlocksWrites verifies plan mode blocks a write: the file is
+// never created and the model gets a "blocked" tool result.
+func TestPermission_PlanBlocksWrites(t *testing.T) {
+	dir := t.TempDir()
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+			toolCall("1", "write", map[string]string{"path": "x.go", "content": "package main\n"}),
+		}},
+		{StopReason: provider.StopEndTurn, Text: "planned"},
+	}}
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: dir}, prov, WithPermission("plan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.Run(context.Background(), "write x.go"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "x.go")); !os.IsNotExist(err) {
+		t.Fatalf("plan mode must not write the file (err=%v)", err)
+	}
+	if !strings.Contains(prov.last.lastInput, "blocked") {
+		t.Fatalf("model should get a blocked result, got %q", prov.last.lastInput)
+	}
+}
+
+// TestPermission_ManualDeny verifies a denied approval blocks the tool.
+func TestPermission_ManualDeny(t *testing.T) {
+	dir := t.TempDir()
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+			toolCall("1", "write", map[string]string{"path": "y.go", "content": "package main\n"}),
+		}},
+		{StopReason: provider.StopEndTurn, Text: "ok"},
+	}}
+	deny := func(AskRequest) (string, error) { return "Deny", nil }
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: dir}, prov, WithPermission("manual"), WithAsker(deny))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.Run(context.Background(), "write y.go"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "y.go")); !os.IsNotExist(err) {
+		t.Fatal("manual deny must not write the file")
+	}
+}

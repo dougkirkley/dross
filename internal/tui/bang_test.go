@@ -13,7 +13,7 @@ import (
 // TestBangShellEscape verifies "!cmd" runs a shell command instead of prompting
 // the agent, and its output lands in the log.
 func TestBangShellEscape(t *testing.T) {
-	run := func(context.Context, string, func(agent.Event)) (*agent.Result, error) {
+	run := func(context.Context, string, string, func(agent.Event)) (*agent.Result, error) {
 		t.Fatal("agent must not run for a ! command")
 		return nil, nil
 	}

@@ -113,6 +113,24 @@ type AskFunc func(AskRequest) (string, error)
 // is not offered.
 func WithAsker(fn AskFunc) Option { return func(a *Agent) { a.asker = fn } }
 
+// PermMode gates which tools run without asking. Enforcement lives in the agent
+// loop, so every client (TUI, serve, mobile) gets it.
+type PermMode string
+
+const (
+	PermAuto        PermMode = ""             // run everything freely
+	PermManual      PermMode = "manual"       // ask before any edit or command
+	PermAcceptEdits PermMode = "accept edits" // auto edits; ask before commands
+	PermPlan        PermMode = "plan"         // read-only: block edits and commands
+)
+
+// WithPermission sets the permission mode. Gating uses the asker (WithAsker) to
+// confirm; with no asker configured, gating allows by default (non-interactive
+// callers stay unblocked). Auto/unknown means no gating.
+func WithPermission(mode string) Option {
+	return func(a *Agent) { a.permMode = PermMode(strings.ToLower(strings.TrimSpace(mode))) }
+}
+
 // PublishFunc stores a file and returns a shareable URL for it.
 type PublishFunc func(name string, data []byte, mime string) (url string, err error)
 
@@ -215,6 +233,7 @@ type Agent struct {
 	edits        []editRec // changes made this run, for the reviewer skill
 	publish      PublishFunc
 	asker        AskFunc
+	permMode     PermMode
 	resume       string
 	checkpoint   func(brief string) error
 	emitMu       sync.Mutex // serializes emit across parallel workers
@@ -319,6 +338,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		results := make([]provider.ToolResult, 0, len(resp.ToolCalls))
 		for _, tc := range resp.ToolCalls {
 			a.emit("tool", fmt.Sprintf("%s %s", tc.Name, string(tc.Input)))
+			if deny, ok := a.gate(tc); !ok {
+				a.emit("tool-result", deny)
+				results = append(results, provider.ToolResult{ID: tc.ID, Content: deny})
+				continue
+			}
 			content, isErr := a.execTool(ctx, tc, res)
 			if isErr {
 				a.emit("error", content)
@@ -499,6 +523,64 @@ func (a *Agent) runReview(ctx context.Context, res *Result) {
 	res.add(a.reviewer.model, resp.Usage)
 	res.Review = resp.Text
 	a.emit("review", resp.Text)
+}
+
+// gate applies the permission mode. It returns (denialMessage, false) to block a
+// tool (the message is fed back to the model as the tool result), or ("", true)
+// to allow it. Only mutating tools are gated; reads never are.
+func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
+	writes := tc.Name == "write" || tc.Name == "edit"
+	commands := tc.Name == "bash" || tc.Name == "monitor"
+	if !writes && !commands {
+		return "", true // read, shell_output, delegate, publish, ask_user: never gated
+	}
+	switch a.permMode {
+	case PermPlan:
+		return "blocked: plan mode is read-only — no edits or commands. Describe your plan and ask the user to switch modes to apply it.", false
+	case PermManual:
+		if !a.approve(tc) {
+			return "denied by the user.", false
+		}
+	case PermAcceptEdits:
+		if commands && !a.approve(tc) {
+			return "denied by the user.", false
+		}
+	}
+	return "", true
+}
+
+// approve asks the user to allow a gated tool call. With no asker (non-
+// interactive), it allows by default so servers and one-shot runs aren't blocked.
+func (a *Agent) approve(tc provider.ToolCall) bool {
+	if a.asker == nil {
+		return true
+	}
+	ans, err := a.asker(AskRequest{Questions: []AskQuestion{{
+		Header:   tc.Name,
+		Question: "Allow this " + tc.Name + "?\n" + gateSummary(tc),
+		Options:  []string{"Allow", "Deny"},
+	}}})
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(ans), "allow")
+}
+
+// gateSummary is a short human description of what a tool call will do.
+func gateSummary(tc provider.ToolCall) string {
+	var in map[string]any
+	_ = json.Unmarshal(tc.Input, &in)
+	switch tc.Name {
+	case "bash", "monitor":
+		if c, ok := in["command"].(string); ok {
+			return truncate(c, 200)
+		}
+	case "write", "edit":
+		if p, ok := in["path"].(string); ok {
+			return p
+		}
+	}
+	return truncate(string(tc.Input), 200)
 }
 
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
