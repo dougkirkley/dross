@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,39 @@ import (
 	"github.com/dougkirkley/holocron/internal/config"
 	"github.com/dougkirkley/holocron/internal/provider"
 )
+
+var mentionRE = regexp.MustCompile(`@([^\s@]+)`)
+
+// expandMentions inlines "@path" file references in a prompt: each mention that
+// resolves to a readable file inside dir gets its contents appended in a
+// <file> block, like Claude Code's @-mentions. Non-files are left as-is.
+func expandMentions(dir, prompt string) string {
+	var blocks strings.Builder
+	seen := map[string]bool{}
+	for _, m := range mentionRE.FindAllStringSubmatch(prompt, -1) {
+		p := strings.Trim(m[1], ".,);:'\"")
+		if p == "" || seen[p] {
+			continue
+		}
+		full := filepath.Clean(filepath.Join(dir, p))
+		if rel, err := filepath.Rel(dir, full); err != nil || strings.HasPrefix(rel, "..") {
+			continue // stay within the workspace
+		}
+		data, err := os.ReadFile(full)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		if len(data) > 50*1024 {
+			data = data[:50*1024]
+		}
+		seen[p] = true
+		blocks.WriteString("\n\n<file path=\"" + p + "\">\n" + string(data) + "\n</file>")
+	}
+	if blocks.Len() == 0 {
+		return prompt
+	}
+	return prompt + "\n\n# Referenced files" + blocks.String()
+}
 
 // loadProjectContext reads project instruction files (AGENTS.md, CLAUDE.md) from
 // the workspace root and returns them concatenated, for the agent's system

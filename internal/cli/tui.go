@@ -114,7 +114,7 @@ func newTUICmd() *cobra.Command {
 				}
 				conv.SetEventHook(emit)
 				conv.SetPermission(mode)
-				return conv.Run(ctx, prompt)
+				return conv.Run(ctx, expandMentions(workdir, prompt))
 			}
 
 			if once != "" {

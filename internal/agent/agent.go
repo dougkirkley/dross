@@ -593,19 +593,19 @@ func (a *Agent) approve(tc provider.ToolCall) bool {
 	return strings.Contains(strings.ToLower(ans), "allow")
 }
 
-// gateSummary is a short human description of what a tool call will do.
+// gateSummary is a preview of what a tool call will do, shown in the approval
+// prompt so the user can accept or deny with the actual change in view.
 func gateSummary(tc provider.ToolCall) string {
 	var in map[string]any
 	_ = json.Unmarshal(tc.Input, &in)
+	s := func(k string) string { v, _ := in[k].(string); return v }
 	switch tc.Name {
 	case "bash", "monitor":
-		if c, ok := in["command"].(string); ok {
-			return truncate(c, 200)
-		}
-	case "write", "edit":
-		if p, ok := in["path"].(string); ok {
-			return p
-		}
+		return truncate(s("command"), 400)
+	case "write":
+		return s("path") + "\n" + truncate(s("content"), 600)
+	case "edit":
+		return s("path") + "\n- " + truncate(s("old_str"), 300) + "\n+ " + truncate(s("new_str"), 300)
 	}
 	return truncate(string(tc.Input), 200)
 }
