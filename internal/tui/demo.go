@@ -89,12 +89,20 @@ func DemoModelsView(width, height int) string {
 	return m.View()
 }
 
-// DemoUsageView renders the /usage output: token and cost summary.
+// DemoUsageView renders the /usage output: a context-fill bar per session and
+// model, for the provider in use.
 func DemoUsageView(width, height int) string {
 	m := New("holocron", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	m.turns, m.inTok, m.outTok, m.cost = 6, 18420, 3240, 0.0142
+	// Two prior sessions on different models, plus the live current one.
+	m.sessions = []session{
+		{title: "add --json flag", model: "qwen2.5-coder:14b", turns: 4, inTok: 9200, outTok: 1400, cost: 0.0},
+		{title: "refactor auth", model: "qwen3-coder:30b", turns: 9, inTok: 26800, outTok: 5100, cost: 0.0},
+		{}, // current
+	}
+	m.cur = 2
+	m.title, m.turns, m.inTok, m.outTok, m.cost = "wire the login flow", 6, 18420, 3240, 0.0
 	m.handleSlash("/usage")
 	return m.View()
 }
