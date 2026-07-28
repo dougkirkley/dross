@@ -6,6 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
+import '../widgets/new_session_sheet.dart';
 import 'chats_screen.dart' show relTimeLong;
 import 'session_screen.dart';
 import 'settings_screen.dart';
@@ -284,7 +285,10 @@ class SessionsScreen extends StatelessWidget {
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();
-    final Session? s = await state.createSession();
+    final choice = await showNewSessionSheet(context);
+    if (choice == null || !context.mounted) return;
+    final Session? s = await state.createSession(
+        model: choice.model, workerModel: choice.worker);
     if (s != null && context.mounted) {
       await state.attach(s);
       if (context.mounted) {
