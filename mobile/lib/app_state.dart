@@ -99,7 +99,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    mode = ConnMode.values[p.getInt('mode') ?? 0];
+    // Always open on Chats; the sidebar selection follows `mode`, so restoring
+    // a persisted `remote` here left Code highlighted on the Chats page.
+    mode = ConnMode.direct;
     providerKind = ProviderKind.values[p.getInt('providerKind') ?? 0];
     openaiBaseUrl = p.getString('openaiBaseUrl') ?? openaiBaseUrl;
     openaiModel = p.getString('openaiModel') ?? openaiModel;
@@ -129,7 +131,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> saveConfig() async {
     final p = await SharedPreferences.getInstance();
-    await p.setInt('mode', mode.index);
     await p.setInt('providerKind', providerKind.index);
     await p.setString('openaiBaseUrl', openaiBaseUrl);
     await p.setString('openaiModel', openaiModel);
@@ -203,12 +204,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Switches between direct (Chats) and remote (Code) views; persisted.
+  /// Switches between direct (Chats) and remote (Code) views. Not persisted:
+  /// the app always opens on Chats.
   void setMode(ConnMode m) {
     if (mode == m) return;
     mode = m;
     notifyListeners();
-    SharedPreferences.getInstance().then((p) => p.setInt('mode', m.index));
     if (m == ConnMode.remote && remoteConfigured) refreshSessions();
   }
 

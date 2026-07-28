@@ -381,7 +381,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			m.msgs <- remoteStatusMsg{"signed in. run /rc to make this machine drivable from your phone"}
 		}()
 		return true, m.pump()
-	case "/rc":
+	case "/rc", "/remote-control":
 		m.input.Reset()
 		if m.remoteLink == nil {
 			m.append(metaStyle.Render("remote not configured (start with --server)"))
