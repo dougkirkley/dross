@@ -174,12 +174,12 @@ class SessionsScreen extends StatelessWidget {
   // Wraps a card so tapping it attaches to the session and opens it.
   Widget _openTap(BuildContext context, Session sess, Widget child) => InkWell(
         borderRadius: BorderRadius.circular(T.rCard),
-        onTap: () async {
-          await context.read<AppState>().attach(sess);
-          if (context.mounted) {
-            Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const SessionScreen()));
-          }
+        onTap: () {
+          // Fire attach (non-blocking) and open immediately — the screen reacts
+          // to state as events load, so re-entry never hangs on attach.
+          context.read<AppState>().attach(sess);
+          Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const SessionScreen()));
         },
         child: child,
       );
@@ -290,11 +290,9 @@ class SessionsScreen extends StatelessWidget {
     final Session? s = await state.createSession(
         model: choice.model, workerModel: choice.worker);
     if (s != null && context.mounted) {
-      await state.attach(s);
-      if (context.mounted) {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const SessionScreen()));
-      }
+      state.attach(s); // non-blocking; screen reacts as events load
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const SessionScreen()));
     }
   }
 }

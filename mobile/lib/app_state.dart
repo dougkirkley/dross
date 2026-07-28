@@ -547,7 +547,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> attach(Session s) async {
-    await _sub?.cancel();
+    // Fire-and-forget cancel: on web the SSE stream (BrowserClient) may never
+    // complete, so awaiting cancel() could hang and block re-entry.
+    _sub?.cancel();
+    _sub = null;
     current = s;
     events.clear();
     queue.clear();
@@ -590,6 +593,7 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     try {
       current = await _client.getSession(s.id);
+      notifyListeners(); // reflect the new status (e.g. running -> idle)
     } catch (_) {}
   }
 

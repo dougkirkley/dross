@@ -66,11 +66,16 @@ class _SessionScreenState extends State<SessionScreen> {
             Expanded(
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);
+                final running = sess?.isRunning ?? false;
+                // The live spinner/label rides at the end of the conversation
+                // (right under the last prompt), not pinned at the bottom.
+                final count = timeline.length + (running ? 1 : 0);
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  itemCount: timeline.length,
+                  itemCount: count,
                   itemBuilder: (_, i) {
+                    if (i == timeline.length) return _runningRow(s);
                     final item = timeline[i];
                     if (item is Activity) return ActivityBlock(item);
                     return _eventRow(item as Event);
@@ -78,20 +83,6 @@ class _SessionScreenState extends State<SessionScreen> {
                 );
               }),
             ),
-            if (sess?.isRunning ?? false)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-                child: Row(children: [
-                  const HolocronSpinner(size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(currentActivityLabel(s.events),
-                        style: T.meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                ]),
-              ),
             if (s.queue.isNotEmpty) _queueStrip(context, s),
             _inputBar(context, s),
           ],
@@ -99,6 +90,18 @@ class _SessionScreenState extends State<SessionScreen> {
       ),
     ));
   }
+
+  Widget _runningRow(AppState s) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          const HolocronSpinner(size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(currentActivityLabel(s.events),
+                style: T.meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        ]),
+      );
 
   Widget _queueStrip(BuildContext context, AppState s) => Container(
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
