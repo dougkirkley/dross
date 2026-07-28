@@ -2,7 +2,7 @@
 # internal/web/dist), so one process serves the UI + JSON/SSE API. Run
 # `flutter build web` (mobile/) before building this image — the prebuilt output
 # is copied into the embed dir so no Flutter SDK is needed here.
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
 WORKDIR /app
 COPY . .
 # Replace the committed placeholder with the real web build, then compile.
