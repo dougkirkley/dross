@@ -644,7 +644,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats()) + m.shellsTree() + m.queueStrip()
+			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
@@ -810,28 +810,6 @@ func (m *Model) trackShell(kind, data string) {
 		// output is streamed; the TUI shows status inline, full output lives in
 		// the mobile viewer. (No-op here beyond keeping the shell known.)
 	}
-}
-
-// shellsTree lists background shells under the spinner while any are known.
-func (m Model) shellsTree() string {
-	if len(m.shellOrder) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, id := range m.shellOrder {
-		s := m.shells[id]
-		if s == nil {
-			continue
-		}
-		state := s.exit
-		if s.running {
-			state = fmt.Sprintf("running %ds", int(time.Since(s.start).Seconds()))
-		}
-		b.WriteString("\n" + workerTag.Render("  ⚙ "+id+" ") +
-			resultStyle.Render(truncate(oneLine(s.command), 46)) + "  " +
-			metaStyle.Render(state))
-	}
-	return b.String()
 }
 
 func plural(n int) string {
@@ -1124,7 +1102,7 @@ func (m Model) footer() string {
 	box := inputBox.Width(m.width - 2).Render(line)
 	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
 	if n := m.runningShells(); n > 0 {
-		mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
+		mode += costStyle.Render(fmt.Sprintf(" · %d running job%s", n, plural(n)))
 	}
 	mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
 	out := box + "\n" + "  " + mode
