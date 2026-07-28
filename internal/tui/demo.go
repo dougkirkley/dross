@@ -60,6 +60,18 @@ func DemoView(width, height int) string {
 	return m.View()
 }
 
+// DemoBangView renders the shell-escape state: a "!command" in the input, with
+// the gold border/mark/hint that mark shell mode.
+func DemoBangView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(promptMark.Render("! ") + youLabel.Render("bash") + "  git status -s")
+	m.applyEvent(agent.Event{Kind: "tool-result", Data: " M internal/tui/tui.go\n?? internal/tui/bang_test.go"})
+	m.input.SetValue("!go build ./...")
+	return m.View()
+}
+
 // DemoRunningView renders a mid-run frame — spinner, a rotating status phrase,
 // and the live token counter — for screenshots of the working state.
 func DemoRunningView(width, height int) string {

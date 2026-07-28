@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/holocron/internal/agent"
@@ -18,7 +20,7 @@ import (
 func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
-		subagents, subagentFocus, shells                   bool
+		subagents, subagentFocus, shells, bang             bool
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
@@ -31,6 +33,9 @@ func newTUICmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if render {
+				// --render pipes to a file (not a TTY), so lipgloss would strip
+				// to 16 colors. Force truecolor so screenshots show real hues.
+				lipgloss.SetColorProfile(termenv.TrueColor)
 				switch {
 				case welcome:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoWelcomeView(width, height, logo))
@@ -40,6 +45,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentsView(width, height))
 				case shells:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoShellsView(width, height))
+				case bang:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoBangView(width, height))
 				case subagentFocus:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentFocusView(width, height))
 				case ask:
@@ -128,6 +135,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
 	f.BoolVar(&subagents, "subagents", false, "with --render, show the live subagent tree")
 	f.BoolVar(&shells, "shells", false, "with --render, show background shells")
+	f.BoolVar(&bang, "bang", false, "with --render, show the ! shell-mode input")
 	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")

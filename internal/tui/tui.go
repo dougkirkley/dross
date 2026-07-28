@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ var (
 	bad      = lipgloss.Color("#E06C75")
 	base     = lipgloss.Color("#0C0F12") // near-black
 	panel    = lipgloss.Color("#15181C") // gray panel
+	gold     = lipgloss.Color("#E6B450") // shell-mode ("!") accent
 
 	logoStyle   = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	metaStyle   = lipgloss.NewStyle().Foreground(muted)
@@ -50,6 +52,7 @@ var (
 	startGlyph  = lipgloss.NewStyle().Foreground(accent)                    // something started
 	doneGlyph   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
 	promptMark  = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	goldStyle   = lipgloss.NewStyle().Foreground(gold).Bold(true)
 	inputBox    = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(accent).
@@ -93,6 +96,12 @@ type askMsg struct{ st *askState }
 
 // remoteStatusMsg reports progress of a /login or /rc slash command.
 type remoteStatusMsg struct{ text string }
+
+// bangMsg carries the output of a "!command" shell escape.
+type bangMsg struct {
+	out string
+	err error
+}
 
 // Ask is the AskFunc wired into the agent: it posts the questions to the running
 // TUI program and blocks until the user submits their answers.
@@ -599,6 +608,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				prompt := m.input.Value()
+				// "!cmd" runs a shell command directly instead of prompting the
+				// agent, like Claude Code's bash escape.
+				if bang := strings.TrimSpace(prompt); strings.HasPrefix(bang, "!") {
+					cmdStr := strings.TrimSpace(bang[1:])
+					m.input.Reset()
+					if cmdStr == "" {
+						return m, nil
+					}
+					m.append(promptMark.Render("! ") + youLabel.Render("bash") + "  " + cmdStr)
+					return m, m.runBang(cmdStr)
+				}
 				if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
 					if handled, cmd := m.handleSlash(strings.TrimSpace(prompt)); handled {
 						return m, cmd
@@ -660,6 +680,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.append(metaStyle.Render(msg.text))
 		cmds = append(cmds, m.pump())
+	case bangMsg:
+		for _, l := range strings.Split(strings.TrimRight(msg.out, "\n"), "\n") {
+			m.append(resultStyle.Render(l))
+		}
+		if msg.err != nil {
+			m.append(errStyle.Render(msg.err.Error()))
+		}
 	case askMsg:
 		m.pendingAsk = msg.st
 		if msg.st.freeText {
@@ -1219,13 +1246,25 @@ func (m Model) renderPicker() string {
 func (m Model) footer() string {
 	// The working spinner/phrase lives in the body; the footer is just the input
 	// and the mode line.
-	line := promptMark.Render("› ") + m.input.View()
-	box := inputBox.Width(m.width - 2).Render(line)
-	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
-	if n := m.runningShells(); n > 0 {
-		mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
+	// Shell-mode ("!"): gold border + prompt mark, so it's obvious the next
+	// Enter runs a shell command instead of prompting the agent.
+	bang := strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!")
+	mark, boxStyle := promptMark.Render("› "), inputBox
+	if bang {
+		mark, boxStyle = goldStyle.Render("! "), inputBox.BorderForeground(gold)
 	}
-	mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
+	line := mark + m.input.View()
+	box := boxStyle.Width(m.width - 2).Render(line)
+	var mode string
+	if bang {
+		mode = goldStyle.Render("! shell mode") + metaStyle.Render(" · enter runs a shell command")
+	} else {
+		mode = startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
+		if n := m.runningShells(); n > 0 {
+			mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
+		}
+		mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
+	}
 	out := box + "\n" + "  " + mode
 	// The live subagent tree sits under the prompt while workers run, the way
 	// Claude Code shows its subagents.
@@ -1374,6 +1413,15 @@ func (m Model) startRun(prompt string) tea.Cmd {
 // pump delivers the next queued msg (event or done) into the Bubble Tea loop.
 func (m Model) pump() tea.Cmd {
 	return func() tea.Msg { return <-m.msgs }
+}
+
+// runBang runs a "!command" shell escape in the launch directory and returns its
+// combined output.
+func (m Model) runBang(command string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("bash", "-c", command).CombinedOutput()
+		return bangMsg{out: string(out), err: err}
+	}
 }
 
 func oneLine(s string) string { return strings.ReplaceAll(strings.TrimSpace(s), "\n", " ") }

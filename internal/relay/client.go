@@ -102,7 +102,8 @@ func (d *device) run(ctx context.Context, id, text string) {
 		ID: id, Model: d.opts.LeadModel, Provider: d.opts.Lead.Name(),
 		Workspace: d.opts.Repo, Status: "running", Title: firstLine(text),
 	}})
-	d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "prompt", Data: text})
+	// Note: the server already emits the "prompt" event when it relays the
+	// prompt to us, so don't echo it back here (would double it in the log).
 
 	aopts := []agent.Option{agent.WithEventHook(func(e agent.Event) {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: e.Kind, Data: e.Data})
