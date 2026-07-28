@@ -103,6 +103,26 @@ type bangMsg struct {
 	err error
 }
 
+// ModelGroup is one provider's available models, for the /model picker.
+type ModelGroup struct {
+	Provider string
+	Models   []string
+}
+
+// modelsMsg delivers fetched models into the loop to open the picker.
+type modelsMsg struct{ groups []ModelGroup }
+
+// slashCmd is a "/command" offered by autocomplete.
+type slashCmd struct{ name, desc string }
+
+// slashCommands is the set surfaced by autocomplete and handled on enter.
+var slashCommands = []slashCmd{
+	{"/model", "list and switch models"},
+	{"/login", "sign in via SSO"},
+	{"/rc", "link this machine to the server"},
+	{"/remote-control", "link this machine to the server"},
+}
+
 // Ask is the AskFunc wired into the agent: it posts the questions to the running
 // TUI program and blocks until the user submits their answers.
 func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
@@ -198,6 +218,15 @@ type Model struct {
 	remoteLogin  func(ctx context.Context) error                   // SSO sign-in, stores token
 	remoteLink   func(ctx context.Context, log func(string)) error // advertise this machine
 	remoteLinked bool
+
+	// /model picker. modelFetch lists available models by provider; onModel
+	// switches the model used for subsequent runs.
+	modelFetch      func() []ModelGroup
+	onModel         func(id string)
+	modelGroups     []ModelGroup
+	modelFlat       []string // selectable ids, in display order
+	modelPickerOpen bool
+	modelSel        int
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -371,10 +400,44 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 	m.remoteLink = link
 }
 
+// SetModelPicker wires /model: fetch lists available models by provider, onPick
+// switches the model used for subsequent runs.
+func (m *Model) SetModelPicker(fetch func() []ModelGroup, onPick func(id string)) {
+	m.modelFetch = fetch
+	m.onModel = onPick
+}
+
+// matchSlash returns the slash commands whose names prefix the current input,
+// for autocomplete. Empty when the input isn't a bare "/command" fragment.
+func (m Model) matchSlash() []slashCmd {
+	v := strings.TrimSpace(m.input.Value())
+	if len(v) == 0 || v[0] != '/' || strings.Contains(v, " ") {
+		return nil
+	}
+	var out []slashCmd
+	for _, c := range slashCommands {
+		if strings.HasPrefix(c.name, v) {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 1 && out[0].name == v { // already complete
+		return nil
+	}
+	return out
+}
+
 // handleSlash runs a "/command" typed at the prompt. It returns (handled, cmd);
 // handled=false means the text is a normal prompt, not a command.
 func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 	switch strings.Fields(text)[0] {
+	case "/model":
+		m.input.Reset()
+		if m.modelFetch == nil {
+			m.append(metaStyle.Render("model switching not available"))
+			return true, nil
+		}
+		fetch := m.modelFetch
+		return true, func() tea.Msg { return modelsMsg{groups: fetch()} }
 	case "/login":
 		m.input.Reset()
 		if m.remoteLogin == nil {
@@ -440,6 +503,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "?" && m.input.Value() == "" && !m.pickerOpen && m.pendingAsk == nil {
 			m.helpOpen = true
 			return m, nil
+		}
+		// Model picker overlay captures keys.
+		if m.modelPickerOpen {
+			switch msg.String() {
+			case "esc", "q":
+				m.modelPickerOpen = false
+			case "up", "k":
+				if m.modelSel > 0 {
+					m.modelSel--
+				}
+			case "down", "j":
+				if m.modelSel < len(m.modelFlat)-1 {
+					m.modelSel++
+				}
+			case "enter":
+				if m.modelSel < len(m.modelFlat) {
+					id := m.modelFlat[m.modelSel]
+					m.model = id
+					if m.onModel != nil {
+						m.onModel(id)
+					}
+					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id))
+				}
+				m.modelPickerOpen = false
+			}
+			return m, nil
+		}
+		// Tab autocompletes a slash command to the first match.
+		if msg.String() == "tab" {
+			if ms := m.matchSlash(); len(ms) > 0 {
+				m.input.SetValue(ms[0].name)
+				m.input.CursorEnd()
+				return m, nil
+			}
 		}
 		// Session switcher overlay captures keys.
 		if m.pickerOpen {
@@ -687,6 +784,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.append(errStyle.Render(msg.err.Error()))
 		}
+	case modelsMsg:
+		m.modelGroups = msg.groups
+		m.modelFlat = m.modelFlat[:0]
+		for _, g := range msg.groups {
+			m.modelFlat = append(m.modelFlat, g.Models...)
+		}
+		if len(m.modelFlat) == 0 {
+			m.append(metaStyle.Render("no models available"))
+		} else {
+			m.modelSel = 0
+			for i, id := range m.modelFlat { // start on the current model
+				if id == m.model {
+					m.modelSel = i
+				}
+			}
+			m.modelPickerOpen = true
+		}
 	case askMsg:
 		m.pendingAsk = msg.st
 		if msg.st.freeText {
@@ -735,6 +849,10 @@ func (m Model) View() string {
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if m.modelPickerOpen {
+		m.vp.SetContent(m.renderModels())
+		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
@@ -1034,6 +1152,32 @@ func (m Model) renderWorkerFocus() string {
 	return b.String()
 }
 
+// renderModels draws the /model picker: available models grouped by provider,
+// with the current one marked.
+func (m Model) renderModels() string {
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("Models") + "\n\n")
+	row := 0
+	for _, g := range m.modelGroups {
+		b.WriteString(metaStyle.Render(strings.ToUpper(g.Provider)) + "\n")
+		for _, id := range g.Models {
+			cursor, style := "  ", agentText
+			if row == m.modelSel {
+				cursor, style = promptMark.Render("› "), checkStyle
+			}
+			line := cursor + style.Render(id)
+			if id == m.model {
+				line += metaStyle.Render("  (current)")
+			}
+			b.WriteString(line + "\n")
+			row++
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(metaStyle.Render("↑/↓ select · enter switch · esc cancel"))
+	return b.String()
+}
+
 // chosen returns the selected option strings for question i.
 func (a *askState) chosen(i int) []string {
 	var out []string
@@ -1255,6 +1399,23 @@ func (m Model) footer() string {
 	}
 	line := mark + m.input.View()
 	box := boxStyle.Width(m.width - 2).Render(line)
+	// Slash-command autocomplete: matching commands listed above the input; the
+	// first is the Tab target.
+	var suggest string
+	if !m.running {
+		if ms := m.matchSlash(); len(ms) > 0 {
+			var rows []string
+			for i, c := range ms {
+				cur, style := "  ", metaStyle
+				if i == 0 {
+					cur, style = promptMark.Render("› "), agentText
+				}
+				rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
+			}
+			suggest = strings.Join(rows, "\n") + "\n"
+		}
+	}
+	box = suggest + box
 	var mode string
 	if bang {
 		mode = goldStyle.Render("! shell mode") + metaStyle.Render(" · enter runs a shell command")

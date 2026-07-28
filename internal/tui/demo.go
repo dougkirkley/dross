@@ -72,6 +72,34 @@ func DemoBangView(width, height int) string {
 	return m.View()
 }
 
+// DemoModelsView renders the /model picker: served models grouped by provider.
+func DemoModelsView(width, height int) string {
+	m := New("holocron", "qwen3-coder:30b", "ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.modelGroups = []ModelGroup{{Provider: "ollama", Models: []string{
+		"deepseek-coder-v2:16b", "gemma2:9b", "llama3.1:8b",
+		"qwen2.5-coder:7b", "qwen2.5-coder:14b", "qwen3-coder:30b",
+	}}}
+	for _, g := range m.modelGroups {
+		m.modelFlat = append(m.modelFlat, g.Models...)
+	}
+	m.modelSel = 5
+	m.modelPickerOpen = true
+	return m.View()
+}
+
+// DemoSlashView renders slash-command autocomplete: matches listed above the
+// input as the user types "/".
+func DemoSlashView(width, height int) string {
+	m := New("holocron", "qwen3-coder:30b", "ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  wire up the login flow")
+	m.input.SetValue("/r")
+	return m.View()
+}
+
 // DemoRunningView renders a mid-run frame — spinner, a rotating status phrase,
 // and the live token counter — for screenshots of the working state.
 func DemoRunningView(width, height int) string {

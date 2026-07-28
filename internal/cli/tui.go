@@ -21,6 +21,7 @@ func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
 		subagents, subagentFocus, shells, bang             bool
+		models, slash                                      bool
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
@@ -47,6 +48,10 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoShellsView(width, height))
 				case bang:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoBangView(width, height))
+				case models:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoModelsView(width, height))
+				case slash:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSlashView(width, height))
 				case subagentFocus:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentFocusView(width, height))
 				case ask:
@@ -92,6 +97,15 @@ func newTUICmd() *cobra.Command {
 			}
 			mdl := tui.New("holocron", model, provName, run)
 			mdl.SetPhrases(res.File.Phrases)
+			// /model: list the lead provider's served models and switch among
+			// them. run() reads `model`, so reassigning it here takes effect on
+			// the next prompt.
+			mdl.SetModelPicker(
+				func() []tui.ModelGroup {
+					return []tui.ModelGroup{{Provider: provName, Models: fetchModelIDs(provName, res.Lead.BaseURL, res.Lead.APIKey)}}
+				},
+				func(id string) { model = id },
+			)
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {
@@ -136,6 +150,8 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&subagents, "subagents", false, "with --render, show the live subagent tree")
 	f.BoolVar(&shells, "shells", false, "with --render, show background shells")
 	f.BoolVar(&bang, "bang", false, "with --render, show the ! shell-mode input")
+	f.BoolVar(&models, "models", false, "with --render, show the /model picker")
+	f.BoolVar(&slash, "slash", false, "with --render, show slash-command autocomplete")
 	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
