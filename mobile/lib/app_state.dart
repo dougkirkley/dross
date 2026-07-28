@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -409,6 +410,33 @@ class AppState extends ChangeNotifier {
   }
 
   // --- remote (serve) -------------------------------------------------
+
+  /// Runs the server's Google SSO flow and stores the returned session token as
+  /// the remote bearer. On native it opens an external browser (custom-scheme
+  /// callback); on web the same-origin session cookie already covers API calls,
+  /// so it just refreshes. Returns an error string, or null on success.
+  Future<String?> signInRemote() async {
+    if (baseUrl.isEmpty) return 'Set the server URL first';
+    if (kIsWeb) {
+      await refreshSessions();
+      return null;
+    }
+    try {
+      final result = await FlutterWebAuth2.authenticate(
+        url: '$baseUrl/auth/login?mode=app',
+        callbackUrlScheme: 'holocron',
+      );
+      final session = Uri.parse(result).queryParameters['session'];
+      if (session == null || session.isEmpty) return 'No session returned';
+      token = session;
+      await _secure.write(key: 'remoteToken', value: token);
+      notifyListeners();
+      await refreshSessions();
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
 
   Future<void> refreshSessions() async {
     loadingSessions = true;

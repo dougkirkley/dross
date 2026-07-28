@@ -85,6 +85,45 @@ func TestStaticTokenBypassesAllowlist(t *testing.T) {
 	}
 }
 
+// TestBearerSessionToken proves a native app can authenticate with the signed
+// session token (from the mode=app flow) sent as a bearer, and that the email
+// allowlist still applies to it.
+func TestBearerSessionToken(t *testing.T) {
+	a := testAuth(t, "me@allowed.com")
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(Identity(r)))
+	}))
+
+	// Allowlisted session token as bearer → 200.
+	r := httptest.NewRequest("GET", "/api/sessions", nil)
+	r.Header.Set("Authorization", "Bearer "+a.signSession("me@allowed.com"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || w.Body.String() != "me@allowed.com" {
+		t.Fatalf("bearer session: code=%d body=%q", w.Code, w.Body.String())
+	}
+
+	// A session for an email off the allowlist → 403 (identity is verified but
+	// not permitted).
+	r = httptest.NewRequest("GET", "/api/sessions", nil)
+	r.Header.Set("Authorization", "Bearer "+a.signSession("stranger@evil.com"))
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("stranger bearer: want 403, got %d", w.Code)
+	}
+
+	// A garbage bearer → 401.
+	r = httptest.NewRequest("GET", "/api/sessions", nil)
+	r.Header.Set("Authorization", "Bearer not-a-session")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("garbage bearer: want 401, got %d", w.Code)
+	}
+}
+
 func TestSafeNext(t *testing.T) {
 	cases := map[string]string{
 		"":                 "/",

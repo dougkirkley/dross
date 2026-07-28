@@ -164,9 +164,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _label('holocron serve'),
         _field('Server URL', _serverUrl,
             hint: 'https://holocron.example.com'),
+        const SizedBox(height: 4),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _signInGoogle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: T.surface,
+              borderRadius: BorderRadius.circular(T.rPill),
+              border: Border.all(color: T.border),
+            ),
+            child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.login, size: 18, color: T.accentHi),
+                  SizedBox(width: 8),
+                  Text('Sign in with Google',
+                      style: TextStyle(
+                          color: T.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                ]),
+          ),
+        ),
+        const SizedBox(height: 16),
         _field('Bearer token', _serverToken,
-            hint: 'from your SSO / static token', secret: true),
+            hint: 'set by Google sign-in, or a static token', secret: true),
       ];
+
+  Future<void> _signInGoogle() async {
+    // Persist the server URL first so the flow targets the right host.
+    s.baseUrl = _serverUrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+    final err = await s.signInRemote();
+    if (!mounted) return;
+    if (err == null) {
+      _serverToken.text = s.token;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed in')));
+    } else {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Sign-in failed: $err')));
+    }
+  }
 
   Widget _label(String t) => Padding(
         padding: const EdgeInsets.only(bottom: 10),

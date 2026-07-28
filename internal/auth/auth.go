@@ -173,6 +173,13 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 			return e, false, true
 		}
 	}
+	// 3b. Bearer holocron session token (issued to native app clients via the
+	// mode=app login flow); the same signed session the cookie carries.
+	if bearer != "" {
+		if e, ok := a.readSession(bearer); ok {
+			return e, false, true
+		}
+	}
 	// 4. Session cookie.
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if e, ok := a.readSession(c.Value); ok {
@@ -208,9 +215,15 @@ func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 	nonce := hex.EncodeToString(randomBytes(16))
 	verifier := oauth2.GenerateVerifier()
 	next := safeNext(r.URL.Query().Get("next"))
+	// mode=app: native clients that capture the callback via a custom scheme and
+	// carry the session as a bearer token instead of a cookie.
+	mode := ""
+	if r.URL.Query().Get("mode") == "app" {
+		mode = "app"
+	}
 
-	// Stash state|nonce|verifier|next in a short-lived signed cookie.
-	a.setCookie(w, stateCookie, a.sign(strings.Join([]string{state, nonce, verifier, next}, "|")), 10*time.Minute)
+	// Stash state|nonce|verifier|next|mode in a short-lived signed cookie.
+	a.setCookie(w, stateCookie, a.sign(strings.Join([]string{state, nonce, verifier, next, mode}, "|")), 10*time.Minute)
 
 	url := a.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
 	http.Redirect(w, r, url, http.StatusFound)
@@ -233,12 +246,12 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad state", http.StatusBadRequest)
 		return
 	}
-	parts := strings.SplitN(val, "|", 4)
-	if len(parts) != 4 || r.URL.Query().Get("state") != parts[0] {
+	parts := strings.SplitN(val, "|", 5)
+	if len(parts) != 5 || r.URL.Query().Get("state") != parts[0] {
 		http.Error(w, "state mismatch", http.StatusBadRequest)
 		return
 	}
-	nonce, verifier, next := parts[1], parts[2], parts[3]
+	nonce, verifier, next, mode := parts[1], parts[2], parts[3], parts[4]
 
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
@@ -265,9 +278,21 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.clearCookie(w, stateCookie)
-	a.setCookie(w, sessionCookie, a.signSession(claims.Email), sessionTTL)
+	session := a.signSession(claims.Email)
+
+	// Native app clients get the session handed back through a custom-scheme
+	// redirect and send it as a bearer token; browsers get a session cookie.
+	if mode == "app" {
+		http.Redirect(w, r, appCallbackScheme+"?session="+url.QueryEscape(session), http.StatusFound)
+		return
+	}
+	a.setCookie(w, sessionCookie, session, sessionTTL)
 	http.Redirect(w, r, next, http.StatusFound)
 }
+
+// appCallbackScheme is the custom-scheme URL native clients register to capture
+// the session token from the OIDC callback.
+const appCallbackScheme = "holocron://auth"
 
 // Logout clears the session cookie.
 func (a *Authenticator) Logout(w http.ResponseWriter, r *http.Request) {
