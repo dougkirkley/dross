@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -219,13 +221,23 @@ func (m *Manager) create(req CreateReq) *Session {
 	if model == "" {
 		model = m.model
 	}
+	id := "ses_" + randomID()
+	// Each session gets its own sandbox workspace under the base workdir, so
+	// sessions can't see or clobber each other's files.
+	workdir := m.workdir
+	if m.workdir != "" {
+		d := filepath.Join(m.workdir, id)
+		if err := os.MkdirAll(d, 0o755); err == nil {
+			workdir = d
+		}
+	}
 	s := &Session{
-		ID:          "ses_" + randomID(),
+		ID:          id,
 		Model:       model,
 		Provider:    m.lead.Name(),
 		WorkerModel: req.WorkerModel,
 		Style:       req.Style,
-		workdir:     m.workdir,
+		workdir:     workdir,
 		repo:        m.repo,
 		updated:     time.Now(),
 		status:      "idle",
@@ -254,6 +266,12 @@ func (m *Manager) remove(id string) bool {
 	m.mu.Unlock()
 	if ok {
 		s.interrupt() // stop any in-flight run
+		// Clean up the session's sandbox dir (only when it's a per-session
+		// subdir under the base workdir, never the base itself).
+		if m.workdir != "" && s.workdir != "" && s.workdir != m.workdir &&
+			strings.HasPrefix(s.workdir, m.workdir+string(filepath.Separator)) {
+			_ = os.RemoveAll(s.workdir)
+		}
 	}
 	return ok
 }
