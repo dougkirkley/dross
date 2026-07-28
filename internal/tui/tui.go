@@ -145,6 +145,8 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
+	queue []string // messages typed while a run is in flight; drained on done
+
 	// live subagent tree, shown under the prompt while workers run
 	workerOrder []string            // worker tags, in first-seen order
 	workerAct   map[string]string   // worker tag -> present-tense activity
@@ -465,6 +467,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// While a run is in flight: enter queues the typed message; ↑ pulls the
+		// most recent queued message back into the input to edit it.
+		if m.running {
+			if msg.String() == "enter" && strings.TrimSpace(m.input.Value()) != "" {
+				m.queue = append(m.queue, m.input.Value())
+				m.input.Reset()
+				return m, nil
+			}
+			if msg.String() == "up" && m.input.Value() == "" && len(m.queue) > 0 {
+				m.input.SetValue(m.queue[len(m.queue)-1])
+				m.input.CursorEnd()
+				m.queue = m.queue[:len(m.queue)-1]
+				return m, nil
+			}
+		}
 		// Subagent tree navigation: while workers run, ↑/↓ move the selection
 		// (main + each worker) and enter opens/closes the selected worker's detail.
 		if m.running && len(m.workerOrder) > 0 {
@@ -545,6 +562,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Fire the next queued message, if any.
+		if len(m.queue) > 0 {
+			next := m.queue[0]
+			m.queue = m.queue[1:]
+			m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + next)
+			m.running = true
+			m.runStart = time.Now()
+			m.tick, m.phraseIdx = 0, 0
+			m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+			m.workerSel, m.workerFocus = 0, ""
+			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
+		}
 	case askMsg:
 		m.pendingAsk = msg.st
 		if msg.st.freeText {
@@ -609,7 +638,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats())
+			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
@@ -746,6 +775,20 @@ func toolTargetPath(args string) string {
 // workerTree renders the live subagent panel shown under the spinner: the lead
 // as "● main" plus each active worker as "○ <tag> <activity>". Empty when no
 // workers have run this turn.
+// queueStrip lists messages queued during the current run, newest last, with a
+// hint that ↑ edits the most recent one.
+func (m Model) queueStrip() string {
+	if len(m.queue) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, q := range m.queue {
+		b.WriteString("\n" + metaStyle.Render("  ⏱ "+truncate(oneLine(q), 64)))
+	}
+	b.WriteString("\n  " + metaStyle.Render("↑ edit queued · enter to queue"))
+	return b.String()
+}
+
 func (m Model) workerTree() string {
 	if len(m.workerOrder) == 0 {
 		return ""

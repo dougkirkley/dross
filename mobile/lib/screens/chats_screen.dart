@@ -7,7 +7,6 @@ import '../theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import 'chat_screen.dart';
-import 'settings_screen.dart';
 
 /// Direct-mode conversation list. Flat rows (title + relative time + chevron),
 /// a near-white "New chat" pill, and a search field — matching the Claude app's
@@ -35,8 +34,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     icon: Icons.menu,
                     onTap: () => Scaffold.of(ctx).openDrawer()),
               ),
-              trailing: CircleIconButton(
-                  icon: Icons.tune, onTap: () => _openSettings(context)),
             ),
             Expanded(
               child: chats.isEmpty
@@ -121,9 +118,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
         ),
       );
-
-  void _openSettings(BuildContext context) => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
 
   Future<void> _confirmDelete(BuildContext context, DirectChat c) async {
     final ok = await showModalBottomSheet<bool>(

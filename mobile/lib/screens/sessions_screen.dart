@@ -32,8 +32,6 @@ class SessionsScreen extends StatelessWidget {
                     icon: Icons.menu,
                     onTap: () => Scaffold.of(ctx).openDrawer()),
               ),
-              trailing: CircleIconButton(
-                  icon: Icons.tune, onTap: () => _settings(context)),
             ),
             Expanded(
               child: !s.remoteConfigured

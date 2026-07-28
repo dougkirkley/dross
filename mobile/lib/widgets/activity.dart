@@ -89,11 +89,13 @@ List<Object> buildTimeline(List<Event> events) {
       case 'prompt':
       case 'text':
       case 'review':
-      case 'done':
       case 'error':
       case 'checkpoint':
         flush();
         out.add(e);
+      case 'done':
+        flush(); // end the activity run; no visible "done" line
+        break;
       case 'tool':
         final step = _toolStep(e.data);
         if (step != null) (cur ??= Activity()).steps.add(step);
