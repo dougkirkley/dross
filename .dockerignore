@@ -8,5 +8,7 @@ mobile/ios
 mobile/linux
 mobile/macos
 mobile/windows
-mobile/build/ios
-mobile/build/macos
+# Only the Flutter web build is needed in the image; exclude everything else
+# under mobile/build (the Android app output alone is multi-GB).
+mobile/build/*
+!mobile/build/web
