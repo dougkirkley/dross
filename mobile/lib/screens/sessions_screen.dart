@@ -14,8 +14,23 @@ import 'settings_screen.dart';
 /// Remote-mode session list (attaches to `holocron serve`). Mirrors the Claude
 /// app's Code page: a Devices card and session cards with status + last message,
 /// a near-white "New session" pill.
-class SessionsScreen extends StatelessWidget {
+class SessionsScreen extends StatefulWidget {
   const SessionsScreen({super.key});
+  @override
+  State<SessionsScreen> createState() => _SessionsScreenState();
+}
+
+class _SessionsScreenState extends State<SessionsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load sessions whenever the Code view mounts, so it populates on first
+    // entry regardless of how the mode was switched.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final s = context.read<AppState>();
+      if (s.remoteConfigured) s.refreshSessions();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
