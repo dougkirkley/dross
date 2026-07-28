@@ -29,6 +29,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dougkirkley/holocron/internal/provider"
 )
@@ -562,6 +563,18 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 			return err.Error(), true
 		}
 		return a.shellOutput(in.ID, in.Kill)
+	case "monitor":
+		var in struct {
+			Command  string      `json:"command"`
+			Interval flexSeconds `json:"interval_seconds"`
+			Timeout  flexSeconds `json:"timeout_seconds"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return orErr(a.ws.monitor(in.Command,
+			in.Interval.durationOr(5*time.Second),
+			in.Timeout.durationOr(5*time.Minute)))
 	case "delegate":
 		var in struct {
 			Task  string   `json:"task"`

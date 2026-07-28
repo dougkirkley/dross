@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -216,6 +217,63 @@ func (w *workspace) readForPublish(path string) (data []byte, mimeType, name str
 }
 
 const bashTimeout = 120 * time.Second
+
+// flexSeconds accepts a duration-in-seconds as either a JSON number (10) or a
+// string ("10"), since the claude-code driven mode sends all params as strings.
+type flexSeconds float64
+
+func (f *flexSeconds) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil // ignore garbage; caller's default applies
+	}
+	*f = flexSeconds(v)
+	return nil
+}
+
+func (f flexSeconds) durationOr(def time.Duration) time.Duration {
+	if f <= 0 {
+		return def
+	}
+	return time.Duration(float64(f) * float64(time.Second))
+}
+
+// monitor polls command until it exits 0 (condition met) or the timeout elapses.
+// It's how the agent waits on async state — a server coming up, CI finishing, a
+// file appearing — without spending turns re-checking.
+func (w *workspace) monitor(command string, interval, timeout time.Duration) (string, error) {
+	ctx, cancel := contextWithTimeout(timeout)
+	defer cancel()
+	start := time.Now()
+	checks := 0
+	for {
+		checks++
+		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		cmd.Dir = w.root
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			body := strings.TrimSpace(string(out))
+			if body == "" {
+				body = "[no output]"
+			}
+			return fmt.Sprintf("condition met after %s (%d check(s))\n%s",
+				time.Since(start).Round(time.Second), checks, body), nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Sprintf("timed out after %s (%d check(s)); condition never met. last output:\n%s",
+				timeout, checks, strings.TrimSpace(string(out))), nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Sprintf("timed out after %s (%d check(s)); condition never met.", timeout, checks), nil
+		case <-time.After(interval):
+		}
+	}
+}
 
 // runBash executes a command with the workspace as cwd, capturing combined
 // output and exit code. Bounded by a timeout. Phase 4 adds permission gating.

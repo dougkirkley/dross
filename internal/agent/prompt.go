@@ -147,6 +147,16 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			},
 			Required: []string{"id"},
 		},
+		{
+			Name:        "monitor",
+			Description: "Wait for a condition by polling a shell command until it exits 0 (or until timeout). Use to wait on async state without burning turns — a server coming up, a file appearing, a build or CI run finishing. Returns as soon as the command first succeeds.",
+			Properties: map[string]any{
+				"command":          strProp("Shell command to poll; success is exit code 0 (e.g. `curl -sf localhost:8080/health`)."),
+				"interval_seconds": map[string]any{"type": "number", "description": "Seconds between checks. Default 5."},
+				"timeout_seconds":  map[string]any{"type": "number", "description": "Give up after this many seconds. Default 300."},
+			},
+			Required: []string{"command"},
+		},
 	}
 	if hasWorker {
 		defs = append(defs, provider.ToolDef{
