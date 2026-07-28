@@ -10,6 +10,9 @@ RUN rm -rf internal/web/dist && cp -r mobile/build/web internal/web/dist \
     && CGO_ENABLED=0 GOOS=linux go build -o holocron ./cmd/holocron
 
 FROM alpine:latest
+# Sandboxed Code sessions run shell commands via the bash tool, so the runtime
+# needs bash (alpine ships only /bin/sh) plus git and certs for real work.
+RUN apk add --no-cache bash git ca-certificates
 WORKDIR /app
 COPY --from=builder /app/holocron .
 EXPOSE 8080
