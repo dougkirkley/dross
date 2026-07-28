@@ -644,7 +644,7 @@ func (m Model) View() string {
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
 		work := m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
-			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
+			metaStyle.Render("  "+m.runStats()) + m.jobsSuffix() + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
@@ -810,6 +810,16 @@ func (m *Model) trackShell(kind, data string) {
 		// output is streamed; the TUI shows status inline, full output lives in
 		// the mobile viewer. (No-op here beyond keeping the shell known.)
 	}
+}
+
+// jobsSuffix appends the running background-shell count to the spinner line,
+// e.g. "  1 running job".
+func (m Model) jobsSuffix() string {
+	n := m.runningShells()
+	if n == 0 {
+		return ""
+	}
+	return costStyle.Render(fmt.Sprintf("  %d running job%s", n, plural(n)))
 }
 
 func plural(n int) string {
