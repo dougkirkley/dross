@@ -86,6 +86,7 @@ func newTUICmd() *cobra.Command {
 				st.prov, _ = provider.New(providerImpl(st.name), provider.Config{BaseURL: st.baseURL, APIKey: st.apiKey})
 			}
 			cfgPath, _ := cmd.Flags().GetString("config")
+			projectCtx := loadProjectContext(workdir) // AGENTS.md / CLAUDE.md
 
 			var prog *tea.Program
 			run := func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error) {
@@ -98,7 +99,7 @@ func newTUICmd() *cobra.Command {
 						return tui.Ask(prog, req)
 					}))
 				}
-				ag, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir},
+				ag, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir, Identity: projectCtx},
 					st.prov, opts...)
 				if err != nil {
 					return nil, err

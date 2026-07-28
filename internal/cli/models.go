@@ -13,6 +13,24 @@ import (
 	"github.com/dougkirkley/holocron/internal/provider"
 )
 
+// loadProjectContext reads project instruction files (AGENTS.md, CLAUDE.md) from
+// the workspace root and returns them concatenated, for the agent's system
+// prompt. Empty when none exist.
+func loadProjectContext(dir string) string {
+	var b strings.Builder
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("# " + name + "\n" + string(data))
+	}
+	return b.String()
+}
+
 // leadState is the TUI's mutable lead provider, reconfigurable via /model.
 type leadState struct {
 	name    string // display kind: ollama / openai / anthropic

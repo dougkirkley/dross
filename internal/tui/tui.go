@@ -126,7 +126,10 @@ type slashCmd struct{ name, desc string }
 // slashCommands is the set surfaced by autocomplete and handled on enter.
 var slashCommands = []slashCmd{
 	{"/model", "list and switch models"},
-	{"/usage", "token and cost usage this session"},
+	{"/usage", "token and cost usage by model"},
+	{"/clear", "start a fresh session"},
+	{"/init", "generate an AGENTS.md for this repo"},
+	{"/help", "show shortcuts"},
 	{"/login", "sign in via SSO"},
 	{"/rc", "link this machine to the server"},
 	{"/remote-control", "link this machine to the server"},
@@ -482,6 +485,37 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.input.Reset()
 		m.renderUsage()
 		return true, nil
+	case "/help":
+		m.input.Reset()
+		m.helpOpen = true
+		return true, nil
+	case "/clear":
+		m.input.Reset()
+		m.lines = nil
+		m.title, m.lastText = "", ""
+		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
+		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+		m.shellOrder, m.shells = nil, nil
+		m.vp.SetContent("")
+		return true, nil
+	case "/init":
+		m.input.Reset()
+		if m.running {
+			return true, nil
+		}
+		prompt := "Inspect this repository and write a concise AGENTS.md at the root using the write tool: cover the build, test, and run commands, the project layout, and key conventions. Keep it short and skimmable."
+		if m.title == "" {
+			m.title = "/init"
+		}
+		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  /init")
+		m.running = true
+		m.runStart = time.Now()
+		m.tick, m.phraseIdx = 0, 0
+		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+		m.workerSel, m.workerFocus = 0, ""
+		m.shellOrder, m.shells = nil, nil
+		m.bashCmd = ""
+		return true, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 	case "/model":
 		m.input.Reset()
 		args := strings.Fields(text)[1:]
@@ -1625,11 +1659,14 @@ func (m Model) footer() string {
 	if bang {
 		mode = goldStyle.Render("! shell mode") + metaStyle.Render(" · enter runs a shell command")
 	} else {
-		mode = startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
+		mode = startGlyph.Render("◆ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx]))
+		if m.modeIdx != 0 { // non-Auto: gating is enforced
+			mode += metaStyle.Render(" gated")
+		}
 		if n := m.runningShells(); n > 0 {
 			mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
 		}
-		mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
+		mode += metaStyle.Render(" · ⇥ mode · ← sessions · ⏎ send · / cmds · ? help")
 	}
 	out := box + "\n" + "  " + mode
 	// The live subagent tree sits under the prompt while workers run, the way
