@@ -836,7 +836,7 @@ func (m Model) bashBlock() string {
 	}
 	elapsed := int(time.Since(m.bashStart).Seconds())
 	var b strings.Builder
-	b.WriteString(checkStyle.Render("● ") +
+	b.WriteString(checkStyle.Render(dotsFrame(m.tick)+" ") +
 		agentText.Render(fmt.Sprintf("Running %d shell command%s ", len(lines), plural(len(lines)))) +
 		metaStyle.Render(fmt.Sprintf("· %ds…", elapsed)))
 	width := m.width - 8
@@ -849,6 +849,14 @@ func (m Model) bashBlock() string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// dotsFrame is a pure-ASCII "dots" spinner (a dot tracks across three slots),
+// advanced by the tick counter (~10 ticks/sec, so /2 gives a ~5fps cycle).
+var dotsFrames = []string{".  ", ".. ", "...", " ..", "  .", "   "}
+
+func dotsFrame(tick int) string {
+	return dotsFrames[(tick/2)%len(dotsFrames)]
 }
 
 func plural(n int) string {
