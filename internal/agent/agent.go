@@ -295,7 +295,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	for res.Turns < maxTurns && !done {
 		resp, err := sess.Send(ctx, in)
 		if err != nil {
-			return res, err
+			return res, a.friendlyErr(err)
 		}
 		res.Turns++
 		res.add(a.cfg.Model, resp.Usage)
@@ -358,6 +358,18 @@ func (a *Agent) makeBrief(ctx context.Context, sess provider.Session, res *Resul
 	res.Turns++
 	res.add(a.cfg.Model, resp.Usage)
 	return resp.Text
+}
+
+// friendlyErr turns known provider errors into actionable messages. Notably,
+// many local models lack tool calling, which the agent loop requires.
+func (a *Agent) friendlyErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "does not support tools") {
+		return fmt.Errorf("model %q can't run agent sessions: it has no tool-calling support. Pick a tool-capable model (e.g. qwen3-coder, qwen2.5-coder, llama3.1)", a.cfg.Model)
+	}
+	return err
 }
 
 func seedPrompt(resume, prompt string) string {

@@ -289,6 +289,30 @@ func TestCompactorSkipsSmall(t *testing.T) {
 	}
 }
 
+// TestFriendlyErr proves the tool-support error is rewritten into an actionable
+// message naming the model, and other errors pass through unchanged.
+func TestFriendlyErr(t *testing.T) {
+	a, err := New(Config{Name: "t", Model: "gemma2:9b", Workdir: t.TempDir()}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := a.friendlyErr(errorString("400: registry.ollama.ai/library/gemma2:9b does not support tools"))
+	if !strings.Contains(got.Error(), "tool-calling") || !strings.Contains(got.Error(), "gemma2:9b") {
+		t.Fatalf("unfriendly: %v", got)
+	}
+	passthrough := errorString("some other failure")
+	if a.friendlyErr(passthrough).Error() != "some other failure" {
+		t.Fatalf("passthrough changed: %v", a.friendlyErr(passthrough))
+	}
+	if a.friendlyErr(nil) != nil {
+		t.Fatal("nil should stay nil")
+	}
+}
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
 // TestDelegate proves the lead delegates a subtask to the worker model: the
 // worker writes the file, the lead finishes, and usage is tracked per model so
 // cost reflects the split (worker model here is priced 0, i.e. local).
