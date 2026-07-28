@@ -91,6 +91,9 @@ func (a *askState) answered(q int) bool {
 // askMsg delivers an askState into the Bubble Tea loop.
 type askMsg struct{ st *askState }
 
+// remoteStatusMsg reports progress of a /login or /rc slash command.
+type remoteStatusMsg struct{ text string }
+
 // Ask is the AskFunc wired into the agent: it posts the questions to the running
 // TUI program and blocks until the user submits their answers.
 func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
@@ -179,6 +182,13 @@ type Model struct {
 
 	run  func(ctx context.Context, prompt string, emit func(agent.Event)) (*agent.Result, error)
 	msgs chan tea.Msg
+
+	// remote device linking (/login + /rc). Nil when the TUI was started
+	// without a --server, in which case those commands report as unavailable.
+	remoteServer string
+	remoteLogin  func(ctx context.Context) error                   // SSO sign-in, stores token
+	remoteLink   func(ctx context.Context, log func(string)) error // advertise this machine
+	remoteLinked bool
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -341,6 +351,59 @@ func (m *Model) SetPhrases(p []string) {
 	if len(p) > 0 {
 		m.phrases = p
 	}
+}
+
+// SetRemote wires the /login and /rc slash commands. login signs the user in
+// via SSO (storing a session token); link advertises this machine to the server
+// as available for the logged-in user, streaming status through its log arg.
+func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string)) error) {
+	m.remoteServer = server
+	m.remoteLogin = login
+	m.remoteLink = link
+}
+
+// handleSlash runs a "/command" typed at the prompt. It returns (handled, cmd);
+// handled=false means the text is a normal prompt, not a command.
+func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
+	switch strings.Fields(text)[0] {
+	case "/login":
+		m.input.Reset()
+		if m.remoteLogin == nil {
+			m.append(metaStyle.Render("remote not configured (start with --server)"))
+			return true, nil
+		}
+		m.append(metaStyle.Render("opening browser to sign in…"))
+		go func() {
+			if err := m.remoteLogin(context.Background()); err != nil {
+				m.msgs <- remoteStatusMsg{"login failed: " + err.Error()}
+				return
+			}
+			m.msgs <- remoteStatusMsg{"signed in. run /rc to make this machine drivable from your phone"}
+		}()
+		return true, m.pump()
+	case "/rc":
+		m.input.Reset()
+		if m.remoteLink == nil {
+			m.append(metaStyle.Render("remote not configured (start with --server)"))
+			return true, nil
+		}
+		if m.remoteLinked {
+			m.append(metaStyle.Render("already linked to " + m.remoteServer))
+			return true, nil
+		}
+		m.remoteLinked = true
+		m.append(metaStyle.Render("linking this machine to " + m.remoteServer + " …"))
+		go func() {
+			err := m.remoteLink(context.Background(), func(s string) { m.msgs <- remoteStatusMsg{s} })
+			if err != nil {
+				m.msgs <- remoteStatusMsg{"link ended: " + err.Error()}
+			} else {
+				m.msgs <- remoteStatusMsg{"link closed"}
+			}
+		}()
+		return true, m.pump()
+	}
+	return false, nil
 }
 
 func (m Model) phrase() string {
@@ -536,6 +599,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				prompt := m.input.Value()
+				if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
+					if handled, cmd := m.handleSlash(strings.TrimSpace(prompt)); handled {
+						return m, cmd
+					}
+				}
 				if m.title == "" {
 					m.title = truncate(prompt, 40)
 				}
@@ -586,6 +654,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bashCmd = ""
 			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
 		}
+	case remoteStatusMsg:
+		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
+			m.remoteLinked = false
+		}
+		m.append(metaStyle.Render(msg.text))
+		cmds = append(cmds, m.pump())
 	case askMsg:
 		m.pendingAsk = msg.st
 		if msg.st.freeText {

@@ -1,4 +1,4 @@
-package cli
+package relay
 
 import (
 	"context"
@@ -34,7 +34,8 @@ func sessionTokenPath() (string, error) {
 	return filepath.Join(d, "session.json"), nil
 }
 
-func saveSessionToken(server, token string) error {
+// SaveToken persists the session token issued for server.
+func SaveToken(server, token string) error {
 	p, err := sessionTokenPath()
 	if err != nil {
 		return err
@@ -43,8 +44,8 @@ func saveSessionToken(server, token string) error {
 	return os.WriteFile(p, b, 0o600)
 }
 
-// loadSessionToken returns the stored token if it was issued for server.
-func loadSessionToken(server string) string {
+// LoadToken returns the stored token if it was issued for server, else "".
+func LoadToken(server string) string {
 	p, err := sessionTokenPath()
 	if err != nil {
 		return ""
@@ -63,10 +64,10 @@ func loadSessionToken(server string) string {
 	return ""
 }
 
-// ssoLogin runs the server's OIDC login in the browser and captures the session
-// token at a loopback redirect, ties the device to the logged-in SSO user, and
+// Login runs the server's OIDC login in the browser and captures the session
+// token at a loopback redirect, ties the caller to the logged-in SSO user, and
 // stores it. Returns the token.
-func ssoLogin(ctx context.Context, server string) (string, error) {
+func Login(ctx context.Context, server string) (string, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", err
@@ -99,14 +100,15 @@ func ssoLogin(ctx context.Context, server string) (string, error) {
 		if t == "" {
 			return "", fmt.Errorf("no token returned")
 		}
-		if err := saveSessionToken(server, t); err != nil {
+		if err := SaveToken(server, t); err != nil {
 			return "", err
 		}
 		return t, nil
 	}
 }
 
-// openBrowser opens url in the default browser; prints it as a fallback.
+// openBrowser opens url in the default browser; a no-op error is fine (the URL
+// is logged by callers as a fallback).
 func openBrowser(u string) error {
 	var cmd string
 	var args []string

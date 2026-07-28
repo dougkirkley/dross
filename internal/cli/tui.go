@@ -3,12 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/holocron/internal/agent"
 	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/holocron/internal/relay"
 	"github.com/dougkirkley/holocron/internal/tui"
 )
 
@@ -19,7 +22,8 @@ func newTUICmd() *cobra.Command {
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
-		baseURL, apiKey                                    string
+		baseURL, apiKey, server                            string
+		workerProv, workerModel, workerBU                  string
 	)
 	cmd := &cobra.Command{
 		Use:   "tui",
@@ -81,6 +85,38 @@ func newTUICmd() *cobra.Command {
 			}
 			mdl := tui.New("holocron", model, provName, run)
 			mdl.SetPhrases(res.File.Phrases)
+			// Wire /login + /rc when a server is configured, so this TUI can
+			// advertise the machine as drivable by the logged-in SSO user.
+			if server != "" {
+				var worker provider.Provider
+				if res.WorkerEnabled {
+					worker, _ = provider.New(res.Worker.Provider, provider.Config{BaseURL: res.Worker.BaseURL, APIKey: res.Worker.APIKey})
+				}
+				name, _ := os.Hostname()
+				if name == "" {
+					name = "device"
+				}
+				abs, _ := filepath.Abs(workdir)
+				mdl.SetRemote(server,
+					func(ctx context.Context) error {
+						_, err := relay.Login(ctx, server)
+						return err
+					},
+					func(ctx context.Context, logf func(string)) error {
+						token := relay.LoadToken(server)
+						if token == "" {
+							var err error
+							if token, err = relay.Login(ctx, server); err != nil {
+								return err
+							}
+						}
+						return relay.RunDevice(ctx, relay.DeviceOptions{
+							Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
+							Lead: prov, LeadModel: model, Worker: worker, WorkerModel: res.Worker.Model,
+							Log: logf,
+						})
+					})
+			}
 			prog = tea.NewProgram(mdl, tea.WithAltScreen())
 			_, err = prog.Run()
 			return err
@@ -105,5 +141,9 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&provName, "provider", "anthropic", "provider")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
+	f.StringVar(&server, "server", "", "holocron server for /login and /rc device linking")
+	f.StringVar(&workerProv, "worker-provider", "openai", "worker backend (for /rc)")
+	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation over /rc)")
+	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")
 	return cmd
 }
