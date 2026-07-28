@@ -95,13 +95,15 @@ func DemoUsageView(width, height int) string {
 	m := New("holocron", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	// Two prior sessions on different models, plus the live current one.
+	// Sessions across a few models (one with no known context max), plus the
+	// live current one — aggregated per model.
 	m.sessions = []session{
-		{title: "add --json flag", model: "qwen2.5-coder:14b", turns: 4, inTok: 9200, outTok: 1400, cost: 0.0},
-		{title: "refactor auth", model: "qwen3-coder:30b", turns: 9, inTok: 26800, outTok: 5100, cost: 0.0},
+		{title: "add --json flag", model: "qwen2.5-coder:14b", turns: 4, inTok: 9200, outTok: 1400},
+		{title: "refactor auth", model: "qwen3-coder:30b", turns: 9, inTok: 26800, outTok: 5100},
+		{title: "tune prompts", model: "mistral-custom", turns: 3, inTok: 4100, outTok: 900},
 		{}, // current
 	}
-	m.cur = 2
+	m.cur = 3
 	m.title, m.turns, m.inTok, m.outTok, m.cost = "wire the login flow", 6, 18420, 3240, 0.0
 	m.handleSlash("/usage")
 	return m.View()

@@ -1258,14 +1258,61 @@ func (m Model) renderWorkerFocus() string {
 	return b.String()
 }
 
-// renderUsage appends a usage summary: for the provider in use, a context-fill
-// progress bar per session, labeled with the model that session used.
+// modelUsage aggregates usage for one model across sessions.
+type modelUsage struct {
+	model    string
+	peakIn   int64 // largest single-session context (input tokens) reached
+	in, out  int64 // summed tokens
+	cost     float64
+	sessions int
+}
+
+// renderUsage appends a usage summary grouped by model for the provider in use.
+// Each model with a known provider context max gets a context-fill bar
+// (peak session context / context max); models without a known max show totals
+// only.
 func (m *Model) renderUsage() {
 	prov := m.provider
 	if prov == "" {
 		prov = "—"
 	}
+
+	// Aggregate every touched session by its model.
+	order := []string{}
+	agg := map[string]*modelUsage{}
+	for i := range m.sessions {
+		model := m.sessions[i].model
+		in, out, turns, cost := m.sessions[i].inTok, m.sessions[i].outTok, m.sessions[i].turns, m.sessions[i].cost
+		if i == m.cur { // live values for the current session
+			model = m.model
+			in, out, turns, cost = m.inTok, m.outTok, m.turns, m.cost
+		}
+		if turns == 0 && in == 0 {
+			continue
+		}
+		if model == "" {
+			model = "—"
+		}
+		u := agg[model]
+		if u == nil {
+			u = &modelUsage{model: model}
+			agg[model] = u
+			order = append(order, model)
+		}
+		if in > u.peakIn {
+			u.peakIn = in
+		}
+		u.in += in
+		u.out += out
+		u.cost += cost
+		u.sessions++
+	}
+
 	m.append(agentLabel.Render("Usage") + metaStyle.Render("  "+prov))
+	if len(order) == 0 {
+		m.append(metaStyle.Render("  no usage yet"))
+		return
+	}
 
 	w := m.width - 16
 	if w > 44 {
@@ -1277,49 +1324,30 @@ func (m *Model) renderUsage() {
 	m.usageBar.Width = w
 
 	var total float64
-	shown := 0
-	for i := range m.sessions {
-		// Use live values for the current session (not yet snapshotted).
-		title, model := m.sessions[i].title, m.sessions[i].model
-		in, out, turns, cost := m.sessions[i].inTok, m.sessions[i].outTok, m.sessions[i].turns, m.sessions[i].cost
-		if i == m.cur {
-			title, model = m.title, m.model
-			in, out, turns, cost = m.inTok, m.outTok, m.turns, m.cost
-		}
-		if turns == 0 && in == 0 && title == "" {
-			continue // untouched session
-		}
-		shown++
-		total += cost
-		if title == "" {
-			title = fmt.Sprintf("session %d", i+1)
-		}
-		if model == "" {
-			model = "—"
-		}
-		pct := float64(in) / float64(contextWindow(model))
-		if pct < 0 {
-			pct = 0
-		}
-		if pct > 1 {
-			pct = 1
-		}
-		label := youLabel.Render(truncate(title, 28))
-		if i == m.cur {
-			label = promptMark.Render("› ") + label
+	for _, name := range order {
+		u := agg[name]
+		total += u.cost
+		m.append(youLabel.Render(name) +
+			metaStyle.Render(fmt.Sprintf("  %d session(s)  ↑%s ↓%s  $%.4f",
+				u.sessions, humanTokens(u.in), humanTokens(u.out), u.cost)))
+		if win, ok := contextWindow(name); ok {
+			pct := float64(u.peakIn) / float64(win)
+			if pct < 0 {
+				pct = 0
+			}
+			if pct > 1 {
+				pct = 1
+			}
+			m.append("  " + m.usageBar.ViewAs(pct) +
+				metaStyle.Render(fmt.Sprintf("  %d%%  %s / %s ctx",
+					int(pct*100+0.5), humanTokens(u.peakIn), humanTokens(win))))
 		} else {
-			label = "  " + label
+			m.append(metaStyle.Render("  no context max for this provider"))
 		}
-		m.append(label + metaStyle.Render("  "+model))
-		m.append("  " + m.usageBar.ViewAs(pct) +
-			metaStyle.Render(fmt.Sprintf("  %d%%  ↑%s ↓%s  $%.4f",
-				int(pct*100+0.5), humanTokens(in), humanTokens(out), cost)))
 	}
-	if shown == 0 {
-		m.append(metaStyle.Render("  no usage yet"))
-		return
+	if len(order) > 1 {
+		m.append(metaStyle.Render(fmt.Sprintf("  total  $%.4f", total)))
 	}
-	m.append(metaStyle.Render(fmt.Sprintf("  total  $%.4f across %d session(s)", total, shown)))
 }
 
 // renderModels draws the /model picker: available models grouped by provider,
@@ -1716,25 +1744,26 @@ func humanTokens(n int64) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// contextWindow is the approximate token context window for a model, for the
-// /usage bar. Values are indicative, not exact.
-func contextWindow(model string) int64 {
+// contextWindow is the approximate token context window for a model and whether
+// one is known. Values are indicative, not exact; ok=false means no context max
+// is known for the provider/model, so /usage shows no bar for it.
+func contextWindow(model string) (int64, bool) {
 	m := strings.ToLower(model)
 	switch {
 	case strings.Contains(m, "opus"), strings.Contains(m, "sonnet"), strings.Contains(m, "haiku"):
-		return 200000
+		return 200000, true
 	case strings.Contains(m, "qwen"):
-		return 32768
+		return 32768, true
 	case strings.Contains(m, "llama"):
-		return 131072
+		return 131072, true
 	case strings.Contains(m, "deepseek"):
-		return 16384
+		return 16384, true
 	case strings.Contains(m, "gemma"):
-		return 8192
+		return 8192, true
 	case strings.Contains(m, "gpt"):
-		return 128000
+		return 128000, true
 	default:
-		return 128000
+		return 0, false
 	}
 }
 
