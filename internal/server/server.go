@@ -17,6 +17,7 @@ type Server struct {
 	mgr   *Manager
 	auth  *auth.Authenticator // nil = open (no SSO)
 	arts  *artifact.Store
+	hub   *deviceHub // linked devices (session relay)
 	h     http.Handler
 }
 
@@ -25,6 +26,8 @@ type Server struct {
 // artifact publish/share endpoints.
 func New(store *storage.SessionStore, mgr *Manager, a *auth.Authenticator, arts *artifact.Store) *Server {
 	s := &Server{store: store, mgr: mgr, auth: a, arts: arts}
+	s.hub = newDeviceHub(mgr)
+	mgr.hub = s.hub
 	s.h = s.buildHandler()
 	return s
 }
@@ -65,6 +68,8 @@ func (s *Server) apiMux() *http.ServeMux {
 
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/artifacts", s.handleArtifactPublish)
+
+	mux.HandleFunc("GET /api/device/connect", s.handleDeviceConnect) // relay WS
 	return mux
 }
 

@@ -106,6 +106,8 @@ class Session {
   final String workspace;
   final String last;
   final DateTime? updated;
+  final String device; // owning device ("" = runs in the pod)
+  final bool connected; // for device sessions: is that device linked now
 
   Session({
     required this.id,
@@ -120,6 +122,8 @@ class Session {
     this.workspace = '',
     this.last = '',
     this.updated,
+    this.device = '',
+    this.connected = false,
   });
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -135,6 +139,8 @@ class Session {
         workspace: j['workspace'] as String? ?? '',
         last: j['last'] as String? ?? '',
         updated: DateTime.tryParse(j['updated'] as String? ?? ''),
+        device: j['device'] as String? ?? '',
+        connected: j['connected'] as bool? ?? false,
       );
 
   /// The display name for the session card: the title, or the model as a

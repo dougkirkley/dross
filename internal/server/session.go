@@ -14,6 +14,7 @@ import (
 
 	"github.com/dougkirkley/holocron/internal/agent"
 	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/holocron/internal/relay"
 )
 
 // Event is one step of a session, with a per-session monotonic Seq so clients
@@ -35,18 +36,20 @@ type Session struct {
 	WorkerModel string `json:"worker_model,omitempty"`
 	Style       string `json:"style,omitempty"`
 
-	mu      sync.Mutex
-	workdir string
-	repo    string // owner/repo (or dir name) label for the session card
-	title   string // first prompt, truncated — the session's display name
-	last    string // most recent user/agent message, for the list preview
-	updated time.Time
-	status  string // "idle" | "running" | "error"
-	cost    float64
-	seq     int
-	events  []Event
-	subs    map[chan Event]struct{}
-	cancel  context.CancelFunc
+	mu        sync.Mutex
+	workdir   string
+	repo      string // owner/repo (or dir name) label for the session card
+	title     string // first prompt, truncated — the session's display name
+	last      string // most recent user/agent message, for the list preview
+	updated   time.Time
+	status    string // "idle" | "running" | "error"
+	cost      float64
+	seq       int
+	events    []Event
+	subs      map[chan Event]struct{}
+	cancel    context.CancelFunc
+	device    string // owning device id ("" = runs in this pod)
+	connected bool   // for device sessions: is that device currently linked
 }
 
 // Status/Cost snapshots (locked reads for the JSON views).
@@ -58,6 +61,7 @@ func (s *Session) snapshot() sessionView {
 		WorkerModel: s.WorkerModel, Style: s.Style,
 		Title: s.title, Workspace: s.repo, Last: s.last, Updated: s.updated,
 		Status: s.status, Cost: s.cost, Events: len(s.events),
+		Device: s.device, Connected: s.connected,
 	}
 }
 
@@ -74,6 +78,8 @@ type sessionView struct {
 	Status      string    `json:"status"`
 	Cost        float64   `json:"cost"`
 	Events      int       `json:"events"`
+	Device      string    `json:"device,omitempty"`    // owning device (blank = pod)
+	Connected   bool      `json:"connected,omitempty"` // device currently linked
 }
 
 // emit appends an event and fans it out to live subscribers.
@@ -174,6 +180,7 @@ type Manager struct {
 	compStats agent.CompactStatsFunc // optional; records compaction repeat-rate
 	models    []string               // allowed models to offer clients
 	repo      string                 // owner/repo (or dir) label shown on session cards
+	hub       *deviceHub             // linked devices (session relay)
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -294,6 +301,21 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	if s.status == "running" {
 		s.mu.Unlock()
 		return fmt.Errorf("session is already running")
+	}
+	// Device sessions run on the linked laptop: relay the prompt over the hub
+	// and let its events stream back. The pod runs no agent for these.
+	if s.device != "" {
+		if s.title == "" {
+			s.title = truncate(oneLine(prompt), 60)
+		}
+		s.status = "running"
+		s.mu.Unlock()
+		if m.hub == nil || !m.hub.toDevice(s.device, relay.Frame{Type: "prompt", SessionID: s.ID, Text: prompt}) {
+			s.setStatus("idle")
+			return fmt.Errorf("device %q is not connected", s.device)
+		}
+		s.emit("prompt", prompt)
+		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel

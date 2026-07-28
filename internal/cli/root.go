@@ -24,6 +24,7 @@ func NewRootCmd() *cobra.Command {
 		newBenchCmd(),
 		newLoginCmd(),
 		newCompactStatsCmd(),
+		newRCCmd(),
 	)
 	return root
 }

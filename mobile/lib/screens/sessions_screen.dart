@@ -208,14 +208,27 @@ class _SessionsScreenState extends State<SessionsScreen> {
         child: const Icon(Icons.delete_outline, color: T.danger),
       );
 
-  // Status label (colored) + workspace, e.g. "running · owner/repo".
+  // Status label (colored) + workspace. Device sessions show connection state
+  // ("Connected · owner/repo"); pod sessions show run status.
   Widget _statusLine(Session sess) {
-    final (color, label) = switch (sess.status) {
-      'running' => (T.ok, 'running'),
-      'error' => (T.danger, 'error'),
-      _ => (T.textFaint, 'idle'),
-    };
+    final Color color;
+    final String label;
+    if (sess.device.isNotEmpty) {
+      color = sess.connected ? T.ok : T.textFaint;
+      label = sess.connected ? 'Connected' : 'Disconnected';
+    } else {
+      (color, label) = switch (sess.status) {
+        'running' => (T.ok, 'running'),
+        'error' => (T.danger, 'error'),
+        _ => (T.textFaint, 'idle'),
+      };
+    }
     return Row(children: [
+      if (sess.device.isNotEmpty) ...[
+        Icon(Icons.laptop_mac,
+            size: 13, color: sess.connected ? T.ok : T.textFaint),
+        const SizedBox(width: 5),
+      ],
       Flexible(
         child: Text(
           sess.workspace.isNotEmpty ? '$label · ${sess.workspace}' : label,
