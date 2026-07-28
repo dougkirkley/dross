@@ -122,6 +122,7 @@ type slashCmd struct{ name, desc string }
 // slashCommands is the set surfaced by autocomplete and handled on enter.
 var slashCommands = []slashCmd{
 	{"/model", "list and switch models"},
+	{"/usage", "token and cost usage this session"},
 	{"/login", "sign in via SSO"},
 	{"/rc", "link this machine to the server"},
 	{"/remote-control", "link this machine to the server"},
@@ -468,6 +469,17 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, nil
 	}
 	switch name {
+	case "/usage":
+		m.input.Reset()
+		who := m.provider
+		if m.model != "" {
+			who += " · " + m.model
+		}
+		m.append(agentLabel.Render("Usage") + metaStyle.Render("  "+strings.TrimPrefix(who, " · ")))
+		m.append(metaStyle.Render(fmt.Sprintf("  turns   %d", m.turns)))
+		m.append(metaStyle.Render(fmt.Sprintf("  tokens  ↑ %s  ↓ %s", humanTokens(m.inTok), humanTokens(m.outTok))))
+		m.append(metaStyle.Render(fmt.Sprintf("  cost    $%.4f", m.cost)))
+		return true, nil
 	case "/model":
 		m.input.Reset()
 		args := strings.Fields(text)[1:]

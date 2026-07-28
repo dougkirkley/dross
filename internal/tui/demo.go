@@ -89,6 +89,16 @@ func DemoModelsView(width, height int) string {
 	return m.View()
 }
 
+// DemoUsageView renders the /usage output: token and cost summary.
+func DemoUsageView(width, height int) string {
+	m := New("holocron", "qwen3-coder:30b", "ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.turns, m.inTok, m.outTok, m.cost = 6, 18420, 3240, 0.0142
+	m.handleSlash("/usage")
+	return m.View()
+}
+
 // DemoSlashView renders slash-command autocomplete: matches listed above the
 // input as the user types "/".
 func DemoSlashView(width, height int) string {
