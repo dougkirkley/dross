@@ -1102,7 +1102,7 @@ func (m Model) footer() string {
 	box := inputBox.Width(m.width - 2).Render(line)
 	mode := startGlyph.Render("▸ ") + costStyle.Render(strings.ToLower(modeLabels[m.modeIdx])+" mode")
 	if n := m.runningShells(); n > 0 {
-		mode += costStyle.Render(fmt.Sprintf(" · %d running job%s", n, plural(n)))
+		mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
 	}
 	mode += metaStyle.Render(" · shift+tab cycle · ← sessions · enter send · ? for shortcuts")
 	out := box + "\n" + "  " + mode
