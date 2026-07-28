@@ -72,6 +72,10 @@ func saveLeadProvider(explicit string, st *leadState) error {
 // and filters to nothing extra — whatever the server advertises. Anthropic has
 // no list endpoint, so a known set is returned.
 func fetchModelIDs(provName, baseURL, apiKey string) []string {
+	if provName == "claude-code" {
+		// Claude Code has no list endpoint; offer its model aliases.
+		return []string{"opus", "sonnet", "haiku"}
+	}
 	if provName == "anthropic" {
 		return []string{
 			"claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",

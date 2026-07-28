@@ -16,6 +16,7 @@ import (
 	// Register model backends (driver-style; see internal/provider).
 	_ "github.com/dougkirkley/holocron/internal/provider/anthropic"
 	_ "github.com/dougkirkley/holocron/internal/provider/bedrock"
+	_ "github.com/dougkirkley/holocron/internal/provider/claudecode"
 	_ "github.com/dougkirkley/holocron/internal/provider/claudesub"
 	_ "github.com/dougkirkley/holocron/internal/provider/openai"
 )
