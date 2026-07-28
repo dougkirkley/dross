@@ -61,14 +61,24 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  Widget _row(BuildContext context, DirectChat c) => InkWell(
-        onTap: () {
-          context.read<AppState>().openChat(c);
-          Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const ChatScreen()));
-        },
-        onLongPress: () => _confirmDelete(context, c),
-        child: Padding(
+  Widget _row(BuildContext context, DirectChat c) => Dismissible(
+        key: ValueKey(c.id),
+        direction: DismissDirection.endToStart,
+        background: _swipeBg(),
+        confirmDismiss: (_) => _confirmDelete(context, c),
+        onDismissed: (_) => context.read<AppState>().deleteChat(c),
+        child: InkWell(
+          onTap: () {
+            context.read<AppState>().openChat(c);
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ChatScreen()));
+          },
+          onLongPress: () async {
+            if (await _confirmDelete(context, c) && context.mounted) {
+              await context.read<AppState>().deleteChat(c);
+            }
+          },
+          child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Row(
             children: [
@@ -88,6 +98,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
               const Icon(Icons.chevron_right, color: T.textFaint),
             ],
           ),
+        ),
         ),
       );
 
@@ -119,7 +130,19 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ),
       );
 
-  Future<void> _confirmDelete(BuildContext context, DirectChat c) async {
+  Widget _swipeBg() => Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          color: T.danger.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(T.rCard),
+        ),
+        child: const Icon(Icons.delete_outline, color: T.danger),
+      );
+
+  // Confirms deletion via a bottom sheet; returns true if the user confirmed.
+  // The caller performs the delete (swipe dismiss or long-press).
+  Future<bool> _confirmDelete(BuildContext context, DirectChat c) async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: T.surface,
@@ -133,9 +156,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ]),
       ),
     );
-    if (ok == true && context.mounted) {
-      await context.read<AppState>().deleteChat(c);
-    }
+    return ok == true;
   }
 }
 

@@ -18,6 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late AppState s;
   late ConnMode _mode;
   late ProviderKind _provider;
+  bool _saved = false;
 
   final _openaiUrl = TextEditingController();
   final _openaiKey = TextEditingController();
@@ -103,19 +104,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (_mode == ConnMode.remote) ..._remoteFields(),
                   const SizedBox(height: 28),
                   GestureDetector(
-                    onTap: _save,
-                    child: Container(
+                    onTap: _saved ? null : _save,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: T.pill,
+                        color: _saved ? T.ok : T.pill,
                         borderRadius: BorderRadius.circular(T.rPill),
                       ),
-                      child: const Text('Save',
-                          style: TextStyle(
-                              color: T.pillText,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600)),
+                      child: _saved
+                          ? const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.check, size: 18, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text('Saved',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600)),
+                              ],
+                            )
+                          : const Text('Save',
+                              style: TextStyle(
+                                  color: T.pillText,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600)),
                     ),
                   ),
                     ],
@@ -299,6 +314,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     s.baseUrl = _serverUrl.text.trim().replaceAll(RegExp(r'/+$'), '');
     s.token = _serverToken.text.trim();
     await s.saveConfig();
+    if (!mounted) return;
+    // Confirm on the button, then close so the user sees it worked.
+    setState(() => _saved = true);
+    await Future.delayed(const Duration(milliseconds: 750));
     if (mounted) Navigator.pop(context);
   }
 
