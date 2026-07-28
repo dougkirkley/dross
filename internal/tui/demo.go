@@ -128,6 +128,36 @@ func DemoSubagentFocusView(width, height int) string {
 	return m.View()
 }
 
+// DemoShellsView renders a mid-run frame with background shells: one still
+// running, one exited, plus the "· N shells" footer count.
+func DemoShellsView(width, height int) string {
+	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  bring up the dev server and run the watcher")
+	for _, e := range []agent.Event{
+		{Kind: "text", Data: "Starting the dev server and a test watcher in the background."},
+		{Kind: "tool", Data: `bash {"command":"npm run dev","background":true}`},
+		{Kind: "shell:start", Data: "sh_1\x1fnpm run dev"},
+		{Kind: "shell:output", Data: "sh_1\x1fVITE ready on http://localhost:5173\n"},
+		{Kind: "tool", Data: `bash {"command":"go test ./... -watch","background":true}`},
+		{Kind: "shell:start", Data: "sh_2\x1fgo test ./... -watch"},
+		{Kind: "shell:exit", Data: "sh_2\x1fexited 0"},
+		{Kind: "usage", Data: `{"in":14200,"out":720}`},
+	} {
+		m.applyEvent(e)
+	}
+	// Backdate the running shell so it shows a realistic runtime.
+	if s := m.shells["sh_1"]; s != nil {
+		s.start = m.shells["sh_1"].start.Add(-3 * time.Minute)
+	}
+	m.running = true
+	m.phraseIdx = 6
+	m.tick = 45
+	m.cost = 0.0113
+	return m.View()
+}
+
 // DemoHelpView renders the shortcuts overlay for screenshots.
 func DemoHelpView(width, height int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
