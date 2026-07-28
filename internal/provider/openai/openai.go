@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/dougkirkley/holocron/internal/provider"
@@ -160,11 +161,23 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 
 	msg := cr.Choices[0].Message
 	msg.Role = "assistant" // normalize before appending to history
+
+	// Some ollama models (e.g. qwen3-coder) emit tool calls as XML text in the
+	// content instead of structured tool_calls. Parse that fallback so the tool
+	// actually runs, and rewrite the stored message so tool-result IDs match.
+	stop := normStop(cr.Choices[0].FinishReason)
+	if len(msg.ToolCalls) == 0 {
+		if synth, cleaned := parseXMLToolCalls(msg.Content); len(synth) > 0 {
+			msg.ToolCalls = synth
+			msg.Content = cleaned
+			stop = provider.StopToolUse
+		}
+	}
 	s.messages = append(s.messages, msg)
 
 	out := &provider.Response{
 		Text:       msg.Content,
-		StopReason: normStop(cr.Choices[0].FinishReason),
+		StopReason: stop,
 		Usage: provider.Usage{
 			InputTokens:  cr.Usage.PromptTokens,
 			OutputTokens: cr.Usage.CompletionTokens,
@@ -182,6 +195,51 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		})
 	}
 	return out, nil
+}
+
+// XML tool-call syntax emitted by some ollama models (qwen3-coder etc.):
+//
+//	<tool_call>
+//	<function=bash>
+//	<parameter=command>which go</parameter>
+//	</function>
+//	</tool_call>
+var (
+	xmlFuncRE  = regexp.MustCompile(`(?s)<function=([^>\s]+)\s*>(.*?)</function>`)
+	xmlParamRE = regexp.MustCompile(`(?s)<parameter=([^>\s]+)\s*>(.*?)</parameter>`)
+	xmlStripRE = regexp.MustCompile(`(?s)</?tool_call>|<function=[^>]*>.*?</function>`)
+)
+
+// parseXMLToolCalls extracts XML-style tool calls from assistant content and
+// returns them plus the content with those blocks removed. Values are treated
+// as strings, which fits our string-valued tool params (command, path, content).
+func parseXMLToolCalls(content string) ([]toolCall, string) {
+	if !strings.Contains(content, "<function=") {
+		return nil, content
+	}
+	var calls []toolCall
+	for i, m := range xmlFuncRE.FindAllStringSubmatch(content, -1) {
+		name := strings.TrimSpace(m[1])
+		args := map[string]string{}
+		for _, p := range xmlParamRE.FindAllStringSubmatch(m[2], -1) {
+			args[strings.TrimSpace(p[1])] = strings.TrimSpace(p[2])
+		}
+		b, err := json.Marshal(args)
+		if err != nil {
+			continue
+		}
+		var tc toolCall
+		tc.ID = fmt.Sprintf("call_xml_%d", i)
+		tc.Type = "function"
+		tc.Function.Name = name
+		tc.Function.Arguments = string(b)
+		calls = append(calls, tc)
+	}
+	if len(calls) == 0 {
+		return nil, content
+	}
+	cleaned := strings.TrimSpace(xmlStripRE.ReplaceAllString(content, ""))
+	return calls, cleaned
 }
 
 func convertTools(defs []provider.ToolDef) []toolSpec {

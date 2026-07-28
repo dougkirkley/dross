@@ -115,6 +115,41 @@ func TestSend_HTTPError(t *testing.T) {
 	}
 }
 
+// TestSend_XMLToolCallFallback verifies XML-style tool calls (qwen3-coder) in
+// the content are parsed into real tool calls and stripped from the text.
+func TestSend_XMLToolCallFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":
+			"I'll check.\n<tool_call>\n<function=bash>\n<parameter=command>\nwhich go\n</parameter>\n</function>\n</tool_call>"},
+			"finish_reason":"stop"}],"usage":{}}`)
+	}))
+	defer srv.Close()
+
+	p, _ := provider.New("openai", provider.Config{BaseURL: srv.URL})
+	sess := p.NewSession(provider.SessionConfig{Model: "m"})
+	resp, err := sess.Send(context.Background(), provider.Input{Text: "install go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StopReason != provider.StopToolUse {
+		t.Fatalf("stop = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "bash" {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	var args struct {
+		Command string `json:"command"`
+	}
+	json.Unmarshal(resp.ToolCalls[0].Input, &args)
+	if args.Command != "which go" {
+		t.Fatalf("command = %q", args.Command)
+	}
+	if strings.Contains(resp.Text, "<function=") {
+		t.Fatalf("XML not stripped: %q", resp.Text)
+	}
+}
+
 func TestNormStop(t *testing.T) {
 	cases := map[string]string{
 		"stop":       provider.StopEndTurn,
