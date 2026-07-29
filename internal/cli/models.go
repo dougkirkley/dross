@@ -152,7 +152,7 @@ func saveLeadProvider(explicit string, st *leadState) error {
 func fetchModelIDs(provName, baseURL, apiKey string) []string {
 	if provName == "claude-code" {
 		// Claude Code has no list endpoint; offer its model aliases.
-		return []string{"opus", "sonnet", "haiku"}
+		return []string{"opus", "sonnet", "haiku", "fable"}
 	}
 	if provName == "anthropic" {
 		return []string{

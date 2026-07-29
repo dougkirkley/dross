@@ -240,6 +240,12 @@ func newTUICmd() *cobra.Command {
 			if theme == "" && res.File.Theme != "" {
 				tui.SetTheme(res.File.Theme)
 			}
+			if len(res.File.Gradient) > 0 {
+				tui.SetGradient(res.File.Gradient)
+			}
+			if len(res.File.Colors) > 0 {
+				tui.ApplyColors(res.File.Colors) // per-role overrides on top of the theme
+			}
 			mdl.SetThemeSaver(func(name string) {
 				_ = setConfigKey(configFilePath(cfgPath), "theme", name)
 			})

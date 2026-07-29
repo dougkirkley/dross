@@ -199,6 +199,12 @@ on macOS). `/model` writes your provider/model choice here.
 - **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`,
   or `mono`. Switch live with `/theme [name]` (bare `/theme` cycles); override
   once with `ergon --theme <name>`.
+- **colors** — per-role hex overrides on top of the theme, e.g.
+  `{"accent":"#4B9CD3","cyan":"#5CE1E6","viol":"#A78BFA","prose":"#FFFFFF"}`.
+  Roles: `accent accentHi fg prose muted dim bad ok base panel gold worker cyan viol`.
+- **gradient** — override the holographic gradient stops, e.g.
+  `["#5CE1E6","#6E9BF0","#E06CE6"]`. (Font and size are controlled by your
+  terminal, not ergon.)
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `monitor`, `shell_output`, `web_fetch`, `delegate`,

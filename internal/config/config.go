@@ -21,25 +21,27 @@ type Provider struct {
 
 // File is the on-disk config. All fields optional.
 type File struct {
-	Name           string   `json:"name,omitempty"`            // app/wordmark name shown in the TUI
-	IdentityPrompt string   `json:"identity_prompt,omitempty"` // system-prompt addendum (persona/task framing)
-	Welcome        string   `json:"welcome,omitempty"`         // empty-state layout: clean|skills|columns|boxed|centered
-	Theme          string   `json:"theme,omitempty"`           // TUI color theme: crystal|ember|matrix|grape|mono
-	Provider       string   `json:"provider,omitempty"`
-	Model       string      `json:"model,omitempty"`
-	BaseURL     string      `json:"base_url,omitempty"`
-	APIKey      string      `json:"api_key,omitempty"`
-	Style       string      `json:"style,omitempty"`
-	MaxTokens   int         `json:"max_tokens,omitempty"`
-	MaxParallel int         `json:"max_parallel,omitempty"` // parallel worker subagents
-	Models      []string    `json:"models,omitempty"`       // allowed model ids to offer
-	Worker      *Provider   `json:"worker,omitempty"`
-	Reviewer    *Provider   `json:"reviewer,omitempty"`
-	Review      *bool       `json:"review,omitempty"`     // disable the code-review skill (default on when a reviewer is set)
-	Compactor   *Provider   `json:"compactor,omitempty"`  // token-efficiency skill
-	CompactAt   int         `json:"compact_at,omitempty"` // tool-result byte threshold
-	Phrases     []string    `json:"phrases,omitempty"`    // TUI status phrases
-	OAuth       *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
+	Name           string            `json:"name,omitempty"`            // app/wordmark name shown in the TUI
+	IdentityPrompt string            `json:"identity_prompt,omitempty"` // system-prompt addendum (persona/task framing)
+	Welcome        string            `json:"welcome,omitempty"`         // empty-state layout: clean|skills|columns|boxed|centered
+	Theme          string            `json:"theme,omitempty"`           // TUI color theme: crystal|ember|matrix|grape|mono
+	Colors         map[string]string `json:"colors,omitempty"`          // per-role hex overrides on top of the theme
+	Gradient       []string          `json:"gradient,omitempty"`        // holographic gradient stops override
+	Provider       string            `json:"provider,omitempty"`
+	Model          string            `json:"model,omitempty"`
+	BaseURL        string            `json:"base_url,omitempty"`
+	APIKey         string            `json:"api_key,omitempty"`
+	Style          string            `json:"style,omitempty"`
+	MaxTokens      int               `json:"max_tokens,omitempty"`
+	MaxParallel    int               `json:"max_parallel,omitempty"` // parallel worker subagents
+	Models         []string          `json:"models,omitempty"`       // allowed model ids to offer
+	Worker         *Provider         `json:"worker,omitempty"`
+	Reviewer       *Provider         `json:"reviewer,omitempty"`
+	Review         *bool             `json:"review,omitempty"`     // disable the code-review skill (default on when a reviewer is set)
+	Compactor      *Provider         `json:"compactor,omitempty"`  // token-efficiency skill
+	CompactAt      int               `json:"compact_at,omitempty"` // tool-result byte threshold
+	Phrases        []string          `json:"phrases,omitempty"`    // TUI status phrases
+	OAuth          *OAuthLogin       `json:"oauth,omitempty"`      // for the claude-sub provider
 
 	// tools is an allow-list: when set, only these tool ids are enabled (empty =
 	// all). permission is per-tool allow|ask|deny — either a plain string, or,

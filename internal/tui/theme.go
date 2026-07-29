@@ -60,8 +60,8 @@ func nextTheme() string {
 	return CurrentThemeName()
 }
 
-// applyTheme reassigns the accent/gradient palette and rebuilds every style that
-// depends on it, so a switch takes effect on the next render.
+// applyTheme reassigns the accent/gradient palette and rebuilds every style, so
+// a switch takes effect on the next render.
 func applyTheme(i int) {
 	currentTheme = i
 	t := themes[i]
@@ -71,18 +71,43 @@ func applyTheme(i int) {
 	holoViol = lipgloss.Color(t.viol)
 	holoRamp = append([]string(nil), t.ramp...)
 	holoLoop = mirrorRamp(t.ramp)
+	rebuildStyles()
+}
 
-	logoStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	costStyle = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	agentLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	toolArrow = lipgloss.NewStyle().Foreground(accent)
-	toolName = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	checkStyle = lipgloss.NewStyle().Foreground(accentHi)
-	startGlyph = lipgloss.NewStyle().Foreground(accent)
-	promptMark = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
-	violStyle = lipgloss.NewStyle().Foreground(holoViol)
-	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).Padding(0, 1)
+// ApplyColors overrides individual palette colors by role (hex values), on top
+// of the active theme, then rebuilds styles. Unknown roles are ignored. Roles:
+// accent, accentHi, fg, prose, muted, dim, bad, ok, base, panel, gold, worker,
+// cyan, viol.
+func ApplyColors(overrides map[string]string) {
+	set := func(dst *lipgloss.Color, key string) {
+		if v, ok := overrides[key]; ok && v != "" {
+			*dst = lipgloss.Color(v)
+		}
+	}
+	set(&accent, "accent")
+	set(&accentHi, "accentHi")
+	set(&fg, "fg")
+	set(&prose, "prose")
+	set(&muted, "muted")
+	set(&dim, "dim")
+	set(&bad, "bad")
+	set(&ok, "ok")
+	set(&base, "base")
+	set(&panel, "panel")
+	set(&gold, "gold")
+	set(&worker, "worker")
+	set(&holoCyan, "cyan")
+	set(&holoViol, "viol")
+	rebuildStyles()
+}
+
+// SetGradient overrides the holographic gradient stops (start → end).
+func SetGradient(stops []string) {
+	if len(stops) < 2 {
+		return
+	}
+	holoRamp = append([]string(nil), stops...)
+	holoLoop = mirrorRamp(stops)
 }
 
 // mirrorRamp turns a start→end ramp into a looping start→end→start sequence for

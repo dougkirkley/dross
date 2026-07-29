@@ -25,46 +25,78 @@ import (
 
 // --- palette: dark black/gray + Carolina blue -----------------------------
 
+// Palette colors. Overridable via config (see ApplyColors); rebuildStyles
+// re-derives every style below from them.
 var (
 	accent   = lipgloss.Color("#4B9CD3") // Carolina blue
 	accentHi = lipgloss.Color("#8FC7E8") // lighter blue
 	fg       = lipgloss.Color("#E6E6E6")
+	prose    = lipgloss.Color("#F6F5F1") // assistant prose: bright white
 	muted    = lipgloss.Color("#6B7280")
 	dim      = lipgloss.Color("#4B5158")
 	bad      = lipgloss.Color("#E06C75")
+	ok       = lipgloss.Color("#6BBF73") // something completed
 	base     = lipgloss.Color("#0C0F12") // near-black
 	panel    = lipgloss.Color("#15181C") // gray panel
 	gold     = lipgloss.Color("#E6B450") // shell-mode ("!") accent
+	worker   = lipgloss.Color("#5C8AA6") // subagent tag
 	holoCyan = lipgloss.Color("#5CE1E6") // holographic gradient start
 	holoViol = lipgloss.Color("#A78BFA") // holographic gradient end
 
-	logoStyle    = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	metaStyle    = lipgloss.NewStyle().Foreground(muted)
-	costStyle    = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	headerBar    = lipgloss.NewStyle().Background(panel).Padding(0, 1)
-	ruleStyle    = lipgloss.NewStyle().Foreground(dim)
-	youLabel     = lipgloss.NewStyle().Foreground(muted).Bold(true)
-	agentLabel   = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	agentText    = lipgloss.NewStyle().Foreground(fg)
-	proseStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F6F5F1")) // assistant prose: bright white
-	toolArrow    = lipgloss.NewStyle().Foreground(accent)
-	toolName     = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	toolArgs     = lipgloss.NewStyle().Foreground(muted)
-	resultStyle  = lipgloss.NewStyle().Foreground(dim)
-	workerTag    = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C8AA6"))
-	checkStyle   = lipgloss.NewStyle().Foreground(accentHi)
-	errStyle     = lipgloss.NewStyle().Foreground(bad)
-	startGlyph   = lipgloss.NewStyle().Foreground(accent)                    // something started
-	doneGlyph    = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
-	promptMark   = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	goldStyle    = lipgloss.NewStyle().Foreground(gold).Bold(true)
-	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
-	violStyle    = lipgloss.NewStyle().Foreground(holoViol)
-	inputBox     = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(holoCyan).
-			Padding(0, 1)
+	logoStyle    lipgloss.Style
+	metaStyle    lipgloss.Style
+	costStyle    lipgloss.Style
+	headerBar    lipgloss.Style
+	ruleStyle    lipgloss.Style
+	youLabel     lipgloss.Style
+	agentLabel   lipgloss.Style
+	agentText    lipgloss.Style
+	proseStyle   lipgloss.Style
+	toolArrow    lipgloss.Style
+	toolName     lipgloss.Style
+	toolArgs     lipgloss.Style
+	resultStyle  lipgloss.Style
+	workerTag    lipgloss.Style
+	checkStyle   lipgloss.Style
+	errStyle     lipgloss.Style
+	startGlyph   lipgloss.Style
+	doneGlyph    lipgloss.Style
+	promptMark   lipgloss.Style
+	goldStyle    lipgloss.Style
+	crystalStyle lipgloss.Style
+	violStyle    lipgloss.Style
+	inputBox     lipgloss.Style
 )
+
+func init() { rebuildStyles() }
+
+// rebuildStyles derives every style from the current palette. Called at startup
+// and after any theme/color change.
+func rebuildStyles() {
+	logoStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	metaStyle = lipgloss.NewStyle().Foreground(muted)
+	costStyle = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
+	headerBar = lipgloss.NewStyle().Background(panel).Padding(0, 1)
+	ruleStyle = lipgloss.NewStyle().Foreground(dim)
+	youLabel = lipgloss.NewStyle().Foreground(muted).Bold(true)
+	agentLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	agentText = lipgloss.NewStyle().Foreground(fg)
+	proseStyle = lipgloss.NewStyle().Foreground(prose)
+	toolArrow = lipgloss.NewStyle().Foreground(accent)
+	toolName = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
+	toolArgs = lipgloss.NewStyle().Foreground(muted)
+	resultStyle = lipgloss.NewStyle().Foreground(dim)
+	workerTag = lipgloss.NewStyle().Foreground(worker)
+	checkStyle = lipgloss.NewStyle().Foreground(accentHi)
+	errStyle = lipgloss.NewStyle().Foreground(bad)
+	startGlyph = lipgloss.NewStyle().Foreground(accent)
+	doneGlyph = lipgloss.NewStyle().Foreground(ok)
+	promptMark = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	goldStyle = lipgloss.NewStyle().Foreground(gold).Bold(true)
+	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
+	violStyle = lipgloss.NewStyle().Foreground(holoViol)
+	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).Padding(0, 1)
+}
 
 // RunFunc executes one prompt under a permission mode, streaming events via emit.
 type RunFunc func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error)
