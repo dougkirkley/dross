@@ -1,6 +1,12 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // themeDef is a named color variant. Only the accent family and the holographic
 // gradient change between themes; the neutral grays (fg/muted/base/panel) stay
@@ -11,38 +17,39 @@ type themeDef struct {
 	accentHi string   // brighter accent (highlights, cost)
 	cyan     string   // gradient start / crystal glyphs / input border
 	viol     string   // gradient end / boxes
+	bg       string   // background
 	ramp     []string // gradient stops, start → end
 }
 
 // themes are the selectable variants (/theme). "crystal" is the default.
 var themes = []themeDef{
-	{"crystal", "#4B9CD3", "#8FC7E8", "#5CE1E6", "#A78BFA",
+	{"crystal", "#4B9CD3", "#8FC7E8", "#5CE1E6", "#A78BFA", "#0C0F12",
 		[]string{"#5CE1E6", "#4FB8E8", "#6E9BF0", "#A78BFA", "#E06CE6"}},
-	{"ember", "#E6934B", "#F0B87A", "#FF9E5C", "#E0566C",
+	{"ember", "#E6934B", "#F0B87A", "#FF9E5C", "#E0566C", "#17110D",
 		[]string{"#FFD36C", "#FFA14F", "#F07C4B", "#E0566C", "#C0417A"}},
-	{"matrix", "#4BD37A", "#8FE8A6", "#5CE68A", "#3FB86E",
+	{"matrix", "#4BD37A", "#8FE8A6", "#5CE68A", "#3FB86E", "#0A120D",
 		[]string{"#9CF0B0", "#5CE68A", "#3FB86E", "#2E9E86", "#4FB8E8"}},
-	{"grape", "#9B6BD3", "#C79BE8", "#B15CE6", "#E06CE6",
+	{"grape", "#9B6BD3", "#C79BE8", "#B15CE6", "#E06CE6", "#120C17",
 		[]string{"#C79BE8", "#A78BFA", "#B15CE6", "#E06CE6", "#F06CB0"}},
-	{"mono", "#AFAFAF", "#E4E4E4", "#D0D0D0", "#9A9A9A",
+	{"mono", "#AFAFAF", "#E4E4E4", "#D0D0D0", "#9A9A9A", "#101010",
 		[]string{"#E4E4E4", "#C4C4C4", "#A4A4A4", "#8A8A8A", "#B4B4B4"}},
 
 	// Popular editor palettes (opencode-style).
-	{"tokyonight", "#7AA2F7", "#7DCFFF", "#7DCFFF", "#BB9AF7",
+	{"tokyonight", "#7AA2F7", "#7DCFFF", "#7DCFFF", "#BB9AF7", "#1A1B26",
 		[]string{"#7DCFFF", "#7AA2F7", "#BB9AF7", "#FF9E64", "#F7768E"}},
-	{"catppuccin", "#CBA6F7", "#F5C2E7", "#89DCEB", "#CBA6F7",
+	{"catppuccin", "#CBA6F7", "#F5C2E7", "#89DCEB", "#CBA6F7", "#1E1E2E",
 		[]string{"#89DCEB", "#89B4FA", "#CBA6F7", "#F5C2E7", "#F38BA8"}},
-	{"gruvbox", "#FABD2F", "#FE8019", "#8EC07C", "#D3869B",
+	{"gruvbox", "#FABD2F", "#FE8019", "#8EC07C", "#D3869B", "#282828",
 		[]string{"#8EC07C", "#B8BB26", "#FABD2F", "#FE8019", "#FB4934"}},
-	{"dracula", "#BD93F9", "#FF79C6", "#8BE9FD", "#FF79C6",
+	{"dracula", "#BD93F9", "#FF79C6", "#8BE9FD", "#FF79C6", "#282A36",
 		[]string{"#8BE9FD", "#BD93F9", "#FF79C6", "#FF5555"}},
-	{"nord", "#88C0D0", "#8FBCBB", "#8FBCBB", "#B48EAD",
+	{"nord", "#88C0D0", "#8FBCBB", "#8FBCBB", "#B48EAD", "#2E3440",
 		[]string{"#8FBCBB", "#88C0D0", "#81A1C1", "#5E81AC", "#B48EAD"}},
-	{"onedark", "#61AFEF", "#56B6C2", "#56B6C2", "#C678DD",
+	{"onedark", "#61AFEF", "#56B6C2", "#56B6C2", "#C678DD", "#282C34",
 		[]string{"#56B6C2", "#61AFEF", "#C678DD", "#E06C75"}},
-	{"rose-pine", "#C4A7E7", "#EBBCBA", "#9CCFD8", "#C4A7E7",
+	{"rose-pine", "#C4A7E7", "#EBBCBA", "#9CCFD8", "#C4A7E7", "#191724",
 		[]string{"#9CCFD8", "#C4A7E7", "#EBBCBA", "#EB6F92"}},
-	{"solarized", "#268BD2", "#2AA198", "#2AA198", "#6C71C4",
+	{"solarized", "#268BD2", "#2AA198", "#2AA198", "#6C71C4", "#002B36",
 		[]string{"#2AA198", "#268BD2", "#6C71C4", "#D33682", "#B58900"}},
 }
 
@@ -87,9 +94,29 @@ func applyTheme(i int) {
 	accentHi = lipgloss.Color(t.accentHi)
 	holoCyan = lipgloss.Color(t.cyan)
 	holoViol = lipgloss.Color(t.viol)
+	base = lipgloss.Color(t.bg)
+	panel = lipgloss.Color(lighten(t.bg, 0.06))
 	holoRamp = append([]string(nil), t.ramp...)
 	holoLoop = mirrorRamp(t.ramp)
 	rebuildStyles()
+}
+
+// lighten nudges a #rrggbb color toward white by amt (0..1), for the header/panel
+// tint relative to the theme background.
+func lighten(hex string, amt float64) string {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return "#" + hex
+	}
+	var c [3]int64
+	for i := 0; i < 3; i++ {
+		c[i], _ = strconv.ParseInt(hex[i*2:i*2+2], 16, 0)
+		c[i] += int64(float64(255-c[i]) * amt)
+		if c[i] > 255 {
+			c[i] = 255
+		}
+	}
+	return fmt.Sprintf("#%02X%02X%02X", c[0], c[1], c[2])
 }
 
 // ApplyColors overrides individual palette colors by role (hex values), on top

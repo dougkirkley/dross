@@ -1617,6 +1617,7 @@ func (m Model) View() string {
 		bodyH = 1
 	}
 	m.vp.Height = bodyH
+	m.vp.Style = lipgloss.NewStyle().Background(base) // themed transcript background
 	body := m.vp.View()
 	if m.workerFocus != "" {
 		m.vp.SetContent(m.renderWorkerFocus())
@@ -1677,11 +1678,13 @@ func (m Model) View() string {
 		}
 		body = m.vp.View()
 	}
-	return strings.Join([]string{
+	screen := strings.Join([]string{
 		m.header(),
 		body,
 		footer,
 	}, "\n")
+	// Paint the themed background across the whole screen.
+	return lipgloss.NewStyle().Background(base).Width(m.width).Height(m.height).Render(screen)
 }
 
 // welcome is the empty-state splash. Layout variants (SetWelcomeStyle):
