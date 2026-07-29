@@ -1079,6 +1079,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.skillSel < len(m.skillItems)-1 {
 					m.skillSel++
 				}
+			case "g", "home":
+				m.skillSel = 0
+			case "G", "end":
+				m.skillSel = len(m.skillItems) - 1
 			case " ":
 				if m.skillSel < len(m.skillItems) {
 					s := m.skillItems[m.skillSel]
@@ -1106,6 +1110,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.toolSel < len(m.toolRecs)-1 {
 					m.toolSel++
 				}
+			case "g", "home":
+				m.toolSel = 0
+			case "G", "end":
+				m.toolSel = len(m.toolRecs) - 1
 			}
 			return m, nil
 		}

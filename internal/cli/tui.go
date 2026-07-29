@@ -425,7 +425,7 @@ func newTUICmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
-	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono")
+	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")

@@ -101,7 +101,7 @@ func decodePatch(raw json.RawMessage) (map[string]any, error) {
 // configSchemaHelp lists the editable config keys for op=schema.
 func configSchemaHelp() string {
 	return "ergon config keys (op=set with a patch object):\n" +
-		"  name, identity_prompt, welcome (clean|boxed|centered), theme (crystal|ember|matrix|grape|mono),\n" +
+		"  name, identity_prompt, welcome (clean|boxed|centered), theme (crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized),\n" +
 		"  colors {role:hex}, gradient [hex...], provider, model, base_url, api_key, style,\n" +
 		"  max_tokens, max_parallel, models [ids], worker {provider,model,base_url,api_key},\n" +
 		"  reviewer {...}, review (bool), compactor {...}, compact_at, phrases [strings],\n" +

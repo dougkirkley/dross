@@ -92,6 +92,12 @@ func (m *Model) updatePluginView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pluginSel++
 		}
 		return m, nil
+	case "g", "home":
+		m.pluginSel = 0
+		return m, nil
+	case "G", "end":
+		m.pluginSel = m.pluginRowCount() - 1
+		return m, nil
 	case " ", "enter":
 		return m, m.pluginAction()
 	case "x":

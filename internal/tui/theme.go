@@ -26,6 +26,24 @@ var themes = []themeDef{
 		[]string{"#C79BE8", "#A78BFA", "#B15CE6", "#E06CE6", "#F06CB0"}},
 	{"mono", "#AFAFAF", "#E4E4E4", "#D0D0D0", "#9A9A9A",
 		[]string{"#E4E4E4", "#C4C4C4", "#A4A4A4", "#8A8A8A", "#B4B4B4"}},
+
+	// Popular editor palettes (opencode-style).
+	{"tokyonight", "#7AA2F7", "#7DCFFF", "#7DCFFF", "#BB9AF7",
+		[]string{"#7DCFFF", "#7AA2F7", "#BB9AF7", "#FF9E64", "#F7768E"}},
+	{"catppuccin", "#CBA6F7", "#F5C2E7", "#89DCEB", "#CBA6F7",
+		[]string{"#89DCEB", "#89B4FA", "#CBA6F7", "#F5C2E7", "#F38BA8"}},
+	{"gruvbox", "#FABD2F", "#FE8019", "#8EC07C", "#D3869B",
+		[]string{"#8EC07C", "#B8BB26", "#FABD2F", "#FE8019", "#FB4934"}},
+	{"dracula", "#BD93F9", "#FF79C6", "#8BE9FD", "#FF79C6",
+		[]string{"#8BE9FD", "#BD93F9", "#FF79C6", "#FF5555"}},
+	{"nord", "#88C0D0", "#8FBCBB", "#8FBCBB", "#B48EAD",
+		[]string{"#8FBCBB", "#88C0D0", "#81A1C1", "#5E81AC", "#B48EAD"}},
+	{"onedark", "#61AFEF", "#56B6C2", "#56B6C2", "#C678DD",
+		[]string{"#56B6C2", "#61AFEF", "#C678DD", "#E06C75"}},
+	{"rose-pine", "#C4A7E7", "#EBBCBA", "#9CCFD8", "#C4A7E7",
+		[]string{"#9CCFD8", "#C4A7E7", "#EBBCBA", "#EB6F92"}},
+	{"solarized", "#268BD2", "#2AA198", "#2AA198", "#6C71C4",
+		[]string{"#2AA198", "#268BD2", "#6C71C4", "#D33682", "#B58900"}},
 }
 
 // currentTheme indexes themes; the active variant.

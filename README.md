@@ -196,8 +196,8 @@ on macOS). `/model` writes your provider/model choice here.
 - **welcome** — empty-state layout: `clean` (default), `boxed`, or `centered`
   (the original big centered wordmark). Switch live with `/welcome [name]`
   (bare `/welcome` cycles).
-- **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`,
-  or `mono`. Switch live with `/theme [name]` (bare `/theme` cycles); override
+- **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`, `mono`, `tokyonight`,
+  `catppuccin`, `gruvbox`, `dracula`, `nord`, `onedark`, `rose-pine`, `solarized`. Switch live with `/theme [name]` (bare `/theme` cycles); override
   once with `ergon --theme <name>`.
 - **colors** — per-role hex overrides on top of the theme, e.g.
   `{"accent":"#4B9CD3","cyan":"#5CE1E6","viol":"#A78BFA","prose":"#FFFFFF"}`.
