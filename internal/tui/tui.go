@@ -34,27 +34,31 @@ var (
 	base     = lipgloss.Color("#0C0F12") // near-black
 	panel    = lipgloss.Color("#15181C") // gray panel
 	gold     = lipgloss.Color("#E6B450") // shell-mode ("!") accent
+	holoCyan = lipgloss.Color("#5CE1E6") // holographic gradient start
+	holoViol = lipgloss.Color("#A78BFA") // holographic gradient end
 
-	logoStyle   = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	metaStyle   = lipgloss.NewStyle().Foreground(muted)
-	costStyle   = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	headerBar   = lipgloss.NewStyle().Background(panel).Padding(0, 1)
-	ruleStyle   = lipgloss.NewStyle().Foreground(dim)
-	youLabel    = lipgloss.NewStyle().Foreground(muted).Bold(true)
-	agentLabel  = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	agentText   = lipgloss.NewStyle().Foreground(fg)
-	toolArrow   = lipgloss.NewStyle().Foreground(accent)
-	toolName    = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	toolArgs    = lipgloss.NewStyle().Foreground(muted)
-	resultStyle = lipgloss.NewStyle().Foreground(dim)
-	workerTag   = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C8AA6"))
-	checkStyle  = lipgloss.NewStyle().Foreground(accentHi)
-	errStyle    = lipgloss.NewStyle().Foreground(bad)
-	startGlyph  = lipgloss.NewStyle().Foreground(accent)                    // something started
-	doneGlyph   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
-	promptMark  = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	goldStyle   = lipgloss.NewStyle().Foreground(gold).Bold(true)
-	inputBox    = lipgloss.NewStyle().
+	logoStyle    = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	metaStyle    = lipgloss.NewStyle().Foreground(muted)
+	costStyle    = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
+	headerBar    = lipgloss.NewStyle().Background(panel).Padding(0, 1)
+	ruleStyle    = lipgloss.NewStyle().Foreground(dim)
+	youLabel     = lipgloss.NewStyle().Foreground(muted).Bold(true)
+	agentLabel   = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	agentText    = lipgloss.NewStyle().Foreground(fg)
+	toolArrow    = lipgloss.NewStyle().Foreground(accent)
+	toolName     = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
+	toolArgs     = lipgloss.NewStyle().Foreground(muted)
+	resultStyle  = lipgloss.NewStyle().Foreground(dim)
+	workerTag    = lipgloss.NewStyle().Foreground(lipgloss.Color("#5C8AA6"))
+	checkStyle   = lipgloss.NewStyle().Foreground(accentHi)
+	errStyle     = lipgloss.NewStyle().Foreground(bad)
+	startGlyph   = lipgloss.NewStyle().Foreground(accent)                    // something started
+	doneGlyph    = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BBF73")) // something completed
+	promptMark   = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	goldStyle    = lipgloss.NewStyle().Foreground(gold).Bold(true)
+	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
+	violStyle    = lipgloss.NewStyle().Foreground(holoViol)
+	inputBox     = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(accent).
 			Padding(0, 1)
@@ -1037,16 +1041,46 @@ func (m Model) View() string {
 // welcome is the empty-state splash: the big logo, centered, with a tagline.
 func (m Model) welcome() string {
 	bodyH := m.height - 1 - 4 // header + footer
-	tagline := metaStyle.Render("cost-aware multi-model coding agent")
+	tagline := violStyle.Render("the archive remembers your code")
 	block := lipgloss.JoinVertical(lipgloss.Center, renderLogo(m.logoVariant), "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
 
 // --- rendering ------------------------------------------------------------
 
+// crystalMeter draws a compact context-fill gauge from crystal glyphs
+// (◈ filled, ◇ empty) for the header.
+func crystalMeter(frac float64, cells int) string {
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	filled := int(frac*float64(cells) + 0.5)
+	var b strings.Builder
+	for i := 0; i < cells; i++ {
+		if i < filled {
+			b.WriteString(crystalStyle.Render("◈"))
+		} else {
+			b.WriteString(resultStyle.Render("◇"))
+		}
+	}
+	return b.String()
+}
+
 func (m Model) header() string {
-	left := logoStyle.Render("◆ holocron")
+	left := crystalStyle.Render("◈ ") + gradientText("HOLOCRON", holoRamp)
+	if m.model != "" {
+		left += metaStyle.Render("  " + m.model)
+	}
+	// Right: a crystal context meter (when we know the window) + cost.
 	right := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
+	if win, ok := contextWindow(m.model); ok && m.inTok > 0 {
+		frac := float64(m.inTok) / float64(win)
+		right = crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
+			metaStyle.Render("  ·  ") + right
+	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1

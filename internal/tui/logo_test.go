@@ -61,7 +61,7 @@ func TestWrap(t *testing.T) {
 
 // TestDemoViews render without panicking and include the logo/prompt.
 func TestDemoViews(t *testing.T) {
-	if v := DemoWelcomeView(90, 26, 1); !strings.Contains(v, "cost-aware") {
+	if v := DemoWelcomeView(90, 26, 1); !strings.Contains(v, "archive") {
 		t.Fatal("welcome view missing tagline")
 	}
 	if v := DemoView(96, 28); strings.TrimSpace(v) == "" {
