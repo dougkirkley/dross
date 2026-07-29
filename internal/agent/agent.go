@@ -21,12 +21,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -146,37 +149,81 @@ const (
 	ToolDeny  ToolPermission = "deny"
 )
 
-// WithToolFilter restricts which tools are offered/runnable. If allow is
-// non-empty, only those tools are enabled; anything in deny is always disabled
-// (deny wins). Names are the tool ids (read, write, edit, bash, monitor,
-// shell_output, delegate, publish, ask_user, web_search, …).
-func WithToolFilter(allow, deny []string) Option {
+// WithAllowedTools restricts the agent to exactly the named tools; anything not
+// listed is disabled. An empty list means all tools are enabled. Names are the
+// tool ids (read, write, edit, bash, monitor, shell_output, delegate, publish,
+// ask_user, web_search, …) and any plugin tools.
+func WithAllowedTools(names []string) Option {
 	return func(a *Agent) {
-		if len(allow) > 0 {
-			a.allowTools = map[string]bool{}
-			for _, n := range allow {
-				a.allowTools[n] = true
-			}
+		if len(names) == 0 {
+			return
 		}
-		if len(deny) > 0 {
-			a.denyTools = map[string]bool{}
-			for _, n := range deny {
-				a.denyTools[n] = true
+		a.allowTools = map[string]bool{}
+		for _, n := range names {
+			a.allowTools[n] = true
+		}
+	}
+}
+
+// PluginSpec defines an external tool the agent can call without recompiling:
+// the model calls Name with JSON args, and the agent runs Command with those
+// args as JSON on stdin, returning the command's output. This is how tools are
+// imported as plugins (config-driven, MCP-lite).
+type PluginSpec struct {
+	Name        string
+	Description string
+	Command     []string       // argv; the tool's JSON input is written to stdin
+	Properties  map[string]any // JSON-schema properties for the args
+	Required    []string
+}
+
+// WithPluginTools registers external command tools (see PluginSpec).
+func WithPluginTools(specs []PluginSpec) Option {
+	return func(a *Agent) {
+		if len(specs) == 0 {
+			return
+		}
+		a.plugins = map[string]PluginSpec{}
+		for _, s := range specs {
+			if s.Name != "" && len(s.Command) > 0 {
+				a.plugins[s.Name] = s
 			}
 		}
 	}
 }
 
-// WithToolPermissions sets per-tool gating rules (allow|ask|deny) that override
-// the permission mode for those tools.
-func WithToolPermissions(rules map[string]string) Option {
+// PermRuleSpec is a per-tool permission rule, opencode-style: either a blanket
+// Decision (allow|ask|deny) for the tool, or, for command tools like bash, a map
+// of command glob → decision (e.g. {"git push": "ask", "rm *": "deny", "*":
+// "allow"}).
+type PermRuleSpec struct {
+	Decision string
+	Patterns map[string]string
+}
+
+type permRule struct {
+	blanket  ToolPermission
+	patterns map[string]ToolPermission
+}
+
+// WithPermissionRules sets per-tool gating rules that override the permission
+// mode. Command tools match the command against glob patterns.
+func WithPermissionRules(rules map[string]PermRuleSpec) Option {
 	return func(a *Agent) {
 		if len(rules) == 0 {
 			return
 		}
-		a.permRules = map[string]ToolPermission{}
-		for name, r := range rules {
-			a.permRules[name] = ToolPermission(strings.ToLower(strings.TrimSpace(r)))
+		a.permRules = map[string]permRule{}
+		norm := func(s string) ToolPermission { return ToolPermission(strings.ToLower(strings.TrimSpace(s))) }
+		for tool, spec := range rules {
+			r := permRule{blanket: norm(spec.Decision)}
+			if len(spec.Patterns) > 0 {
+				r.patterns = map[string]ToolPermission{}
+				for pat, dec := range spec.Patterns {
+					r.patterns[pat] = norm(dec)
+				}
+			}
+			a.permRules[tool] = r
 		}
 	}
 }
@@ -292,11 +339,11 @@ type Agent struct {
 	publish      PublishFunc
 	asker        AskFunc
 	permMode     PermMode
-	allowTools   map[string]bool           // if non-empty, only these tools are enabled
-	denyTools    map[string]bool           // tools always disabled
-	permRules    map[string]ToolPermission // per-tool allow/ask/deny overrides
-	conv         bool                      // keep the session across Run calls
-	sess         provider.Session          // persisted session when conv is set
+	allowTools   map[string]bool       // if non-empty, only these tools are enabled
+	permRules    map[string]permRule   // per-tool allow/ask/deny overrides
+	plugins      map[string]PluginSpec // external command tools
+	conv         bool                  // keep the session across Run calls
+	sess         provider.Session      // persisted session when conv is set
 	resume       string
 	checkpoint   func(brief string) error
 	emitMu       sync.Mutex // serializes emit across parallel workers
@@ -600,22 +647,63 @@ func (a *Agent) runReview(ctx context.Context, res *Result) {
 	a.emit("review", resp.Text)
 }
 
-// toolEnabled reports whether a tool is allowed by the configured filter (deny
-// wins; a non-empty allow-list is exclusive).
+// toolEnabled reports whether a tool is enabled. With a non-empty allow-list,
+// only listed tools are enabled; otherwise all are.
 func (a *Agent) toolEnabled(name string) bool {
-	if a.denyTools[name] {
-		return false
+	if len(a.allowTools) == 0 {
+		return true
 	}
-	if len(a.allowTools) > 0 && !a.allowTools[name] {
-		return false
-	}
-	return true
+	return a.allowTools[name]
 }
 
-// enabledTools returns the offered tool defs after applying the config filter.
+// resolvePerm resolves a per-tool rule to a decision: a blanket decision, or —
+// for command tools — the decision for the first matching command glob (else the
+// "*" catch-all). Empty means "no rule matched; use the mode".
+func (a *Agent) resolvePerm(r permRule, tc provider.ToolCall) ToolPermission {
+	if r.blanket != "" {
+		return r.blanket
+	}
+	if len(r.patterns) == 0 {
+		return ""
+	}
+	cmd := commandArg(tc)
+	for pat, dec := range r.patterns {
+		if pat == "*" {
+			continue
+		}
+		if ok, _ := filepath.Match(pat, cmd); ok {
+			return dec
+		}
+		if star := strings.TrimSuffix(pat, "*"); star != pat && strings.HasPrefix(cmd, star) {
+			return dec // prefix glob fallback (filepath.Match won't cross "/")
+		}
+	}
+	if d, ok := r.patterns["*"]; ok {
+		return d
+	}
+	return ""
+}
+
+// commandArg extracts the "command" argument (bash/monitor and command plugins).
+func commandArg(tc provider.ToolCall) string {
+	var in map[string]any
+	_ = json.Unmarshal(tc.Input, &in)
+	if c, ok := in["command"].(string); ok {
+		return c
+	}
+	return ""
+}
+
+// enabledTools returns the offered tool defs (built-ins + plugins) after
+// applying the config filter.
 func (a *Agent) enabledTools() []provider.ToolDef {
 	defs := toolDefs(a.worker != nil, a.publish != nil, a.asker != nil)
-	if a.denyTools == nil && a.allowTools == nil {
+	for _, p := range a.plugins {
+		defs = append(defs, provider.ToolDef{
+			Name: p.Name, Description: p.Description, Properties: p.Properties, Required: p.Required,
+		})
+	}
+	if len(a.allowTools) == 0 {
 		return defs
 	}
 	out := defs[:0]
@@ -627,6 +715,22 @@ func (a *Agent) enabledTools() []provider.ToolDef {
 	return out
 }
 
+// runPlugin executes an external command tool: the model's JSON args go to the
+// command's stdin; its combined output is returned to the model.
+func (a *Agent) runPlugin(ctx context.Context, p PluginSpec, input json.RawMessage) (string, bool) {
+	cmd := exec.CommandContext(ctx, p.Command[0], p.Command[1:]...)
+	cmd.Dir = a.ws.root
+	cmd.Stdin = bytes.NewReader(input)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("%s\n[plugin %s error: %v]", strings.TrimSpace(string(out)), p.Name, err), false
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		return "[no output]", false
+	}
+	return string(out), false
+}
+
 // gate applies the tool filter, per-tool permission rules, then the permission
 // mode. It returns (denialMessage, false) to block a tool (fed back to the model
 // as the tool result), or ("", true) to allow it.
@@ -636,7 +740,7 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 	}
 	// Per-tool rules from config override the mode for that tool.
 	if r, ok := a.permRules[tc.Name]; ok {
-		switch r {
+		switch a.resolvePerm(r, tc) {
 		case ToolAllow:
 			return "", true
 		case ToolDeny:
@@ -647,6 +751,7 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 			}
 			return "", true
 		}
+		// empty decision (no pattern matched) → fall through to mode gating
 	}
 	writes := tc.Name == "write" || tc.Name == "edit"
 	commands := tc.Name == "bash" || tc.Name == "monitor"
@@ -705,6 +810,9 @@ func gateSummary(tc provider.ToolCall) string {
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
 // so the run's cost reflects both models.
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
+	if p, ok := a.plugins[tc.Name]; ok {
+		return a.runPlugin(ctx, p, tc.Input)
+	}
 	switch tc.Name {
 	case "read":
 		var in struct {

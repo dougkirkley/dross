@@ -560,8 +560,8 @@ func TestToolFilterAndPermissions(t *testing.T) {
 		a, _ := New(Config{Name: "t", Model: "m", Workdir: dir}, prov, opt)
 		return a
 	}
-	// Deny via tool filter.
-	a := mk(WithToolFilter(nil, []string{"write"}))
+	// Disable via allow-list (write not listed).
+	a := mk(WithAllowedTools([]string{"read"}))
 	a.Run(context.Background(), "x")
 	if _, err := os.Stat(filepath.Join(dir, "z.go")); !os.IsNotExist(err) {
 		t.Fatal("disabled write must not run")
@@ -574,7 +574,7 @@ func TestToolFilterAndPermissions(t *testing.T) {
 		}},
 		{StopReason: provider.StopEndTurn, Text: "ok"},
 	}}
-	b, _ := New(Config{Name: "t", Model: "m", Workdir: dir2}, prov, WithToolPermissions(map[string]string{"write": "deny"}))
+	b, _ := New(Config{Name: "t", Model: "m", Workdir: dir2}, prov, WithPermissionRules(map[string]PermRuleSpec{"write": {Decision: "deny"}}))
 	b.Run(context.Background(), "x")
 	if _, err := os.Stat(filepath.Join(dir2, "z.go")); !os.IsNotExist(err) {
 		t.Fatal("denied write must not run")

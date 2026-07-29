@@ -37,15 +37,39 @@ type File struct {
 	Phrases     []string    `json:"phrases,omitempty"`    // TUI status phrases
 	OAuth       *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
 
-	Tools       *ToolPolicy       `json:"tools,omitempty"`       // enable/disable built-in tools
-	Permissions map[string]string `json:"permissions,omitempty"` // per-tool: allow|ask|deny
+	// tools is an allow-list: when set, only these tool ids are enabled (empty =
+	// all). permission is per-tool allow|ask|deny — either a plain string, or,
+	// for command tools, a map of command glob → decision (opencode-style).
+	Tools      []string              `json:"tools,omitempty"`
+	Permission map[string]Permission `json:"permission,omitempty"`
+	Plugins    []PluginTool          `json:"plugins,omitempty"`
 }
 
-// ToolPolicy filters which tools the agent offers. A non-empty Allow list is
-// exclusive; Deny always wins.
-type ToolPolicy struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
+// Permission is one tool's rule: a blanket decision (JSON string) or a map of
+// command glob → decision (JSON object), like opencode.
+type Permission struct {
+	Blanket string            // set when the JSON value was a plain string
+	Rules   map[string]string // set when it was an object (glob → allow|ask|deny)
+}
+
+func (p *Permission) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		p.Blanket = s
+		return nil
+	}
+	return json.Unmarshal(b, &p.Rules)
+}
+
+// PluginTool is an external tool imported without recompiling: the model calls
+// Name with JSON args, which the agent pipes to Command's stdin; stdout is the
+// result.
+type PluginTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Command     []string       `json:"command"` // argv
+	Properties  map[string]any `json:"properties,omitempty"`
+	Required    []string       `json:"required,omitempty"`
 }
 
 // OAuthLogin configures the `ergon login` PKCE flow and the claude-sub

@@ -107,11 +107,25 @@ func newTUICmd() *cobra.Command {
 							return tui.Ask(prog, req)
 						}))
 					}
-					if t := res.File.Tools; t != nil {
-						opts = append(opts, agent.WithToolFilter(t.Allow, t.Deny))
+					if len(res.File.Tools) > 0 {
+						opts = append(opts, agent.WithAllowedTools(res.File.Tools))
 					}
-					if len(res.File.Permissions) > 0 {
-						opts = append(opts, agent.WithToolPermissions(res.File.Permissions))
+					if len(res.File.Plugins) > 0 {
+						specs := make([]agent.PluginSpec, 0, len(res.File.Plugins))
+						for _, p := range res.File.Plugins {
+							specs = append(specs, agent.PluginSpec{
+								Name: p.Name, Description: p.Description, Command: p.Command,
+								Properties: p.Properties, Required: p.Required,
+							})
+						}
+						opts = append(opts, agent.WithPluginTools(specs))
+					}
+					if len(res.File.Permission) > 0 {
+						rules := make(map[string]agent.PermRuleSpec, len(res.File.Permission))
+						for tool, p := range res.File.Permission {
+							rules[tool] = agent.PermRuleSpec{Decision: p.Blanket, Patterns: p.Rules}
+						}
+						opts = append(opts, agent.WithPermissionRules(rules))
 					}
 					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: projectCtx},
 						st.prov, opts...)
