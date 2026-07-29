@@ -108,6 +108,29 @@ func TestBuiltinNotHijackedBySkill(t *testing.T) {
 	}
 }
 
+// TestCtrlCInterrupts: the first ctrl+c cancels the running prompt (not exit);
+// the model keeps running until the run's doneMsg arrives.
+func TestCtrlCInterrupts(t *testing.T) {
+	m := New("ergon", "m", "openai", noRun(t))
+	m.width, m.height = 80, 24
+	m.layout()
+	canceled := false
+	m.running = true
+	m.runCancel = func() { canceled = true }
+
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = upd.(Model)
+	if !canceled {
+		t.Fatal("first ctrl+c should cancel the run")
+	}
+	if !m.running {
+		t.Fatal("ctrl+c should not stop running before the run reports done")
+	}
+	if cmd != nil {
+		t.Fatal("interrupt should not quit")
+	}
+}
+
 // TestThemeSwitch: SetTheme changes the active theme; unknown names are rejected.
 func TestThemeSwitch(t *testing.T) {
 	defer SetTheme("crystal") // restore global state

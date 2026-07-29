@@ -21,8 +21,8 @@ func configToolDef() provider.ToolDef {
 		Description: "Read or edit ergon's own JSON config (provider, model, worker, reviewer, review, tools, permission, welcome, identity_prompt, name, phrases). " +
 			"op=get returns the current config; op=set merges the `patch` object into it (only provided top-level keys are overwritten) and saves. Use this when the user asks to change ergon's settings.",
 		Properties: map[string]any{
-			"op":    map[string]any{"type": "string", "enum": []string{"get", "set"}, "description": "get or set"},
-			"patch": map[string]any{"type": "object", "description": "top-level config keys to set (op=set)"},
+			"op":    map[string]any{"type": "string", "enum": []string{"get", "set", "schema"}, "description": "get current config, set (with patch), or schema (list keys)"},
+			"patch": map[string]any{"type": "object", "description": "top-level config keys to set (op=set); a JSON object"},
 		},
 		Required: []string{"op"},
 	}
@@ -42,17 +42,20 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 		}
 		path := configFilePath(cfgPath)
 
+		if in.Op == "schema" {
+			return configSchemaHelp(), false
+		}
 		if in.Op == "set" {
 			if len(in.Patch) == 0 {
 				return "op=set requires a non-empty patch object", true
 			}
+			patch, err := decodePatch(in.Patch)
+			if err != nil {
+				return "invalid patch: " + err.Error(), true
+			}
 			cur := map[string]any{}
 			if b, err := os.ReadFile(path); err == nil {
 				_ = json.Unmarshal(b, &cur)
-			}
-			var patch map[string]any
-			if err := json.Unmarshal(in.Patch, &patch); err != nil {
-				return "invalid patch: " + err.Error(), true
 			}
 			for k, v := range patch {
 				cur[k] = v
@@ -75,6 +78,34 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 		}
 		return "no config file yet (" + path + "); defaults are in effect", false
 	}
+}
+
+// decodePatch parses a config patch, tolerating a patch that was passed as a
+// JSON string (double-encoded) instead of an object.
+func decodePatch(raw json.RawMessage) (map[string]any, error) {
+	var patch map[string]any
+	if err := json.Unmarshal(raw, &patch); err == nil {
+		return patch, nil
+	}
+	// Maybe it's a JSON string containing JSON.
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(s), &patch); err != nil {
+		return nil, err
+	}
+	return patch, nil
+}
+
+// configSchemaHelp lists the editable config keys for op=schema.
+func configSchemaHelp() string {
+	return "ergon config keys (op=set with a patch object):\n" +
+		"  name, identity_prompt, welcome (clean|boxed|centered), theme (crystal|ember|matrix|grape|mono),\n" +
+		"  colors {role:hex}, gradient [hex...], provider, model, base_url, api_key, style,\n" +
+		"  max_tokens, max_parallel, models [ids], worker {provider,model,base_url,api_key},\n" +
+		"  reviewer {...}, review (bool), compactor {...}, compact_at, phrases [strings],\n" +
+		"  tools [ids], permission {tool:allow|ask|deny}, plugins [...]"
 }
 
 // setConfigKey merges a single top-level key into the config file at path,

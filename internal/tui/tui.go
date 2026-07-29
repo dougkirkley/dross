@@ -7,6 +7,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -271,8 +272,9 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
-	queue      []string // messages typed while a run is in flight; drained on done
-	scrolledUp bool     // user scrolled up: stop auto-following the bottom
+	queue      []string           // messages typed while a run is in flight; drained on done
+	scrolledUp bool               // user scrolled up: stop auto-following the bottom
+	runCancel  context.CancelFunc // cancels the active run (first ctrl+c interrupts)
 
 	// background shells started by the bash tool (background=true)
 	shellOrder []string
@@ -488,22 +490,25 @@ func (m *Model) removeSession(i int) {
 	m.loadSession(target)
 }
 
-// DefaultPhrases are the whimsical Star Wars status lines shown while the agent
-// works, in the spirit of Claude Code's rotating spinner words. Configurable
-// via the config file (see SetPhrases).
+// DefaultPhrases are the nerdy status lines shown while the agent works, in the
+// spirit of Claude Code's rotating spinner words. Configurable via the config
+// file (see SetPhrases).
 var DefaultPhrases = []string{
-	"Channeling the Force",
-	"Consulting the Jedi Council",
-	"Decrypting the ergon",
-	"Aligning the kyber crystal",
-	"Plotting the jump to lightspeed",
-	"Waking the astromech",
-	"Rerouting power to the sensors",
-	"Trusting the Force",
-	"Scanning for life forms",
-	"Warming up the ion engines",
-	"Consulting the archives",
-	"Spinning up the hyperdrive",
+	"Compiling",
+	"Reticulating splines",
+	"Traversing the AST",
+	"Warming the cache",
+	"Garbage collecting",
+	"Resolving dependencies",
+	"Grepping the haystack",
+	"Rebasing reality",
+	"Memoizing subproblems",
+	"Balancing the tree",
+	"Defragmenting thoughts",
+	"Chasing pointers",
+	"Untangling callbacks",
+	"Spawning goroutines",
+	"Optimizing the hot path",
 }
 
 // modeLabels are the permission modes cycled with shift+tab (display state in
@@ -816,7 +821,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.workerSel, m.workerFocus = 0, ""
 		m.shellOrder, m.shells = nil, nil
 		m.bashCmd = ""
-		return true, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
+		return true, tea.Batch(m.beginRun(prompt), m.sp.Tick, m.pump())
 	}
 	switch name {
 	case "/theme":
@@ -936,7 +941,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.workerSel, m.workerFocus = 0, ""
 		m.shellOrder, m.shells = nil, nil
 		m.bashCmd = ""
-		return true, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
+		return true, tea.Batch(m.beginRun(prompt), m.sp.Tick, m.pump())
 	case "/model":
 		m.input.Reset()
 		args := strings.Fields(text)[1:]
@@ -1367,7 +1372,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c":
+			// First ctrl+c interrupts the running prompt; when idle it exits.
+			if m.running && m.runCancel != nil {
+				m.runCancel()
+				m.append(metaStyle.Render("interrupting…"))
+				return m, nil
+			}
+			return m, m.quitCmd()
+		case "esc":
 			return m, m.quitCmd()
 		case "pgup":
 			m.vp.ViewUp()
@@ -1437,7 +1450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.workerSel, m.workerFocus = 0, ""
 				m.shellOrder, m.shells = nil, nil
 				m.bashCmd = ""
-				return m, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
+				return m, tea.Batch(m.beginRun(prompt), m.sp.Tick, m.pump())
 			}
 		}
 	case EventMsg:
@@ -1445,21 +1458,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.pump())
 	case doneMsg:
 		m.running = false
+		m.runCancel = nil
 		if msg.err != nil {
-			m.append(errStyle.Render("error: " + msg.err.Error()))
+			if errors.Is(msg.err, context.Canceled) {
+				m.append(metaStyle.Render("⊘ interrupted"))
+			} else {
+				m.append(errStyle.Render("error: " + msg.err.Error()))
+			}
 		} else if msg.res != nil {
 			m.cost = msg.res.Cost()
 			m.turns = msg.res.Turns
-			m.append(doneGlyph.Render("✻ ") + metaStyle.Render(fmt.Sprintf("Churned for %s · $%.4f · %d turns", fmtDur(time.Since(m.runStart)), m.cost, m.turns)))
-			if r := strings.TrimSpace(msg.res.Text); r != "" {
-				for i, l := range wrap("recap: "+r, m.width-6) {
-					pad := ""
-					if i > 0 {
-						pad = "  "
-					}
-					m.append(pad + metaStyle.Render(l))
-				}
-			}
+			// No completion/recap line: the final message is already in the
+			// transcript, and cost/turns show in the footer.
 		}
 		// Fire the next queued message, if any.
 		if len(m.queue) > 0 {
@@ -1474,7 +1484,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workerSel, m.workerFocus = 0, ""
 			m.shellOrder, m.shells = nil, nil
 			m.bashCmd = ""
-			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
+			cmds = append(cmds, m.beginRun(next), m.sp.Tick, m.pump())
 		}
 	case tea.MouseMsg:
 		// Click a tool line in the feed to expand its full command + output.
@@ -2729,11 +2739,19 @@ func (m *Model) layout() {
 // --- run plumbing ---------------------------------------------------------
 
 // startRun spawns the agent run; events and the final doneMsg flow through msgs.
-func (m Model) startRun(prompt string) tea.Cmd {
+// beginRun sets up a cancelable context for a run (so ctrl+c can interrupt it)
+// and returns the command that starts it.
+func (m *Model) beginRun(prompt string) tea.Cmd {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.runCancel = cancel
+	return m.startRun(ctx, prompt)
+}
+
+func (m Model) startRun(ctx context.Context, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		mode := modeLabels[m.modeIdx]
 		go func() {
-			res, err := m.run(context.Background(), prompt, mode, func(e agent.Event) {
+			res, err := m.run(ctx, prompt, mode, func(e agent.Event) {
 				m.msgs <- EventMsg(e)
 			})
 			m.msgs <- doneMsg{res: res, err: err}
