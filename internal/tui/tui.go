@@ -1795,7 +1795,7 @@ func (m *Model) applyEvent(e agent.Event) {
 				m.bashCmd = ""
 			}
 		}
-		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
+		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
 	case "tool-result":
 		if !worker {
 			m.bashCmd = ""
@@ -1930,6 +1930,33 @@ func (m Model) runBang(command string) tea.Cmd {
 		out, err := exec.Command("bash", "-c", command).CombinedOutput()
 		return bangMsg{out: string(out), err: err}
 	}
+}
+
+// toolArgLine renders a tool call's arguments as the thing it acts on — the
+// command, path, or url — instead of raw JSON. Falls back to the JSON if it
+// can't parse or the tool is unknown.
+func toolArgLine(name, argsJSON string) string {
+	var in map[string]any
+	if json.Unmarshal([]byte(argsJSON), &in) != nil {
+		return argsJSON
+	}
+	str := func(k string) string { v, _ := in[k].(string); return v }
+	switch name {
+	case "bash", "monitor":
+		return oneLine(str("command"))
+	case "read", "write", "edit", "publish":
+		return str("path")
+	case "web_fetch":
+		return str("url")
+	case "shell_output":
+		return str("id")
+	case "delegate":
+		if t := str("task"); t != "" {
+			return oneLine(t)
+		}
+		return argsJSON
+	}
+	return argsJSON
 }
 
 func oneLine(s string) string { return strings.ReplaceAll(strings.TrimSpace(s), "\n", " ") }
