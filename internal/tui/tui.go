@@ -518,6 +518,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		if m.title == "" {
 			m.title = "/init"
 		}
+		m.turnGap()
 		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  /init")
 		m.running = true
 		m.runStart = time.Now()
@@ -874,6 +875,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.title == "" {
 					m.title = truncate(prompt, 40)
 				}
+				m.turnGap()
 				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
 				m.running = true
@@ -911,6 +913,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.queue) > 0 {
 			next := m.queue[0]
 			m.queue = m.queue[1:]
+			m.turnGap()
 			m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + next)
 			m.running = true
 			m.runStart = time.Now()
@@ -1070,23 +1073,23 @@ func crystalMeter(frac float64, cells int) string {
 }
 
 func (m Model) header() string {
-	left := crystalStyle.Render("◈ ") + gradientText("HOLOCRON", holoRamp)
+	left := crystalStyle.Render("◈  ") + gradientText("H O L O C R O N", holoRamp)
 	if m.model != "" {
-		left += metaStyle.Render("  " + m.model)
+		left += metaStyle.Render("      " + m.model)
 	}
-	// Right: a crystal context meter (when we know the window) + cost.
-	right := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
+	return headerBar.Width(m.width).Render(left)
+}
+
+// statsSegment is the context meter (when the window is known) + running cost,
+// shown at the bottom-right.
+func (m Model) statsSegment() string {
+	cost := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
 	if win, ok := contextWindow(m.model); ok && m.inTok > 0 {
 		frac := float64(m.inTok) / float64(win)
-		right = crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
-			metaStyle.Render("  ·  ") + right
+		return crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
+			metaStyle.Render("   ·   ") + cost
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 1 {
-		gap = 1
-	}
-	bar := left + strings.Repeat(" ", gap) + right
-	return headerBar.Width(m.width).Render(bar)
+	return cost
 }
 
 // runStats renders the live token usage + elapsed time in parentheses, shown
@@ -1709,7 +1712,14 @@ func (m Model) footer() string {
 		}
 		mode += metaStyle.Render(" · ⇥ mode · ← sessions · ⏎ send · / cmds · ? help")
 	}
-	out := box + "\n" + "  " + mode
+	// Bottom bar: mode/hints on the left, context meter + cost on the right.
+	modeLeft := "  " + mode
+	stats := m.statsSegment()
+	gap := m.width - lipgloss.Width(modeLeft) - lipgloss.Width(stats) - 2
+	if gap < 2 {
+		gap = 2
+	}
+	out := box + "\n" + modeLeft + strings.Repeat(" ", gap) + stats
 	// The live subagent tree sits under the prompt while workers run, the way
 	// Claude Code shows its subagents.
 	if m.running {
@@ -1845,6 +1855,14 @@ func contextWindow(model string) (int64, bool) {
 		return 128000, true
 	default:
 		return 0, false
+	}
+}
+
+// turnGap inserts a blank line before a new turn so the log breathes, unless the
+// log is empty or already ends in a blank line.
+func (m *Model) turnGap() {
+	if len(m.lines) > 0 && m.lines[len(m.lines)-1] != "" {
+		m.append("")
 	}
 }
 
