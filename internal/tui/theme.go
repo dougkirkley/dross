@@ -1,12 +1,6 @@
 package tui
 
-import (
-	"fmt"
-	"strconv"
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-)
+import "github.com/charmbracelet/lipgloss"
 
 // themeDef is a named color variant. Only the accent family and the holographic
 // gradient change between themes; the neutral grays (fg/muted/base/panel) stay
@@ -94,29 +88,13 @@ func applyTheme(i int) {
 	accentHi = lipgloss.Color(t.accentHi)
 	holoCyan = lipgloss.Color(t.cyan)
 	holoViol = lipgloss.Color(t.viol)
-	base = lipgloss.Color(t.bg)
-	panel = lipgloss.Color(lighten(t.bg, 0.06))
 	holoRamp = append([]string(nil), t.ramp...)
 	holoLoop = mirrorRamp(t.ramp)
 	rebuildStyles()
-}
-
-// lighten nudges a #rrggbb color toward white by amt (0..1), for the header/panel
-// tint relative to the theme background.
-func lighten(hex string, amt float64) string {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) != 6 {
-		return "#" + hex
-	}
-	var c [3]int64
-	for i := 0; i < 3; i++ {
-		c[i], _ = strconv.ParseInt(hex[i*2:i*2+2], 16, 0)
-		c[i] += int64(float64(255-c[i]) * amt)
-		if c[i] > 255 {
-			c[i] = 255
-		}
-	}
-	return fmt.Sprintf("#%02X%02X%02X", c[0], c[1], c[2])
+	// Note: the terminal background is intentionally not repainted — per-line
+	// background fills leave artifacts in a scrolling TUI. `bg` is kept for
+	// reference/config but not applied globally.
+	_ = t.bg
 }
 
 // ApplyColors overrides individual palette colors by role (hex values), on top
