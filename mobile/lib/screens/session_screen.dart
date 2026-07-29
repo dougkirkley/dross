@@ -117,7 +117,7 @@ class _SessionScreenState extends State<SessionScreen> {
   Widget _runningRow(AppState s) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(children: [
-          const HolocronSpinner(size: 20),
+          const ErgonSpinner(size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(currentActivityLabel(s.events),

@@ -1,7 +1,7 @@
 // Wire + client models. Two worlds:
 //   - Direct mode: the phone runs a client-side chat loop straight against a
 //     provider (OpenAI-compatible or Anthropic). Messages are ChatMessage.
-//   - Remote mode: the phone attaches to `holocron serve`; sessions are
+//   - Remote mode: the phone attaches to `ergon serve`; sessions are
 //     server-side and stream Events. Session/Event/PublishResult mirror the
 //     serve API (internal/server); JSON is snake_case.
 

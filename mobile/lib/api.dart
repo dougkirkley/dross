@@ -14,13 +14,13 @@ class ApiException implements Exception {
   String toString() => 'server $status: $body';
 }
 
-/// HolocronClient talks to `holocron serve`. Sessions are server-side, so a run
+/// ErgonClient talks to `ergon serve`. Sessions are server-side, so a run
 /// continues whether or not the app is attached: fire an async prompt, then tail
 /// the SSE stream, reconnecting from the last seq for lossless catch-up.
-class HolocronClient {
-  HolocronClient({required this.baseUrl, this.token});
+class ErgonClient {
+  ErgonClient({required this.baseUrl, this.token});
 
-  final String baseUrl; // e.g. https://holocron.example.com
+  final String baseUrl; // e.g. https://ergon.example.com
   final String? token;
 
   // On web this sends the same-origin SSO cookie (withCredentials); on native

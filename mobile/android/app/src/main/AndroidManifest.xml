@@ -25,7 +25,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Captures the holocron:// OAuth callback for flutter_web_auth_2, so
+        <!-- Captures the ergon:// OAuth callback for flutter_web_auth_2, so
              the Google SSO redirect returns the session token to the app. -->
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
@@ -34,7 +34,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="holocron" />
+                <data android:scheme="ergon" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

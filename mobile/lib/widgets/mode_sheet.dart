@@ -33,7 +33,7 @@ class _ModeSheetState extends State<_ModeSheet> {
     (PermissionMode.plan, Icons.description_outlined, Color(0xFF6EA8FE),
         'Create a plan before making changes'),
     (PermissionMode.auto, Icons.bolt, Color(0xFFD98A63),
-        'Holocron handles permission decisions'),
+        'Ergon handles permission decisions'),
   ];
 
   @override

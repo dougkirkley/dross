@@ -9,7 +9,7 @@ import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
 
 /// The left navigation drawer: a Chats tab (direct, in-browser chats) and a Code
-/// tab (remote `holocron serve` sessions), plus recent chats. Mirrors the Claude
+/// tab (remote `ergon serve` sessions), plus recent chats. Mirrors the Claude
 /// app's sidebar; the active tab is highlighted.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -28,9 +28,9 @@ class AppDrawer extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(20, 16, 20, 20),
               child: Row(
                 children: [
-                  HolocronLogo(size: 34, showWordmark: false),
+                  ErgonLogo(size: 34, showWordmark: false),
                   SizedBox(width: 12),
-                  Text('Holocron', style: T.title),
+                  Text('Ergon', style: T.title),
                 ],
               ),
             ),

@@ -11,18 +11,18 @@ void main() {
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState()..load(),
-      child: const HolocronApp(),
+      child: const ErgonApp(),
     ),
   );
 }
 
-class HolocronApp extends StatelessWidget {
-  const HolocronApp({super.key});
+class ErgonApp extends StatelessWidget {
+  const ErgonApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Holocron',
+      title: 'Ergon',
       debugShowCheckedModeBanner: false,
       theme: T.themeData(),
       home: const Home(),

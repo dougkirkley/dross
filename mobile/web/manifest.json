@@ -1,6 +1,6 @@
 {
-    "name": "holocron",
-    "short_name": "holocron",
+    "name": "ergon",
+    "short_name": "ergon",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

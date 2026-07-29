@@ -108,7 +108,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const HolocronLogo(size: 132),
+              const ErgonLogo(size: 132),
               const SizedBox(height: 28),
               // Serif tagline (Source Serif) for a calmer, editorial feel.
               Text('Cost-aware coding,\nin your pocket.',

@@ -11,7 +11,7 @@ import 'chats_screen.dart' show relTimeLong;
 import 'session_screen.dart';
 import 'settings_screen.dart';
 
-/// Remote-mode session list (attaches to `holocron serve`). Mirrors the Claude
+/// Remote-mode session list (attaches to `ergon serve`). Mirrors the Claude
 /// app's Code page: a Devices card and session cards with status + last message,
 /// a near-white "New session" pill.
 class SessionsScreen extends StatefulWidget {
@@ -88,7 +88,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
           Row(children: [
             const Text('Sessions', style: T.meta),
             const Spacer(),
-            if (s.loadingSessions) const HolocronSpinner(size: 18),
+            if (s.loadingSessions) const ErgonSpinner(size: 18),
           ]),
           const SizedBox(height: 10),
           if (s.error != null && s.sessions.isEmpty)
@@ -272,7 +272,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Connect to holocron serve', style: T.title),
+            const Text('Connect to ergon serve', style: T.title),
             const SizedBox(height: 8),
             const Text('Remote mode attaches to your server for full, repo-backed sessions.',
                 style: T.meta, textAlign: TextAlign.center),

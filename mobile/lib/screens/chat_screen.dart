@@ -86,7 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const HolocronLogo(size: 84),
+              const ErgonLogo(size: 84),
               const SizedBox(height: 20),
               Text('How can I help?',
                   style: T.prose.copyWith(fontSize: 24),
@@ -122,7 +122,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: HolocronSpinner(size: 30),
+          child: ErgonSpinner(size: 30),
         ),
       );
     }
@@ -159,8 +159,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: T.body,
                         decoration: InputDecoration.collapsed(
                           hintText: (s.currentChat?.messages.isNotEmpty ?? false)
-                              ? 'Reply to Holocron'
-                              : 'Chat with Holocron',
+                              ? 'Reply to Ergon'
+                              : 'Chat with Ergon',
                           hintStyle: const TextStyle(color: T.textDim),
                         ),
                         onSubmitted: (_) => _send(context),

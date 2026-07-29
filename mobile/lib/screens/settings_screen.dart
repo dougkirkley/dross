@@ -6,7 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 
 /// Provider + connection settings. Direct mode (default) talks straight to a
-/// provider; Remote mode attaches to `holocron serve`. Mirrors the same info
+/// provider; Remote mode attaches to `ergon serve`. Mirrors the same info
 /// the desktop client reads from env / config.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -176,9 +176,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ];
 
   List<Widget> _remoteFields() => [
-        _label('holocron serve'),
+        _label('ergon serve'),
         _field('Server URL', _serverUrl,
-            hint: 'https://holocron.example.com'),
+            hint: 'https://ergon.example.com'),
         const SizedBox(height: 4),
         GestureDetector(
           behavior: HitTestBehavior.opaque,

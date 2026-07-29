@@ -4,21 +4,21 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// The holocron mark: a Jedi holocron **cube** that bursts open — its six panels
+/// The ergon mark: a Jedi ergon **cube** that bursts open — its six panels
 /// separate outward from a glowing core, the way a Force user opens one — then
 /// hangs open, slowly rotating. Replays on hover/tap. Pseudo-3D via CustomPaint
 /// (project 8 vertices, painter's-algorithm face sort), so it stays crisp and
 /// needs no 3D engine.
-class HolocronLogo extends StatefulWidget {
-  const HolocronLogo({super.key, this.size = 72, this.showWordmark = true});
+class ErgonLogo extends StatefulWidget {
+  const ErgonLogo({super.key, this.size = 72, this.showWordmark = true});
   final double size;
   final bool showWordmark;
 
   @override
-  State<HolocronLogo> createState() => _HolocronLogoState();
+  State<ErgonLogo> createState() => _ErgonLogoState();
 }
 
-class _HolocronLogoState extends State<HolocronLogo>
+class _ErgonLogoState extends State<ErgonLogo>
     with TickerProviderStateMixin {
   late final AnimationController _spin = AnimationController(
       vsync: this, duration: const Duration(seconds: 12))
@@ -84,7 +84,7 @@ class _HolocronLogoState extends State<HolocronLogo>
         if (widget.showWordmark) ...[
           SizedBox(height: widget.size * 0.28),
           Text(
-            'Holocron',
+            'Ergon',
             style: TextStyle(
               color: T.text,
               fontSize: widget.size * 0.32,
@@ -98,16 +98,16 @@ class _HolocronLogoState extends State<HolocronLogo>
   }
 }
 
-/// A small continuously-spinning holocron cube, for loading / running-task
+/// A small continuously-spinning ergon cube, for loading / running-task
 /// indicators (the app's spinner in place of a CircularProgressIndicator).
-class HolocronSpinner extends StatefulWidget {
-  const HolocronSpinner({super.key, this.size = 28});
+class ErgonSpinner extends StatefulWidget {
+  const ErgonSpinner({super.key, this.size = 28});
   final double size;
   @override
-  State<HolocronSpinner> createState() => _HolocronSpinnerState();
+  State<ErgonSpinner> createState() => _ErgonSpinnerState();
 }
 
-class _HolocronSpinnerState extends State<HolocronSpinner>
+class _ErgonSpinnerState extends State<ErgonSpinner>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c =
       AnimationController(vsync: this, duration: const Duration(seconds: 3))
@@ -145,7 +145,7 @@ class _CubePainter extends CustomPainter {
   static const double _gap = 0.85; // how far panels fly out
   static const double _tilt = 0.5; // fixed X tilt so it reads as 3D
 
-  // Holocron palette: gold frame + translucent blue glass, per the Rebels prop.
+  // Ergon palette: gold frame + translucent blue glass, per the Rebels prop.
   static const _gold = Color(0xFFC9A24B);
   static const _goldHi = Color(0xFFE6C87A);
   static const _glass = Color(0xFF4B9CD3);

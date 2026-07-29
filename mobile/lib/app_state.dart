@@ -15,7 +15,7 @@ import 'util/file_pick.dart';
 /// AppState is the single source of truth for both worlds:
 ///   - Direct mode (default): client-side chat against a provider, with an
 ///     editable send queue while a reply streams.
-///   - Remote mode: attach to `holocron serve` (server-side sessions, SSE).
+///   - Remote mode: attach to `ergon serve` (server-side sessions, SSE).
 /// Non-secret config lives in SharedPreferences; API keys and OAuth tokens live
 /// in the platform secure store.
 class AppState extends ChangeNotifier {
@@ -93,7 +93,7 @@ class AppState extends ChangeNotifier {
         ProviderKind.anthropic => anthropicModels,
       };
 
-  HolocronClient get _client => HolocronClient(baseUrl: baseUrl, token: token);
+  ErgonClient get _client => ErgonClient(baseUrl: baseUrl, token: token);
 
   // --- load / save ----------------------------------------------------
 
@@ -463,7 +463,7 @@ class AppState extends ChangeNotifier {
     try {
       final result = await FlutterWebAuth2.authenticate(
         url: '$baseUrl/auth/login?mode=app',
-        callbackUrlScheme: 'holocron',
+        callbackUrlScheme: 'ergon',
       );
       final session = Uri.parse(result).queryParameters['session'];
       if (session == null || session.isEmpty) return 'No session returned';
