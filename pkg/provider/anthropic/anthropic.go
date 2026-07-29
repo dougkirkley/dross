@@ -1,7 +1,7 @@
 // Package anthropic is the Anthropic backend for the provider registry. Import
 // it for side effects to register the "anthropic" provider:
 //
-//	import _ "github.com/dougkirkley/ergon/internal/provider/anthropic"
+//	import _ "github.com/dougkirkley/ergon/pkg/provider/anthropic"
 package anthropic
 
 import (
@@ -9,7 +9,7 @@ import (
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 func init() {

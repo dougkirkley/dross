@@ -3,7 +3,7 @@
 // typically a Claude subscription — so ergon can talk to Claude without an
 // Anthropic API key. Import for side effects to register:
 //
-//	import _ "github.com/dougkirkley/ergon/internal/provider/claudecode"
+//	import _ "github.com/dougkirkley/ergon/pkg/provider/claudecode"
 //
 // Two modes:
 //
@@ -27,7 +27,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 func init() {

@@ -9,8 +9,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/dougkirkley/ergon/internal/agent"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 // DeviceOptions configures a device relay: this computer dials OUT to a ergon

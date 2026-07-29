@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/pkg/agent"
 )
 
 // jsonString returns s as a JSON-quoted string, for building demo tool args.
@@ -121,7 +121,7 @@ func DemoToolsView(width, height int) string {
 	m.toolRecs = []toolRec{
 		{name: "read", args: "cmd/ergon/main.go", result: "1  package main\n2\n3  import \"github.com/dougkirkley/ergon/internal/cli\""},
 		{name: "bash", args: "go build ./... && go test ./...",
-			result: "ok  github.com/dougkirkley/ergon/internal/agent  0.42s\nok  github.com/dougkirkley/ergon/internal/tui  0.19s\nok  github.com/dougkirkley/ergon/internal/cli  0.31s\nok  github.com/dougkirkley/ergon/internal/config  0.44s"},
+			result: "ok  github.com/dougkirkley/ergon/pkg/agent  0.42s\nok  github.com/dougkirkley/ergon/internal/tui  0.19s\nok  github.com/dougkirkley/ergon/internal/cli  0.31s\nok  github.com/dougkirkley/ergon/internal/config  0.44s"},
 		{name: "edit", args: "internal/cli/output.go", result: "replaced 1 occurrence"},
 	}
 	m.toolSel = 1

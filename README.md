@@ -55,8 +55,7 @@ No default provider ships — you choose one via `/model` (persisted to config).
 ## Subcommands
 
 ```
-ergon                         # interactive TUI (default)
-ergon tui    [flags]          # interactive TUI (explicit)
+ergon                         # interactive TUI (default; bare command = TUI)
 ergon agent  [flags] <prompt> # run the agent once against a workspace
 ergon serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
 ergon rc     --server <url>   # link this machine so a phone can drive it
@@ -99,6 +98,9 @@ bypasses Claude Code's permission prompts for unattended runs.
   `/tools` (expand full tool commands + output), `/clear`, `/init`
   (generate `AGENTS.md`), `/help`, `/login`, `/rc`.
 - **`!cmd`** — run a shell command directly (gold prompt border).
+- **`ctrl+b`** — while a foreground `bash` command is running, move it to the
+  background; the agent loop continues and the command shows up in `/tools` /
+  the shells viewer (read it later with the `shell_output` tool).
 - **`@path`** — inline a file's contents into your prompt.
 - **Permission modes** (⇥ to cycle): `auto`, `manual` (ask before edits +
   commands), `accept edits` (auto edits, ask for commands), `plan` (read-only).
@@ -118,11 +120,15 @@ on macOS). `/model` writes your provider/model choice here.
 ```json
 {
   "name": "ergon",
+  "identity_prompt": "You are a Go specialist. Prefer stdlib. Explain terse.",
   "provider": "ollama",
   "base_url": "http://localhost:11434/v1",
   "model": "qwen3-coder:30b",
 
   "worker": { "provider": "openai", "base_url": "http://localhost:11434/v1", "model": "qwen2.5-coder:7b" },
+
+  "reviewer": { "provider": "anthropic", "model": "claude-opus-4-8" },
+  "review": true,
 
   "tools": ["read", "write", "edit", "bash", "web_fetch"],
 
@@ -146,6 +152,8 @@ on macOS). `/model` writes your provider/model choice here.
 ```
 
 - **name** — the wordmark/branding shown in the TUI.
+- **identity_prompt** — a system-prompt addendum (persona/task framing) prepended
+  to any `AGENTS.md`/`CLAUDE.md` context.
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `monitor`, `shell_output`, `web_fetch`, `delegate`,
@@ -179,13 +187,53 @@ clients. See `ergon serve --help`.
 
 ```
 cmd/ergon              # CLI entry
-internal/agent         # the tool loop, delegation, permissions, plugins
-internal/provider      # backend registry (anthropic, openai, bedrock, claude-code, …)
+pkg/agent              # the tool loop, delegation, permissions, plugins (importable)
+pkg/provider           # backend registry (anthropic, openai, bedrock, claude-code, …) (importable)
 internal/catalog       # known providers (base URL, key env, models)
 internal/tui           # Charm Bubble Tea terminal client
 internal/server        # serve: sessions, SSE, device relay
 internal/config        # JSON config resolution
 mobile/                # Flutter client (web build embedded into serve)
+```
+
+## Embedding
+
+`pkg/agent` and `pkg/provider` are the public API — import them to drive the
+agent from your own Go program, filling out `agent.Config` directly. Import a
+backend for its side-effect registration, build a provider, then construct an
+agent:
+
+```go
+import (
+	"context"
+	"fmt"
+
+	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/pkg/provider"
+	_ "github.com/dougkirkley/ergon/pkg/provider/anthropic" // registers "anthropic"
+	_ "github.com/dougkirkley/ergon/pkg/provider/openai"    // registers "openai"
+)
+
+func main() {
+	lead, _ := provider.New("anthropic", provider.Config{}) // ANTHROPIC_API_KEY from env
+	worker, _ := provider.New("openai", provider.Config{BaseURL: "http://localhost:11434/v1"})
+
+	a, err := agent.New(agent.Config{
+		Name:     "builder",
+		Model:    "claude-opus-5",
+		Workdir:  "/path/to/repo",
+		Identity: "You are a Go specialist.",
+	}, lead,
+		agent.WithWorker(worker, "qwen3-coder:30b"),
+		agent.WithAllowedTools([]string{"read", "write", "edit", "bash"}),
+		agent.WithEventHook(func(e agent.Event) { fmt.Println(e.Kind, e.Data) }),
+	)
+	if err != nil {
+		panic(err)
+	}
+	res, _ := a.Run(context.Background(), "add a --json flag to the CLI")
+	fmt.Printf("$%.4f\n", res.Cost())
+}
 ```
 
 ## Tests

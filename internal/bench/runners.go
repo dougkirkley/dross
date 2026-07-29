@@ -4,8 +4,8 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/dougkirkley/ergon/internal/agent"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 // ErgonRunner runs tasks with the in-process agent, so it reports real cost.

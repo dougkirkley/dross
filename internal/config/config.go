@@ -21,8 +21,9 @@ type Provider struct {
 
 // File is the on-disk config. All fields optional.
 type File struct {
-	Name        string      `json:"name,omitempty"` // app/wordmark name shown in the TUI
-	Provider    string      `json:"provider,omitempty"`
+	Name           string   `json:"name,omitempty"`            // app/wordmark name shown in the TUI
+	IdentityPrompt string   `json:"identity_prompt,omitempty"` // system-prompt addendum (persona/task framing)
+	Provider       string   `json:"provider,omitempty"`
 	Model       string      `json:"model,omitempty"`
 	BaseURL     string      `json:"base_url,omitempty"`
 	APIKey      string      `json:"api_key,omitempty"`
@@ -32,6 +33,7 @@ type File struct {
 	Models      []string    `json:"models,omitempty"`       // allowed model ids to offer
 	Worker      *Provider   `json:"worker,omitempty"`
 	Reviewer    *Provider   `json:"reviewer,omitempty"`
+	Review      *bool       `json:"review,omitempty"`     // disable the code-review skill (default on when a reviewer is set)
 	Compactor   *Provider   `json:"compactor,omitempty"`  // token-efficiency skill
 	CompactAt   int         `json:"compact_at,omitempty"` // tool-result byte threshold
 	Phrases     []string    `json:"phrases,omitempty"`    // TUI status phrases

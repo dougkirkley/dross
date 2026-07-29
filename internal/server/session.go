@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/agent"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/relay"
 )
 

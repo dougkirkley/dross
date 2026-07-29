@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 func TestDrivenLive(t *testing.T) {

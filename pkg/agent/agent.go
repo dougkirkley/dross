@@ -34,7 +34,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 // Style controls how verbose the agent's user-facing output is. Terser styles
@@ -351,6 +351,7 @@ type Agent struct {
 	shellMu  sync.Mutex // guards the background-shell registry
 	shells   []*shell
 	shellSeq int
+	bgReq    chan struct{} // ctrl+b: convert the running foreground bash to background
 }
 
 // New builds an agent from cfg using p as its lead model backend.
@@ -365,7 +366,7 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Agent{cfg: cfg, prov: p, ws: ws}
+	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{})}
 	for _, o := range opts {
 		o(a)
 	}
@@ -864,7 +865,7 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		if in.Background {
 			return a.startBackground(ctx, in.Command)
 		}
-		return orErr(a.ws.runBash(in.Command))
+		return a.runForegroundBash(ctx, in.Command)
 	case "shell_output":
 		var in struct {
 			ID   string `json:"id"`

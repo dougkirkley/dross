@@ -12,7 +12,7 @@ import (
 
 	"github.com/dougkirkley/ergon/internal/catalog"
 	"github.com/dougkirkley/ergon/internal/config"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 var mentionRE = regexp.MustCompile(`@([^\s@]+)`)

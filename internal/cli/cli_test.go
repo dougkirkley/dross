@@ -15,7 +15,7 @@ func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 func TestRootHasSubcommands(t *testing.T) {
 	root := NewRootCmd()
-	want := map[string]bool{"agent": false, "serve": false, "tui": false, "brief": false, "bench": false}
+	want := map[string]bool{"agent": false, "serve": false, "brief": false, "bench": false}
 	for _, c := range root.Commands() {
 		want[c.Name()] = true
 	}
@@ -42,7 +42,7 @@ func TestTUIRenderIsHermetic(t *testing.T) {
 	root := NewRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)
-	root.SetArgs([]string{"tui", "--render", "--welcome", "--width", "80", "--height", "22"})
+	root.SetArgs([]string{"--render", "--welcome", "--width", "80", "--height", "22"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("tui --render: %v", err)
 	}

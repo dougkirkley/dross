@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/pkg/agent"
 )
 
 // TestBangShellEscape verifies "!cmd" runs a shell command instead of prompting

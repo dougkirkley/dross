@@ -3,7 +3,7 @@ package bedrock
 import (
 	"testing"
 
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 func TestBedrockRegistered(t *testing.T) {

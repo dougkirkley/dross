@@ -3,7 +3,7 @@
 // anthropic package's session logic. Import it for side effects to register the
 // "bedrock" provider:
 //
-//	import _ "github.com/dougkirkley/ergon/internal/provider/bedrock"
+//	import _ "github.com/dougkirkley/ergon/pkg/provider/bedrock"
 //
 // Credentials and region come from the standard AWS default chain
 // (AWS_REGION / AWS_DEFAULT_REGION, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY,
@@ -18,8 +18,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/dougkirkley/ergon/internal/provider"
-	"github.com/dougkirkley/ergon/internal/provider/anthropic"
+	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/ergon/pkg/provider/anthropic"
 )
 
 func init() {

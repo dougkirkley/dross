@@ -19,7 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/pkg/agent"
 )
 
 // --- palette: dark black/gray + Carolina blue -----------------------------
@@ -261,8 +261,9 @@ type Model struct {
 	modelFiltered   []int        // indices into modelFlat matching the query
 	catalogGroups   []ModelGroup // provider→models catalog for the /model picker
 
-	slashSel int    // highlighted row in slash-command autocomplete
-	reset    func() // clears persistent conversation memory (/clear)
+	slashSel     int    // highlighted row in slash-command autocomplete
+	reset        func() // clears persistent conversation memory (/clear)
+	backgrounder func() // ctrl+b: move the running foreground bash to background
 	shimmer  int    // animation phase for the holographic welcome shimmer
 
 	// full tool calls this session, for the /tools expandable viewer
@@ -454,6 +455,10 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 
 // SetReset wires /clear to drop persistent conversation memory.
 func (m *Model) SetReset(fn func()) { m.reset = fn }
+
+// SetBackgrounder wires ctrl+b to move the currently-running foreground bash
+// command into the background (see agent.Agent.BackgroundForeground).
+func (m *Model) SetBackgrounder(fn func()) { m.backgrounder = fn }
 
 // SetProviders gives /model the catalog as provider→models groups. The picker
 // shows each provider as a subtitle with its models underneath.
@@ -980,6 +985,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
+		case "ctrl+b":
+			// Move the running foreground bash command to the background so the
+			// agent loop continues; a no-op when no foreground command is running.
+			if m.running && m.bashCmd != "" && m.backgrounder != nil {
+				m.backgrounder()
+			}
+			return m, nil
 		case "shift+tab":
 			m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
 			return m, nil
@@ -1392,9 +1404,13 @@ func (m Model) bashBlock() string {
 	}
 	elapsed := int(time.Since(m.bashStart).Seconds())
 	var b strings.Builder
+	hint := ""
+	if m.backgrounder != nil {
+		hint = " · ⌃b bg"
+	}
 	b.WriteString(checkStyle.Render(dotsFrame(m.tick)+" ") +
 		agentText.Render(fmt.Sprintf("Running %d shell command%s ", len(lines), plural(len(lines)))) +
-		metaStyle.Render(fmt.Sprintf("· %ds…", elapsed)))
+		metaStyle.Render(fmt.Sprintf("· %ds…%s", elapsed, hint)))
 	width := m.width - 8
 	if width < 20 {
 		width = 20

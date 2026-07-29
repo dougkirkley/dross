@@ -11,9 +11,9 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/pkg/agent"
 	"github.com/dougkirkley/ergon/internal/catalog"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/relay"
 	"github.com/dougkirkley/ergon/internal/tui"
 )
@@ -93,7 +93,16 @@ func newTUICmd() *cobra.Command {
 				st.prov, _ = provider.New(providerImpl(st.name), provider.Config{BaseURL: st.baseURL, APIKey: st.apiKey})
 			}
 			cfgPath, _ := cmd.Flags().GetString("config")
-			projectCtx := loadProjectContext(workdir) // AGENTS.md / CLAUDE.md
+			// Agent identity: the configured identity prompt, then project context
+			// files (AGENTS.md / CLAUDE.md).
+			identity := loadProjectContext(workdir)
+			if ip := res.File.IdentityPrompt; ip != "" {
+				if identity != "" {
+					identity = ip + "\n\n" + identity
+				} else {
+					identity = ip
+				}
+			}
 
 			var prog *tea.Program
 			// One persistent agent per (provider, model) so the conversation is
@@ -132,7 +141,7 @@ func newTUICmd() *cobra.Command {
 						}
 						opts = append(opts, agent.WithPermissionRules(rules))
 					}
-					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: projectCtx},
+					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: identity},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err
@@ -158,6 +167,11 @@ func newTUICmd() *cobra.Command {
 			mdl.SetReset(func() {
 				if conv != nil {
 					conv.ResetConversation()
+				}
+			})
+			mdl.SetBackgrounder(func() {
+				if conv != nil {
+					conv.BackgroundForeground()
 				}
 			})
 			// /model: list the configured provider's models, set up a provider,

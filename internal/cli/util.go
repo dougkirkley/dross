@@ -174,7 +174,7 @@ func resolveProviders(cmd *cobra.Command, provDefault, modelDefault string) (res
 		Worker:           worker,
 		WorkerEnabled:    worker.Model != "",
 		Reviewer:         rev,
-		ReviewerEnabled:  rev.Model != "",
+		ReviewerEnabled:  rev.Model != "" && (file.Review == nil || *file.Review),
 		Compactor:        comp,
 		CompactorEnabled: comp.Model != "",
 		CompactAt:        file.CompactAt,

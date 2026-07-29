@@ -15,7 +15,7 @@ import (
 
 	"github.com/dougkirkley/ergon/internal/artifact"
 	"github.com/dougkirkley/ergon/internal/auth"
-	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/storage"
 )
 

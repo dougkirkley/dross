@@ -6,7 +6,7 @@
 // endpoints, the anthropic-beta header value, and any required system-prompt pin
 // all come from the user's own config ([oauth]). Import for side effects:
 //
-//	import _ "github.com/dougkirkley/ergon/internal/provider/claudesub"
+//	import _ "github.com/dougkirkley/ergon/pkg/provider/claudesub"
 package claudesub
 
 import (
@@ -16,8 +16,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/dougkirkley/ergon/internal/config"
-	"github.com/dougkirkley/ergon/internal/provider"
-	"github.com/dougkirkley/ergon/internal/provider/anthropic"
+	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/ergon/pkg/provider/anthropic"
 	"github.com/dougkirkley/ergon/internal/subauth"
 )
 
