@@ -926,7 +926,18 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		groups := m.catalogGroups
 		if m.modelList != nil {
 			if live := m.modelList(); len(live) > 0 {
-				groups = append(live, m.catalogGroups...)
+				// The live list already shows the configured provider; drop its
+				// catalog duplicate so it isn't listed twice.
+				shown := map[string]bool{}
+				for _, g := range live {
+					shown[g.Provider] = true
+				}
+				groups = append([]ModelGroup(nil), live...)
+				for _, g := range m.catalogGroups {
+					if !shown[g.Provider] {
+						groups = append(groups, g)
+					}
+				}
 			}
 		}
 		if len(groups) == 0 {
@@ -2075,32 +2086,31 @@ func (m Model) modelBox(bodyH int) string {
 	}
 	inner := boxW - 2 // Padding(0,1)
 
-	viol := lipgloss.NewStyle().Foreground(holoViol)
-	act := lipgloss.NewStyle().Foreground(fg).Bold(true)
-
-	// Title row: "Switch Model" ╱╱╱╱ ◉ Lead ○ Worker
-	title := viol.Bold(true).Render("Switch Model")
-	leadMark, workerMark := "○", "○"
-	if m.modelSlot == 0 {
-		leadMark = "◉"
-	} else {
-		workerMark = "◉"
+	// Title row: a holographic "switch model" wordmark with a crystal Lead/Worker
+	// toggle on the right, over a gradient rule — the ergon look, not a hatch bar.
+	title := crystalStyle.Render("◈ ") + gradientText("switch model", holoRamp)
+	var toggle string
+	if m.onWorker != nil {
+		lead, worker := "◇ lead", "◇ worker"
+		if m.modelSlot == 0 {
+			lead = "◈ lead"
+		} else {
+			worker = "◈ worker"
+		}
+		leadTab, workerTab := metaStyle.Render(lead), metaStyle.Render(worker)
+		if m.modelSlot == 0 {
+			leadTab = crystalStyle.Render(lead)
+		} else {
+			workerTab = crystalStyle.Render(worker)
+		}
+		toggle = leadTab + "  " + workerTab
 	}
-	leadTab, workerTab := metaStyle.Render(leadMark+" Lead"), metaStyle.Render(workerMark+" Worker")
-	if m.modelSlot == 0 {
-		leadTab = act.Render(leadMark + " Lead")
-	} else {
-		workerTab = act.Render(workerMark + " Worker")
+	gap := inner - lipgloss.Width(title) - lipgloss.Width(toggle)
+	if gap < 1 {
+		gap = 1
 	}
-	toggle := leadTab + "  " + workerTab
-	if m.onWorker == nil {
-		toggle = "" // worker slot not wired
-	}
-	hatchN := inner - lipgloss.Width(title) - lipgloss.Width(toggle) - 2
-	if hatchN < 1 {
-		hatchN = 1
-	}
-	titleRow := title + " " + viol.Render(strings.Repeat("╱", hatchN)) + " " + toggle
+	titleRow := title + strings.Repeat(" ", gap) + toggle
+	rule := gradientText(strings.Repeat("─", inner), holoLoop)
 
 	// Subtitle / search line.
 	var subRow string
@@ -2142,7 +2152,7 @@ func (m Model) modelBox(bodyH int) string {
 		if prov != lastProv {
 			hdr := metaStyle.Render(strings.ToUpper(prov))
 			if m.isConfigured(prov) {
-				mark := doneGlyph.Render("✓ configured")
+				mark := crystalStyle.Render("◆ configured")
 				pad := inner - lipgloss.Width(hdr) - lipgloss.Width(mark)
 				if pad < 1 {
 					pad = 1
@@ -2153,12 +2163,13 @@ func (m Model) modelBox(bodyH int) string {
 			lastProv = prov
 		}
 		if row == m.modelSel {
-			sel := lipgloss.NewStyle().Background(holoViol).Foreground(base).Bold(true).Width(inner).Padding(0, 1)
-			label := id
+			// Selected: a crystal caret + the id in the holographic gradient — no
+			// full-width highlight bar.
+			label := gradientText(id, holoRamp)
 			if id == curM && prov == curP {
-				label += "  (current)"
+				label += metaStyle.Render("  (current)")
 			}
-			lines = append(lines, sel.Render(label))
+			lines = append(lines, crystalStyle.Render("◈ ")+label)
 			continue
 		}
 		line := "  " + agentText.Render(id)
@@ -2181,13 +2192,13 @@ func (m Model) modelBox(bodyH int) string {
 		foot = "type to filter · ↑/↓ choose · enter confirm · esc clear"
 	}
 
-	parts := append([]string{titleRow, "", subRow, ""}, lines...)
+	parts := append([]string{titleRow, rule, "", subRow, ""}, lines...)
 	parts = append(parts, "", metaStyle.Render(foot))
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(holoViol).
+		BorderForeground(holoCyan).
 		Padding(0, 1).
 		Width(boxW).
 		Render(content)
