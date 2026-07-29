@@ -6,6 +6,7 @@ import 'models.dart';
 import 'theme.dart';
 import 'screens/chats_screen.dart';
 import 'screens/sessions_screen.dart';
+import 'screens/welcome_screen.dart';
 
 void main() {
   runApp(
@@ -37,6 +38,8 @@ class Home extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onboarded = context.select<AppState, bool>((s) => s.onboarded);
+    if (!onboarded) return const WelcomeScreen();
     final mode = context.select<AppState, ConnMode>((s) => s.mode);
     return mode == ConnMode.direct
         ? const ChatsScreen()

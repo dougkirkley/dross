@@ -23,6 +23,7 @@ class AppState extends ChangeNotifier {
 
   // --- config ---------------------------------------------------------
   ConnMode mode = ConnMode.direct;
+  bool onboarded = false; // false → show the first-run welcome screen
 
   // direct: provider selection + per-provider config
   ProviderKind providerKind = ProviderKind.openai;
@@ -125,8 +126,20 @@ class AppState extends ChangeNotifier {
             .map((e) => DirectChat.fromJson(e as Map<String, dynamic>)));
       chats.sort((a, b) => b.updated.compareTo(a.updated));
     }
+    // Existing users (with chats or a configured server) skip the welcome.
+    onboarded =
+        p.getBool('onboarded') ?? (chats.isNotEmpty || baseUrl.isNotEmpty);
     notifyListeners();
     if (!isDirect && remoteConfigured) await refreshSessions();
+  }
+
+  /// Marks the first-run welcome as seen (persisted) and dismisses it.
+  Future<void> completeOnboarding() async {
+    if (onboarded) return;
+    onboarded = true;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('onboarded', true);
   }
 
   Future<void> saveConfig() async {
