@@ -255,7 +255,9 @@ type Model struct {
 	modelFlat       []string // selectable ids, in display order
 	modelFlatProv   []string // provider id parallel to modelFlat
 	modelPickerOpen bool
-	modelSel        int
+	modelSel        int          // index into modelFiltered
+	modelQuery      string       // /model search filter
+	modelFiltered   []int        // indices into modelFlat matching the query
 	catalogGroups   []ModelGroup // provider→models catalog for the /model picker
 
 	slashSel int    // highlighted row in slash-command autocomplete
@@ -484,13 +486,34 @@ func (m *Model) openModelPicker(groups []ModelGroup) {
 	if len(m.modelFlat) == 0 {
 		return
 	}
-	m.modelSel = 0
-	for i := range m.modelFlat { // start on the current model
-		if m.modelFlat[i] == m.model && m.modelFlatProv[i] == m.provider {
+	m.modelQuery = ""
+	m.filterModels()
+	for i, idx := range m.modelFiltered { // start on the current model
+		if m.modelFlat[idx] == m.model && m.modelFlatProv[idx] == m.provider {
 			m.modelSel = i
 		}
 	}
 	m.modelPickerOpen = true
+}
+
+// filterModels rebuilds modelFiltered from the current query (case-insensitive
+// substring on model id or provider) and clamps the selection.
+func (m *Model) filterModels() {
+	q := strings.ToLower(strings.TrimSpace(m.modelQuery))
+	m.modelFiltered = m.modelFiltered[:0]
+	for i := range m.modelFlat {
+		if q == "" ||
+			strings.Contains(strings.ToLower(m.modelFlat[i]), q) ||
+			strings.Contains(strings.ToLower(m.modelFlatProv[i]), q) {
+			m.modelFiltered = append(m.modelFiltered, i)
+		}
+	}
+	if m.modelSel >= len(m.modelFiltered) {
+		m.modelSel = len(m.modelFiltered) - 1
+	}
+	if m.modelSel < 0 {
+		m.modelSel = 0
+	}
 }
 
 // matchSlash returns the slash commands whose names prefix the current input,
@@ -714,26 +737,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Model picker overlay captures keys.
+		// Model picker overlay captures keys (type to search).
 		if m.modelPickerOpen {
-			switch msg.String() {
-			case "esc", "q":
+			switch msg.Type {
+			case tea.KeyEsc:
 				m.modelPickerOpen = false
-			case "up", "k":
+			case tea.KeyUp:
 				if m.modelSel > 0 {
 					m.modelSel--
 				}
-			case "down", "j":
-				if m.modelSel < len(m.modelFlat)-1 {
+			case tea.KeyDown:
+				if m.modelSel < len(m.modelFiltered)-1 {
 					m.modelSel++
 				}
-			case "enter":
-				if m.modelSel < len(m.modelFlat) {
-					id := m.modelFlat[m.modelSel]
-					prov := m.provider
-					if m.modelSel < len(m.modelFlatProv) {
-						prov = m.modelFlatProv[m.modelSel]
-					}
+			case tea.KeyEnter:
+				if m.modelSel < len(m.modelFiltered) {
+					idx := m.modelFiltered[m.modelSel]
+					id, prov := m.modelFlat[idx], m.modelFlatProv[idx]
 					m.model, m.provider = id, prov
 					if m.onModel != nil {
 						m.onModel(prov, id) // configures the provider if it changed
@@ -741,6 +761,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 				}
 				m.modelPickerOpen = false
+			case tea.KeyBackspace:
+				if m.modelQuery != "" {
+					m.modelQuery = m.modelQuery[:len(m.modelQuery)-1]
+					m.filterModels()
+				}
+			case tea.KeySpace:
+				m.modelQuery += " "
+				m.filterModels()
+			case tea.KeyRunes:
+				m.modelQuery += string(msg.Runes)
+				m.filterModels()
 			}
 			return m, nil
 		}
@@ -1563,29 +1594,36 @@ func (m Model) renderToolView() string {
 	return b.String()
 }
 
-// renderModels draws the /model picker: available models grouped by provider,
-// with the current one marked.
+// renderModels draws the /model picker: a search box, then matching models
+// grouped by provider (subtitle), with the current one marked.
 func (m Model) renderModels() string {
 	var b strings.Builder
-	b.WriteString(agentLabel.Render("Models") + "\n\n")
-	row := 0
-	for _, g := range m.modelGroups {
-		b.WriteString(metaStyle.Render(strings.ToUpper(g.Provider)) + "\n")
-		for _, id := range g.Models {
-			cursor, style := "  ", agentText
-			if row == m.modelSel {
-				cursor, style = promptMark.Render("› "), checkStyle
+	b.WriteString(agentLabel.Render("Models") + metaStyle.Render("   search ") +
+		agentText.Render(m.modelQuery) + crystalStyle.Render("▏") + "\n\n")
+	lastProv := ""
+	for row, idx := range m.modelFiltered {
+		prov, id := m.modelFlatProv[idx], m.modelFlat[idx]
+		if prov != lastProv {
+			if lastProv != "" {
+				b.WriteString("\n")
 			}
-			line := cursor + style.Render(id)
-			if id == m.model && g.Provider == m.provider {
-				line += metaStyle.Render("  (current)")
-			}
-			b.WriteString(line + "\n")
-			row++
+			b.WriteString(metaStyle.Render(strings.ToUpper(prov)) + "\n")
+			lastProv = prov
 		}
-		b.WriteString("\n")
+		cursor, style := "  ", agentText
+		if row == m.modelSel {
+			cursor, style = promptMark.Render("› "), checkStyle
+		}
+		line := cursor + style.Render(id)
+		if id == m.model && prov == m.provider {
+			line += metaStyle.Render("  (current)")
+		}
+		b.WriteString(line + "\n")
 	}
-	b.WriteString(metaStyle.Render("↑/↓ select · enter switch · esc cancel"))
+	if len(m.modelFiltered) == 0 {
+		b.WriteString(metaStyle.Render("  no matches") + "\n")
+	}
+	b.WriteString("\n" + metaStyle.Render("type to search · ↑/↓ select · enter switch · esc cancel"))
 	return b.String()
 }
 

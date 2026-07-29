@@ -103,15 +103,12 @@ func DemoModelsView(width, height int) string {
 	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	m.modelGroups = []ModelGroup{{Provider: "ollama", Models: []string{
+	m.openModelPicker([]ModelGroup{{Provider: "ollama", Models: []string{
 		"deepseek-coder-v2:16b", "gemma2:9b", "llama3.1:8b",
 		"qwen2.5-coder:7b", "qwen2.5-coder:14b", "qwen3-coder:30b",
-	}}}
-	for _, g := range m.modelGroups {
-		m.modelFlat = append(m.modelFlat, g.Models...)
-	}
-	m.modelSel = 5
-	m.modelPickerOpen = true
+	}}})
+	m.modelQuery = "coder" // demo the search filter
+	m.filterModels()
 	return m.View()
 }
 
