@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/internal/plugins"
 	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/session"
 	"github.com/dougkirkley/ergon/internal/storage"
@@ -99,6 +100,19 @@ func newAgentCmd() *cobra.Command {
 					return session.Save(store, n, brief)
 				}))
 			}
+
+			// Skills (SKILL.md / plugins), model-invocable via the `skill` tool.
+			var skillSpecs []agent.SkillSpec
+			for _, s := range plugins.LoadAll(workdir) {
+				if !s.DisableModelInvocation {
+					skillSpecs = append(skillSpecs, agent.SkillSpec{Name: s.Name, Description: s.Description, Body: s.Body})
+				}
+			}
+			if len(skillSpecs) > 0 {
+				opts = append(opts, agent.WithSkills(skillSpecs))
+			}
+			cfgPath, _ := cmd.Flags().GetString("config")
+			opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
 
 			ag, err := agent.New(agent.Config{
 				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style),

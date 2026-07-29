@@ -7,6 +7,9 @@ import "github.com/spf13/cobra"
 
 const defaultModel = "claude-opus-5"
 
+// Version is the ergon version shown in the TUI and `ergon --version`.
+const Version = "v0.4.0"
+
 // NewRootCmd builds the root command. Running ergon with no subcommand launches
 // the interactive TUI (the TUI's RunE + flags are attached to the root, so there
 // is no separate `tui` subcommand).
@@ -32,6 +35,7 @@ func NewRootCmd() *cobra.Command {
 		newLoginCmd(),
 		newCompactStatsCmd(),
 		newRCCmd(),
+		newPluginCmd(),
 	)
 	return root
 }

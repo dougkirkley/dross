@@ -27,8 +27,11 @@ type Provider struct {
 // the live model list, which is authoritative.
 var providers = map[string]Provider{
 	// First-party / native backends.
-	"anthropic": {ID: "anthropic", Name: "Anthropic", Impl: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY", Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
-	"openai":    {ID: "openai", Name: "OpenAI", Impl: "openai", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY", Models: []string{"gpt-5", "gpt-5-mini", "o4-mini"}},
+	"anthropic": {ID: "anthropic", Name: "Anthropic (API key)", Impl: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY", Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
+	// Claude subscription via the local `claude` CLI — no API key. Distinct from
+	// the API-key "anthropic" provider above.
+	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Local: true, Models: []string{"opus", "sonnet", "haiku"}},
+	"openai":      {ID: "openai", Name: "OpenAI", Impl: "openai", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY", Models: []string{"gpt-5", "gpt-5-mini", "o4-mini"}},
 
 	// Local, OpenAI-compatible (no key).
 	"ollama":   {ID: "ollama", Name: "Ollama", Impl: "openai", BaseURL: "http://localhost:11434/v1", Local: true},

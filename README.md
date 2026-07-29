@@ -91,12 +91,48 @@ disables Claude Code's own tools and drives its own loop, so ergon's tools,
 delegation, and permissions stay in control. `HOLOCRON_CLAUDE_DANGEROUS=1`
 bypasses Claude Code's permission prompts for unattended runs.
 
+## Skills & plugins
+
+`ergon` reads the same on-disk formats as Claude Code, so existing skills and
+plugins work unchanged.
+
+- **Skills** are `SKILL.md` files with YAML frontmatter (`name`, `description`,
+  `allowed-tools`, `disable-model-invocation`, `user-invocable`). Discovered from
+  `.ergon/skills/`, `.claude/skills/` (project), `~/.ergon/skills/`,
+  `~/.claude/skills/` (user), and installed plugins. The model loads a skill on
+  demand via a `skill` tool (progressive disclosure — only the name +
+  description stay in context until it's invoked); you can also run one directly
+  as `/<skill-name>`. Flat `commands/*.md` files become `/`-commands too.
+- **Plugins** bundle skills and commands under a `.claude-plugin/plugin.json`
+  manifest. Install them from a **marketplace** — a git repo with a
+  `.claude-plugin/marketplace.json` index.
+
+```bash
+ergon plugin marketplace add owner/repo      # or a git URL / local path
+ergon plugin install <name>[@marketplace]
+ergon plugin list
+ergon plugin skills                          # list discovered skills
+ergon plugin disable <name> | enable <name> | uninstall <name>
+ergon plugin marketplace list | remove <name>
+```
+
+The same operations are available in the TUI via `/plugin ...`, and `/skills`
+lists what's loaded. Installed plugins live under `~/.ergon/`.
+
 ## TUI
 
 - **Slash commands** (autocomplete as you type `/`, tab to complete):
-  `/model` (provider+model picker), `/usage` (token+cost by model),
-  `/tools` (expand full tool commands + output), `/clear`, `/init`
-  (generate `AGENTS.md`), `/help`, `/login`, `/rc`.
+  `/model` (provider+model picker with a Lead/Worker toggle), `/usage`
+  (token+cost by model), `/tools` (expand full tool commands + output),
+  `/skills` (list skills), `/plugin` (manage plugins + marketplaces),
+  `/config` (edit the config in `$EDITOR`), `/mouse` (toggle mouse capture),
+  `/clear`, `/init` (generate `AGENTS.md`), `/help`, `/login`, `/rc`.
+  User-invocable skills also appear as `/<skill-name>`.
+- **Mouse** is off by default so your terminal's text selection / copy-paste
+  works; `/mouse` turns on click-to-expand tool output (and scroll-wheel
+  viewport scrolling) at the cost of native selection.
+- The model can also edit `ergon`'s own config on request via a built-in
+  `config` tool (e.g. "set my worker to qwen3-coder").
 - **`!cmd`** — run a shell command directly (gold prompt border).
 - **`ctrl+b`** — while a foreground `bash` command is running, move it to the
   background; the agent loop continues and the command shows up in `/tools` /
@@ -121,6 +157,7 @@ on macOS). `/model` writes your provider/model choice here.
 {
   "name": "ergon",
   "identity_prompt": "You are a Go specialist. Prefer stdlib. Explain terse.",
+  "welcome": "clean",
   "provider": "ollama",
   "base_url": "http://localhost:11434/v1",
   "model": "qwen3-coder:30b",
@@ -154,6 +191,8 @@ on macOS). `/model` writes your provider/model choice here.
 - **name** — the wordmark/branding shown in the TUI.
 - **identity_prompt** — a system-prompt addendum (persona/task framing) prepended
   to any `AGENTS.md`/`CLAUDE.md` context.
+- **welcome** — empty-state layout: `clean` (default), `skills`, `columns`,
+  `boxed`, or `centered` (the original big centered wordmark).
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `monitor`, `shell_output`, `web_fetch`, `delegate`,
@@ -190,6 +229,7 @@ cmd/ergon              # CLI entry
 pkg/agent              # the tool loop, delegation, permissions, plugins (importable)
 pkg/provider           # backend registry (anthropic, openai, bedrock, claude-code, …) (importable)
 internal/catalog       # known providers (base URL, key env, models)
+internal/plugins       # skills, commands, plugins + git marketplaces (Claude-Code-compatible)
 internal/tui           # Charm Bubble Tea terminal client
 internal/server        # serve: sessions, SSE, device relay
 internal/config        # JSON config resolution

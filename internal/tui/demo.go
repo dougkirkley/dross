@@ -16,10 +16,14 @@ func jsonString(s string) string {
 // DemoWelcomeView renders the empty-state splash (big logo) for screenshots.
 // variant selects the logo style (see renderLogo).
 func DemoWelcomeView(width, height, variant int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("ergon", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
-	m.logoVariant = variant
-	m.shimmer = demoShimmer // phase for screenshots of the animated shimmer
+	m.logoVariant = 1
+	m.welcomeStyle = variant // vary the empty-state layout for iterations
+	m.shimmer = demoShimmer   // phase for screenshots of the animated shimmer
+	m.SetMeta("v0.4.0", "/Users/doug/Projects/holocron")
+	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b")
+	m.SetSkills([]string{"code-review", "git-commit", "jq"})
 	m.layout()
 	return m.View()
 }
@@ -100,15 +104,15 @@ func DemoProvidersView(width, height int) string {
 
 // DemoModelsView renders the /model picker: served models grouped by provider.
 func DemoModelsView(width, height int) string {
-	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
+	m := New("ergon", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
+	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b") // enable the Lead/Worker toggle
 	m.layout()
-	m.openModelPicker([]ModelGroup{{Provider: "ollama", Models: []string{
-		"deepseek-coder-v2:16b", "gemma2:9b", "llama3.1:8b",
-		"qwen2.5-coder:7b", "qwen2.5-coder:14b", "qwen3-coder:30b",
-	}}})
-	m.modelSearching, m.modelQuery = true, "coder" // demo the search filter
-	m.filterModels()
+	m.openModelPicker([]ModelGroup{
+		{Provider: "anthropic", Models: []string{"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"}},
+		{Provider: "ollama", Models: []string{"qwen3-coder:30b", "qwen2.5-coder:14b", "deepseek-coder-v2:16b"}},
+		{Provider: "groq", Models: []string{"llama-3.3-70b", "kimi-k2"}},
+	})
 	return m.View()
 }
 

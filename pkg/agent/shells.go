@@ -175,6 +175,13 @@ func (a *Agent) runForegroundBash(ctx context.Context, command string) (string, 
 	// foreground timeout yet still dies when the whole run ends.
 	childCtx, cancel := context.WithCancel(ctx)
 
+	// Drop any stale ctrl+b from a previous command so it can't background this
+	// one; the buffered channel then retains a press that arrives during startup.
+	select {
+	case <-a.bgReq:
+	default:
+	}
+
 	s := &shell{command: command, start: time.Now()}
 	cmd := exec.CommandContext(childCtx, "bash", "-c", command)
 	cmd.Dir = a.ws.root

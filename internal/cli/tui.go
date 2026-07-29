@@ -13,6 +13,7 @@ import (
 
 	"github.com/dougkirkley/ergon/pkg/agent"
 	"github.com/dougkirkley/ergon/internal/catalog"
+	"github.com/dougkirkley/ergon/internal/plugins"
 	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/relay"
 	"github.com/dougkirkley/ergon/internal/tui"
@@ -92,6 +93,13 @@ func newTUICmd() *cobra.Command {
 				// let /model reconfigure.
 				st.prov, _ = provider.New(providerImpl(st.name), provider.Config{BaseURL: st.baseURL, APIKey: st.apiKey})
 			}
+			if res.WorkerEnabled && res.Worker.Model != "" {
+				st.workerName = res.Worker.Provider
+				st.workerBaseURL = res.Worker.BaseURL
+				st.workerAPIKey = res.Worker.APIKey
+				st.workerModel = res.Worker.Model
+				st.workerProv, _ = provider.New(providerImpl(st.workerName), provider.Config{BaseURL: st.workerBaseURL, APIKey: st.workerAPIKey})
+			}
 			cfgPath, _ := cmd.Flags().GetString("config")
 			// Agent identity: the configured identity prompt, then project context
 			// files (AGENTS.md / CLAUDE.md).
@@ -105,17 +113,43 @@ func newTUICmd() *cobra.Command {
 			}
 
 			var prog *tea.Program
-			// One persistent agent per (provider, model) so the conversation is
-			// remembered across prompts; rebuilt when the model/provider changes.
+			// Skills + slash commands (Claude-Code-compatible), reloadable after a
+			// /plugin change. skillSpecs feeds the agent; skillItems the TUI.
+			var skillSpecs []agent.SkillSpec
+			var skillItems []tui.SkillItem
+			var skillGen int
+			loadSkills := func() {
+				skillSpecs, skillItems = skillSpecs[:0], skillItems[:0]
+				for _, s := range plugins.LoadAll(workdir) {
+					skillItems = append(skillItems, tui.SkillItem{
+						Name: s.Name, Desc: s.Description, Body: s.Body,
+						Source: s.Source, UserInvocable: s.UserInvocable,
+					})
+					if !s.DisableModelInvocation {
+						skillSpecs = append(skillSpecs, agent.SkillSpec{Name: s.Name, Description: s.Description, Body: s.Body})
+					}
+				}
+			}
+			loadSkills()
+
+			// One persistent agent per (provider, model, skills) so the conversation
+			// is remembered across prompts; rebuilt when any of those change.
 			var conv *agent.Agent
 			var convKey string
 			run := func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error) {
 				if st.prov == nil || st.model == "" {
 					return nil, fmt.Errorf("no model configured — use /model to set up a provider")
 				}
-				key := st.name + "|" + st.model
+				key := fmt.Sprintf("%s|%s|%s|%s|%d", st.name, st.model, st.workerName, st.workerModel, skillGen)
 				if conv == nil || key != convKey {
 					opts := []agent.Option{agent.WithConversation()}
+					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+					if len(skillSpecs) > 0 {
+						opts = append(opts, agent.WithSkills(skillSpecs))
+					}
+					if st.workerProv != nil && st.workerModel != "" {
+						opts = append(opts, agent.WithWorker(st.workerProv, st.workerModel))
+					}
 					if prog != nil {
 						opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
 							return tui.Ask(prog, req)
@@ -163,7 +197,23 @@ func newTUICmd() *cobra.Command {
 			}
 			tui.SetLogoWord(appName)
 			mdl := tui.New(appName, st.model, st.name, run)
+			absWd, _ := filepath.Abs(workdir)
+			mdl.SetMeta(Version, absWd)
+			mdl.SetConfigPath(configFilePath(cfgPath))
+			mdl.SetWelcomeStyle(welcomeStyleFor(res.File.Welcome))
 			mdl.SetPhrases(res.File.Phrases)
+			mdl.SetSkillItems(skillItems)
+			skillNames := make([]string, 0, len(skillItems))
+			for _, s := range skillItems {
+				skillNames = append(skillNames, s.Name)
+			}
+			mdl.SetSkills(skillNames)
+			mdl.SetPluginReload(func() []tui.SkillItem {
+				loadSkills()
+				skillGen++
+				conv = nil // rebuild the agent with the new skill set on the next run
+				return skillItems
+			})
 			mdl.SetReset(func() {
 				if conv != nil {
 					conv.ResetConversation()
@@ -227,6 +277,33 @@ func newTUICmd() *cobra.Command {
 					_ = saveLeadProvider(cfgPath, st)
 				},
 			)
+			// Worker slot of the /model picker (the cheaper delegate model).
+			mdl.SetWorker(
+				func(prov, model string) {
+					if prov != "" && (prov != st.workerName || st.workerProv == nil) {
+						impl := providerImpl(prov)
+						base, key := "", ""
+						if prov == st.name { // reuse the lead's endpoint if same provider
+							base, key = st.baseURL, st.apiKey
+						}
+						if c, ok := catalog.Get(prov); ok {
+							impl, base = c.Impl, c.BaseURL
+							if key == "" && c.APIKeyEnv != "" {
+								key = os.Getenv(c.APIKeyEnv)
+							}
+						}
+						if p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key}); err == nil {
+							st.workerName, st.workerBaseURL, st.workerAPIKey, st.workerProv = prov, base, key, p
+						}
+					}
+					if st.workerProv == nil {
+						return // provider failed to build; don't record a phantom worker
+					}
+					st.workerModel = model
+					_ = saveLeadProvider(cfgPath, st)
+				},
+				st.workerName, st.workerModel,
+			)
 			// Catalog as provider→models groups for the /model picker.
 			var groups []tui.ModelGroup
 			for _, id := range catalog.IDs() {
@@ -269,7 +346,10 @@ func newTUICmd() *cobra.Command {
 						})
 					})
 			}
-			prog = tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
+			// Mouse capture is OFF by default so the terminal's own text
+			// selection / copy-paste works; /mouse toggles it on for
+			// click-to-expand tool output.
+			prog = tea.NewProgram(mdl, tea.WithAltScreen())
 			_, err = prog.Run()
 			return err
 		},

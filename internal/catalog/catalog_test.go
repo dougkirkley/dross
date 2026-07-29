@@ -18,3 +18,28 @@ func TestCatalog(t *testing.T) {
 		t.Fatalf("anthropic impl = %q", a.Impl)
 	}
 }
+
+func TestClaudeCodeSeparateFromAnthropic(t *testing.T) {
+	a, ok := Get("anthropic")
+	if !ok || a.Impl != "anthropic" {
+		t.Fatalf("anthropic missing or wrong impl: %+v", a)
+	}
+	c, ok := Get("claude-code")
+	if !ok {
+		t.Fatal("claude-code not in catalog")
+	}
+	if c.Impl != "claude-code" {
+		t.Fatalf("claude-code impl = %q, want claude-code", c.Impl)
+	}
+	if len(c.Models) == 0 {
+		t.Fatal("claude-code should list models")
+	}
+	var hasA, hasC bool
+	for _, id := range IDs() {
+		if id == "anthropic" { hasA = true }
+		if id == "claude-code" { hasC = true }
+	}
+	if !hasA || !hasC {
+		t.Fatalf("IDs() missing anthropic=%v claude-code=%v", hasA, hasC)
+	}
+}

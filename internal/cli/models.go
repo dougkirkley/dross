@@ -73,6 +73,29 @@ type leadState struct {
 	apiKey  string
 	model   string
 	prov    provider.Provider
+
+	// worker: the cheaper model the lead delegates bounded subtasks to.
+	workerName    string
+	workerBaseURL string
+	workerAPIKey  string
+	workerModel   string
+	workerProv    provider.Provider
+}
+
+// welcomeStyleFor maps a config welcome name to the TUI layout variant.
+func welcomeStyleFor(name string) int {
+	switch name {
+	case "skills":
+		return 1
+	case "columns":
+		return 2
+	case "boxed":
+		return 3
+	case "centered":
+		return 4
+	default: // "clean" or unset
+		return 0
+	}
 }
 
 // providerImpl maps a user-facing provider kind (which may be a catalog id like
@@ -110,6 +133,12 @@ func saveLeadProvider(explicit string, st *leadState) error {
 	f.BaseURL = st.baseURL
 	f.APIKey = st.apiKey
 	f.Model = st.model
+	if st.workerModel != "" && st.workerName != "" {
+		f.Worker = &config.Provider{
+			Provider: st.workerName, BaseURL: st.workerBaseURL,
+			APIKey: st.workerAPIKey, Model: st.workerModel,
+		}
+	}
 	b, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err

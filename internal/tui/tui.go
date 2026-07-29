@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -142,9 +143,23 @@ var slashCommands = []slashCmd{
 	{"/clear", "start a fresh session"},
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
+	{"/mouse", "toggle mouse (off = select/copy text)"},
+	{"/config", "edit the config file in $EDITOR"},
+	{"/skills", "list available skills"},
+	{"/plugin", "manage plugins + marketplaces"},
 	{"/login", "sign in via SSO"},
 	{"/rc", "link this machine to the server"},
 	{"/remote-control", "link this machine to the server"},
+}
+
+// SkillItem is a discovered skill surfaced in the TUI (for /skills, /plugin, and
+// user-invocable /name commands).
+type SkillItem struct {
+	Name          string
+	Desc          string
+	Body          string
+	Source        string
+	UserInvocable bool
 }
 
 // Ask is the AskFunc wired into the agent: it posts the questions to the running
@@ -185,6 +200,14 @@ type Model struct {
 	agentName string
 	model     string
 	provider  string
+	version    string // shown in the welcome header (SetMeta)
+	workdir    string // shown in the welcome header (SetMeta)
+	configPath string // config file path for /config (SetConfigPath)
+	mouseOn    bool   // mouse capture (click-to-expand); off lets the terminal select text
+	skills       []string    // loaded skill names (for the welcome; SetSkills)
+	skillItems   []SkillItem // discovered skills (for /skills + /name; SetSkillItems)
+	pluginReload func() []SkillItem
+	welcomeStyle int      // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
 	cost      float64
 	turns     int
 	inTok     int64
@@ -260,6 +283,10 @@ type Model struct {
 	modelSearching  bool         // /model picker is in search mode (started with "/")
 	modelFiltered   []int        // indices into modelFlat matching the query
 	catalogGroups   []ModelGroup // provider→models catalog for the /model picker
+	modelSlot       int          // /model picker target: 0 = lead, 1 = worker
+	onWorker        func(provider, model string)
+	workerModel     string // current worker model (for the picker "current" marker)
+	workerProv      string // current worker provider
 
 	slashSel     int    // highlighted row in slash-command autocomplete
 	reset        func() // clears persistent conversation memory (/clear)
@@ -456,6 +483,77 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 // SetReset wires /clear to drop persistent conversation memory.
 func (m *Model) SetReset(fn func()) { m.reset = fn }
 
+// SetMeta sets the version and working directory shown in the welcome header.
+func (m *Model) SetMeta(version, workdir string) { m.version, m.workdir = version, workdir }
+
+// SetConfigPath sets the config file /config opens in $EDITOR.
+func (m *Model) SetConfigPath(path string) { m.configPath = path }
+
+// SetSkills sets the loaded skill names (shown in the welcome panel).
+func (m *Model) SetSkills(names []string) { m.skills = names }
+
+// SetSkillItems sets the discovered skills (for /skills and /name commands).
+func (m *Model) SetSkillItems(items []SkillItem) { m.skillItems = items }
+
+// SetPluginReload wires a callback that re-scans skills/plugins after a /plugin
+// change and returns the refreshed list.
+func (m *Model) SetPluginReload(fn func() []SkillItem) { m.pluginReload = fn }
+
+// applyReload refreshes the skill list (and the welcome panel's name list) after
+// a /plugin change.
+func (m *Model) applyReload() {
+	if m.pluginReload == nil {
+		return
+	}
+	m.skillItems = m.pluginReload()
+	m.skills = m.skills[:0]
+	for _, s := range m.skillItems {
+		m.skills = append(m.skills, s.Name)
+	}
+}
+
+// isBuiltinSlash reports whether name is a reserved built-in command. Built-ins
+// always win over skills so a plugin can't hijack /help, /clear, etc.
+func isBuiltinSlash(name string) bool {
+	for _, c := range slashCommands {
+		if c.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// userSlash returns the built-in commands plus one entry per user-invocable
+// skill (excluding any that collide with a built-in name), for autocomplete and
+// resolution.
+func (m Model) userSlash() []slashCmd {
+	out := append([]slashCmd(nil), slashCommands...)
+	for _, s := range m.skillItems {
+		if s.UserInvocable && !isBuiltinSlash("/"+s.Name) {
+			out = append(out, slashCmd{"/" + s.Name, s.Desc})
+		}
+	}
+	return out
+}
+
+// findSkill returns the skill for a "/name" command, if user-invocable and not
+// shadowed by a built-in.
+func (m Model) findSkill(slash string) (SkillItem, bool) {
+	if isBuiltinSlash(slash) {
+		return SkillItem{}, false
+	}
+	name := strings.TrimPrefix(slash, "/")
+	for _, s := range m.skillItems {
+		if s.UserInvocable && s.Name == name {
+			return s, true
+		}
+	}
+	return SkillItem{}, false
+}
+
+// SetWelcomeStyle picks the empty-state layout variant (see welcome()).
+func (m *Model) SetWelcomeStyle(n int) { m.welcomeStyle = n }
+
 // SetBackgrounder wires ctrl+b to move the currently-running foreground bash
 // command into the background (see agent.Agent.BackgroundForeground).
 func (m *Model) SetBackgrounder(fn func()) { m.backgrounder = fn }
@@ -477,6 +575,14 @@ func (m *Model) SetModelPicker(
 	m.onModel = onPick
 }
 
+// SetWorker wires the "Worker" slot of the /model picker: onPick assigns the
+// cheaper worker model the lead delegates bounded subtasks to, and cur* seed the
+// "current" marker. Optional — without it the picker only offers the lead slot.
+func (m *Model) SetWorker(onPick func(provider, model string), curProvider, curModel string) {
+	m.onWorker = onPick
+	m.workerProv, m.workerModel = curProvider, curModel
+}
+
 // openModelPicker loads groups into the model picker (provider subtitles +
 // models) and builds the flattened selection with a parallel provider list.
 func (m *Model) openModelPicker(groups []ModelGroup) {
@@ -492,14 +598,25 @@ func (m *Model) openModelPicker(groups []ModelGroup) {
 	if len(m.modelFlat) == 0 {
 		return
 	}
-	m.modelQuery, m.modelSearching = "", false
+	m.modelQuery, m.modelSearching, m.modelSlot = "", false, 0
 	m.filterModels()
-	for i, idx := range m.modelFiltered { // start on the current model
-		if m.modelFlat[idx] == m.model && m.modelFlatProv[idx] == m.provider {
+	m.selectCurrentModel()
+	m.modelPickerOpen = true
+}
+
+// selectCurrentModel moves the picker cursor to the model currently assigned to
+// the active slot (lead or worker).
+func (m *Model) selectCurrentModel() {
+	curModel, curProv := m.model, m.provider
+	if m.modelSlot == 1 {
+		curModel, curProv = m.workerModel, m.workerProv
+	}
+	for i, idx := range m.modelFiltered {
+		if m.modelFlat[idx] == curModel && m.modelFlatProv[idx] == curProv {
 			m.modelSel = i
+			return
 		}
 	}
-	m.modelPickerOpen = true
 }
 
 // filterModels rebuilds modelFiltered from the current query (case-insensitive
@@ -530,7 +647,7 @@ func (m Model) matchSlash() []slashCmd {
 		return nil
 	}
 	var out []slashCmd
-	for _, c := range slashCommands {
+	for _, c := range m.userSlash() {
 		if strings.HasPrefix(c.name, v) {
 			out = append(out, c)
 		}
@@ -544,13 +661,14 @@ func (m Model) matchSlash() []slashCmd {
 // resolveSlash maps a possibly-partial "/cmd" to a full command name by exact or
 // prefix match (first match wins on ties, matching the autocomplete Tab target).
 // Returns "" when nothing matches.
-func resolveSlash(name string) string {
-	for _, c := range slashCommands {
+func (m Model) resolveSlash(name string) string {
+	cmds := m.userSlash()
+	for _, c := range cmds {
 		if c.name == name {
 			return c.name
 		}
 	}
-	for _, c := range slashCommands {
+	for _, c := range cmds {
 		if strings.HasPrefix(c.name, name) {
 			return c.name
 		}
@@ -562,13 +680,50 @@ func resolveSlash(name string) string {
 // handled here (resolved by prefix, or reported as unknown) so it never leaks to
 // the agent as a prompt.
 func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
-	name := resolveSlash(strings.Fields(text)[0])
+	name := m.resolveSlash(strings.Fields(text)[0])
 	if name == "" {
 		m.append(errStyle.Render("unknown command: " + strings.Fields(text)[0]))
 		m.input.Reset()
 		return true, nil
 	}
+	// User-invocable skill: run its body as a prompt ($ARGUMENTS substituted).
+	if s, ok := m.findSkill(name); ok {
+		m.input.Reset()
+		argStr := strings.TrimSpace(strings.TrimPrefix(text, strings.Fields(text)[0]))
+		prompt := strings.ReplaceAll(s.Body, "$ARGUMENTS", argStr)
+		if m.title == "" {
+			m.title = name
+		}
+		m.turnGap()
+		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + name)
+		m.running = true
+		m.runStart = time.Now()
+		m.tick, m.phraseIdx = 0, 0
+		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+		m.workerSel, m.workerFocus = 0, ""
+		m.shellOrder, m.shells = nil, nil
+		m.bashCmd = ""
+		return true, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
+	}
 	switch name {
+	case "/mouse":
+		m.input.Reset()
+		m.mouseOn = !m.mouseOn
+		if m.mouseOn {
+			m.append(metaStyle.Render("mouse on — click tool lines to expand (terminal text selection is disabled)"))
+			return true, tea.EnableMouseCellMotion
+		}
+		m.append(metaStyle.Render("mouse off — select and copy text with your terminal; scroll natively"))
+		return true, tea.DisableMouse
+	case "/config":
+		m.input.Reset()
+		return true, m.editConfig()
+	case "/skills":
+		m.input.Reset()
+		m.showSkills()
+		return true, nil
+	case "/plugin":
+		return true, m.handlePlugin(text)
 	case "/usage":
 		m.input.Reset()
 		m.renderUsage()
@@ -749,13 +904,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.modelSel < len(m.modelFiltered) {
 					idx := m.modelFiltered[m.modelSel]
 					id, prov := m.modelFlat[idx], m.modelFlatProv[idx]
-					m.model, m.provider = id, prov
-					if m.onModel != nil {
-						m.onModel(prov, id) // configures the provider if it changed
+					if m.modelSlot == 1 { // worker slot
+						m.workerModel, m.workerProv = id, prov
+						if m.onWorker != nil {
+							m.onWorker(prov, id)
+						}
+						m.append(startGlyph.Render("▸ ") + metaStyle.Render("worker set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
+					} else { // lead slot
+						m.model, m.provider = id, prov
+						if m.onModel != nil {
+							m.onModel(prov, id) // configures the provider if it changed
+						}
+						m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 					}
-					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 				}
 				m.modelPickerOpen = false
+			}
+			toggleSlot := func() {
+				if m.onWorker == nil {
+					return // worker slot not wired
+				}
+				m.modelSlot = 1 - m.modelSlot
+				m.selectCurrentModel()
 			}
 			if m.modelSearching {
 				switch msg.Type {
@@ -791,6 +961,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modelSearching = true
 			case "esc", "q":
 				m.modelPickerOpen = false
+			case "tab", "left", "right", "h", "l":
+				toggleSlot()
 			case "up", "k":
 				if m.modelSel > 0 {
 					m.modelSel--
@@ -1105,6 +1277,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.append(errStyle.Render(msg.err.Error()))
 		}
+	case pluginOpMsg:
+		m.append(metaStyle.Render(msg.text))
+		if msg.reload {
+			m.applyReload()
+		}
+	case editorDoneMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("editor: " + msg.err.Error()))
+		} else {
+			m.append(metaStyle.Render("config saved — provider/model changes apply on restart"))
+		}
 	case modelsMsg:
 		if msg.err != nil {
 			m.append(errStyle.Render(msg.err.Error()))
@@ -1168,9 +1351,7 @@ func (m Model) View() string {
 		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if m.modelPickerOpen {
-		m.vp.SetContent(m.renderModels())
-		m.vp.GotoTop()
-		body = m.vp.View()
+		body = m.modelBox(bodyH)
 	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
 	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
@@ -1201,14 +1382,114 @@ func (m Model) View() string {
 	}, "\n")
 }
 
-// welcome is the empty-state splash: the big logo, centered, with a tagline.
+// welcome is the empty-state splash. Layout variants (SetWelcomeStyle):
+//
+//	0 clean   — logo top-left, directory, model (default)
+//	1 skills  — clean plus a Skills list
+//	2 columns — clean plus Skills | Tools columns (crush-style)
+//	3 boxed   — identity inside a rounded panel
+//	4 centered — the original big centered wordmark + tagline
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 4          // header + footer
-	phase := float64(m.shimmer) * 0.03 // slow flowing shimmer
+	bodyH := m.height - 1 - 4 // header + footer
+	if m.welcomeStyle == 4 {
+		return m.welcomeCentered(bodyH)
+	}
+	var rows []string
+	switch m.welcomeStyle {
+	case 1:
+		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.skillsPanel(), "", m.wTagline()}
+	case 2:
+		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.welcomeColumns(), "", m.wTagline()}
+	case 3:
+		inner := lipgloss.JoinVertical(lipgloss.Left, m.wLogo(), "", m.wDir(), m.wModel())
+		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoViol).Padding(0, 2).Render(inner)
+		rows = []string{box, "", m.wTagline()}
+	default:
+		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.wTagline()}
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return lipgloss.NewStyle().Width(m.width).Height(bodyH).Padding(1, 2).Render(content)
+}
+
+// welcomeCentered is the original splash: the big wordmark centered with a
+// shimmering tagline beneath it.
+func (m Model) welcomeCentered(bodyH int) string {
+	phase := float64(m.shimmer) * 0.03
 	logo := renderLogoAt(m.logoVariant, phase)
 	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
 	block := lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
+}
+
+// skillsPanel lists the loaded skills (green bullets), or a hint when none.
+func (m Model) skillsPanel() string {
+	head := metaStyle.Render("Skills")
+	if len(m.skills) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, head,
+			metaStyle.Render("  none yet · ")+crystalStyle.Render("/plugin")+metaStyle.Render(" to add"))
+	}
+	lines := []string{head}
+	for _, s := range m.skills {
+		lines = append(lines, checkStyle.Render("● ")+agentText.Render(s))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+// welcomeColumns renders Skills | Tools side by side (crush-style).
+func (m Model) welcomeColumns() string {
+	toolLines := []string{metaStyle.Render("Tools"),
+		checkStyle.Render("● ") + agentText.Render("read · edit · write"),
+		checkStyle.Render("● ") + agentText.Render("bash · web_fetch"),
+		checkStyle.Render("● ") + agentText.Render("delegate · monitor")}
+	tools := lipgloss.JoinVertical(lipgloss.Left, toolLines...)
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(30).Render(m.skillsPanel()), tools)
+}
+
+func (m Model) wLogo() string {
+	logo := renderLogoAt(m.logoVariant, float64(m.shimmer)*0.03)
+	if m.version != "" {
+		logo += "  " + metaStyle.Render(m.version)
+	}
+	return logo
+}
+
+func (m Model) wDir() string { return metaStyle.Render(collapseHome(m.workdir)) }
+
+func (m Model) wModel() string {
+	if m.model == "" {
+		return crystalStyle.Render("◇ ") + metaStyle.Render("no model — /model to configure")
+	}
+	line := crystalStyle.Render("◇ ") + agentText.Render(m.model)
+	if m.provider != "" {
+		line += metaStyle.Render(" via " + m.provider)
+	}
+	if m.workerModel != "" {
+		line += metaStyle.Render("   ⋮ worker ") + agentText.Render(m.workerModel)
+	}
+	return line
+}
+
+func (m Model) wTagline() string {
+	return metaStyle.Render("a pluggable multi-model coding agent") + "   " +
+		crystalStyle.Render("/help") + metaStyle.Render(" commands · ") +
+		crystalStyle.Render("/model") + metaStyle.Render(" switch model")
+}
+
+// collapseHome shortens $HOME to ~ for display.
+func collapseHome(p string) string {
+	if p == "" {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if p == home {
+			return "~"
+		}
+		if strings.HasPrefix(p, home+string(os.PathSeparator)) {
+			return "~" + p[len(home):]
+		}
+	}
+	return p
 }
 
 // --- rendering ------------------------------------------------------------
@@ -1634,46 +1915,142 @@ func (m Model) renderToolView() string {
 	return b.String()
 }
 
-// renderModels draws the /model picker: a search box, then matching models
-// grouped by provider (subtitle), with the current one marked.
-func (m Model) renderModels() string {
-	var b strings.Builder
-	head := agentLabel.Render("Models")
-	if m.modelSearching {
-		head += metaStyle.Render("   search ") + agentText.Render(m.modelQuery) + crystalStyle.Render("▏")
-	} else if m.modelQuery != "" {
-		head += metaStyle.Render("   search " + m.modelQuery)
+// isConfigured reports whether prov has been set up (it is the active lead or
+// worker provider), for the "configured" marker in the picker.
+func (m Model) isConfigured(prov string) bool {
+	return prov != "" && (prov == m.provider || prov == m.workerProv)
+}
+
+// modelBox draws the /model picker as a centered, bordered box (crush-style): a
+// title with a hatch rule and a Lead/Worker toggle, provider group headers with
+// a "configured" marker, a windowed model list, and a footer hint.
+func (m Model) modelBox(bodyH int) string {
+	boxW := 64
+	if maxW := m.width - 8; boxW > maxW {
+		boxW = maxW
 	}
-	b.WriteString(head + "\n\n")
+	if boxW < 32 {
+		boxW = 32
+	}
+	inner := boxW - 2 // Padding(0,1)
+
+	viol := lipgloss.NewStyle().Foreground(holoViol)
+	act := lipgloss.NewStyle().Foreground(fg).Bold(true)
+
+	// Title row: "Switch Model" ╱╱╱╱ ◉ Lead ○ Worker
+	title := viol.Bold(true).Render("Switch Model")
+	leadMark, workerMark := "○", "○"
+	if m.modelSlot == 0 {
+		leadMark = "◉"
+	} else {
+		workerMark = "◉"
+	}
+	leadTab, workerTab := metaStyle.Render(leadMark+" Lead"), metaStyle.Render(workerMark+" Worker")
+	if m.modelSlot == 0 {
+		leadTab = act.Render(leadMark + " Lead")
+	} else {
+		workerTab = act.Render(workerMark + " Worker")
+	}
+	toggle := leadTab + "  " + workerTab
+	if m.onWorker == nil {
+		toggle = "" // worker slot not wired
+	}
+	hatchN := inner - lipgloss.Width(title) - lipgloss.Width(toggle) - 2
+	if hatchN < 1 {
+		hatchN = 1
+	}
+	titleRow := title + " " + viol.Render(strings.Repeat("╱", hatchN)) + " " + toggle
+
+	// Subtitle / search line.
+	var subRow string
+	switch {
+	case m.modelSearching:
+		subRow = metaStyle.Render("search ") + agentText.Render(m.modelQuery) + crystalStyle.Render("▏")
+	case m.modelQuery != "":
+		subRow = metaStyle.Render("search " + m.modelQuery)
+	case m.modelSlot == 1:
+		subRow = metaStyle.Render("› choose the worker model for cheap, bounded subtasks")
+	default:
+		subRow = metaStyle.Render("› choose the lead model for planning and hard tasks")
+	}
+
+	// Windowed model list around the selection.
+	maxList := bodyH - 10
+	if maxList < 4 {
+		maxList = 4
+	}
+	start := 0
+	if m.modelSel >= maxList {
+		start = m.modelSel - maxList + 1
+	}
+	end := start + maxList
+	if end > len(m.modelFiltered) {
+		end = len(m.modelFiltered)
+	}
+
+	curM, curP := m.model, m.provider
+	if m.modelSlot == 1 {
+		curM, curP = m.workerModel, m.workerProv
+	}
+
+	var lines []string
 	lastProv := ""
-	for row, idx := range m.modelFiltered {
+	for row := start; row < end; row++ {
+		idx := m.modelFiltered[row]
 		prov, id := m.modelFlatProv[idx], m.modelFlat[idx]
 		if prov != lastProv {
-			if lastProv != "" {
-				b.WriteString("\n")
+			hdr := metaStyle.Render(strings.ToUpper(prov))
+			if m.isConfigured(prov) {
+				mark := doneGlyph.Render("✓ configured")
+				pad := inner - lipgloss.Width(hdr) - lipgloss.Width(mark)
+				if pad < 1 {
+					pad = 1
+				}
+				hdr += strings.Repeat(" ", pad) + mark
 			}
-			b.WriteString(metaStyle.Render(strings.ToUpper(prov)) + "\n")
+			lines = append(lines, hdr)
 			lastProv = prov
 		}
-		cursor, style := "  ", agentText
 		if row == m.modelSel {
-			cursor, style = promptMark.Render("› "), checkStyle
+			sel := lipgloss.NewStyle().Background(holoViol).Foreground(base).Bold(true).Width(inner).Padding(0, 1)
+			label := id
+			if id == curM && prov == curP {
+				label += "  (current)"
+			}
+			lines = append(lines, sel.Render(label))
+			continue
 		}
-		line := cursor + style.Render(id)
-		if id == m.model && prov == m.provider {
+		line := "  " + agentText.Render(id)
+		if id == curM && prov == curP {
 			line += metaStyle.Render("  (current)")
 		}
-		b.WriteString(line + "\n")
+		lines = append(lines, line)
 	}
 	if len(m.modelFiltered) == 0 {
-		b.WriteString(metaStyle.Render("  no matches") + "\n")
+		lines = append(lines, metaStyle.Render("  no matches"))
+	} else if start > 0 || end < len(m.modelFiltered) {
+		lines = append(lines, metaStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(m.modelFiltered))))
 	}
-	hint := "/ search · ↑/↓ select · enter switch · esc close"
+
+	foot := "↑/↓ choose · tab lead/worker · / search · enter confirm · esc exit"
+	if m.onWorker == nil {
+		foot = "↑/↓ choose · / search · enter confirm · esc exit"
+	}
 	if m.modelSearching {
-		hint = "type to filter · ↑/↓ select · enter switch · esc clear"
+		foot = "type to filter · ↑/↓ choose · enter confirm · esc clear"
 	}
-	b.WriteString("\n" + metaStyle.Render(hint))
-	return b.String()
+
+	parts := append([]string{titleRow, "", subRow, ""}, lines...)
+	parts = append(parts, "", metaStyle.Render(foot))
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(holoViol).
+		Padding(0, 1).
+		Width(boxW).
+		Render(content)
+	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, box)
 }
 
 // chosen returns the selected option strings for question i.

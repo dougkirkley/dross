@@ -192,6 +192,52 @@ func WithPluginTools(specs []PluginSpec) Option {
 	}
 }
 
+// SkillSpec is a model-invocable skill: its Name+Description are advertised to
+// the model via the `skill` tool, and Body (the instructions) is returned only
+// when the model loads it by name. This is progressive disclosure — a skill's
+// instructions enter context on demand, not up front.
+type SkillSpec struct {
+	Name        string
+	Description string
+	Body        string
+}
+
+// ToolHandler runs a host-registered tool: it receives the model's raw JSON
+// input and returns the result plus whether it is an error.
+type ToolHandler func(ctx context.Context, input json.RawMessage) (string, bool)
+
+type extraTool struct {
+	def provider.ToolDef
+	h   ToolHandler
+}
+
+// WithTool registers a host-defined tool (its schema and a Go handler). This is
+// how the embedding program adds first-class tools without a subprocess — e.g.
+// the CLI wires a `config` tool that edits ergon's own settings.
+func WithTool(def provider.ToolDef, h ToolHandler) Option {
+	return func(a *Agent) {
+		if def.Name == "" || h == nil {
+			return
+		}
+		if a.extraTools == nil {
+			a.extraTools = map[string]extraTool{}
+		}
+		a.extraTools[def.Name] = extraTool{def: def, h: h}
+	}
+}
+
+// WithSkills advertises skills to the model through a `skill` tool.
+func WithSkills(specs []SkillSpec) Option {
+	return func(a *Agent) {
+		a.skills = nil
+		for _, s := range specs {
+			if s.Name != "" && s.Body != "" {
+				a.skills = append(a.skills, s)
+			}
+		}
+	}
+}
+
 // PermRuleSpec is a per-tool permission rule, opencode-style: either a blanket
 // Decision (allow|ask|deny) for the tool, or, for command tools like bash, a map
 // of command glob → decision (e.g. {"git push": "ask", "rm *": "deny", "*":
@@ -342,6 +388,8 @@ type Agent struct {
 	allowTools   map[string]bool       // if non-empty, only these tools are enabled
 	permRules    map[string]permRule   // per-tool allow/ask/deny overrides
 	plugins      map[string]PluginSpec // external command tools
+	skills       []SkillSpec           // model-invocable skills (progressive disclosure)
+	extraTools   map[string]extraTool  // host-registered tools (WithTool)
 	conv         bool                  // keep the session across Run calls
 	sess         provider.Session      // persisted session when conv is set
 	resume       string
@@ -366,7 +414,7 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{})}
+	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{}, 1)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -706,6 +754,19 @@ func (a *Agent) enabledTools() []provider.ToolDef {
 			Name: p.Name, Description: p.Description, Properties: p.Properties, Required: p.Required,
 		})
 	}
+	for _, et := range a.extraTools {
+		defs = append(defs, et.def)
+	}
+	if names := a.skillNames(); len(names) > 0 {
+		defs = append(defs, provider.ToolDef{
+			Name:        "skill",
+			Description: a.skillToolDescription(),
+			Properties: map[string]any{
+				"name": map[string]any{"type": "string", "description": "the skill to load", "enum": names},
+			},
+			Required: []string{"name"},
+		})
+	}
 	if len(a.allowTools) == 0 {
 		return defs
 	}
@@ -716,6 +777,49 @@ func (a *Agent) enabledTools() []provider.ToolDef {
 		}
 	}
 	return out
+}
+
+// skillNames returns the advertised skill names, in order.
+func (a *Agent) skillNames() []string {
+	if len(a.skills) == 0 {
+		return nil
+	}
+	names := make([]string, len(a.skills))
+	for i, s := range a.skills {
+		names[i] = s.Name
+	}
+	return names
+}
+
+// skillToolDescription lists the available skills so the model knows when to
+// load one (progressive disclosure — bodies are fetched via the tool).
+func (a *Agent) skillToolDescription() string {
+	var b strings.Builder
+	b.WriteString("Load a skill's full instructions on demand, then follow them. Call this when a request matches a skill below. Available skills:\n")
+	for _, s := range a.skills {
+		b.WriteString("- " + s.Name)
+		if s.Description != "" {
+			b.WriteString(": " + s.Description)
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// runSkill returns a skill's body (its instructions) to the model.
+func (a *Agent) runSkill(input json.RawMessage) (string, bool) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return err.Error(), true
+	}
+	for _, s := range a.skills {
+		if s.Name == in.Name {
+			return s.Body, false
+		}
+	}
+	return fmt.Sprintf("no skill named %q", in.Name), true
 }
 
 // runPlugin executes an external command tool: the model's JSON args go to the
@@ -815,6 +919,12 @@ func gateSummary(tc provider.ToolCall) string {
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
 	if p, ok := a.plugins[tc.Name]; ok {
 		return a.runPlugin(ctx, p, tc.Input)
+	}
+	if et, ok := a.extraTools[tc.Name]; ok {
+		return et.h(ctx, tc.Input)
+	}
+	if tc.Name == "skill" {
+		return a.runSkill(tc.Input)
 	}
 	switch tc.Name {
 	case "read":
