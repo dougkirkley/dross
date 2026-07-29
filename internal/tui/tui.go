@@ -1744,6 +1744,15 @@ func (m *Model) applyEvent(e agent.Event) {
 		indent = workerTag.Render("  ⋮ " + name + " ")
 		m.trackWorker(kind, name, e.Data)
 	}
+	// Space out top-level output: a blank line before each new block (a message,
+	// a tool call, a review, etc.) so the feed isn't crowded. Results and edits
+	// stay tucked under the tool call they belong to.
+	if !worker {
+		switch kind {
+		case "text", "tool", "review", "answer", "ask", "checkpoint":
+			m.turnGap()
+		}
+	}
 	switch kind {
 	case "text":
 		if !worker {
