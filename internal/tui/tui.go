@@ -46,6 +46,7 @@ var (
 	youLabel     = lipgloss.NewStyle().Foreground(muted).Bold(true)
 	agentLabel   = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	agentText    = lipgloss.NewStyle().Foreground(fg)
+	proseStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F6F5F1")) // assistant prose: bright white
 	toolArrow    = lipgloss.NewStyle().Foreground(accent)
 	toolName     = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
 	toolArgs     = lipgloss.NewStyle().Foreground(muted)
@@ -238,7 +239,8 @@ type Model struct {
 	phraseIdx int
 	tick      int
 
-	queue []string // messages typed while a run is in flight; drained on done
+	queue      []string // messages typed while a run is in flight; drained on done
+	scrolledUp bool     // user scrolled up: stop auto-following the bottom
 
 	// background shells started by the bash tool (background=true)
 	shellOrder []string
@@ -764,6 +766,10 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 	// User-invocable skill: run its body as a prompt ($ARGUMENTS substituted).
 	if s, ok := m.findSkill(name); ok {
 		m.input.Reset()
+		if m.running {
+			m.append(metaStyle.Render("busy — wait for the current run to finish"))
+			return true, nil
+		}
 		argStr := strings.TrimSpace(strings.TrimPrefix(text, strings.Fields(text)[0]))
 		prompt := strings.ReplaceAll(s.Body, "$ARGUMENTS", argStr)
 		if m.title == "" {
@@ -865,6 +871,10 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, nil
 	case "/clear":
 		m.input.Reset()
+		if m.running {
+			m.append(metaStyle.Render("busy — wait for the current run to finish"))
+			return true, nil
+		}
 		m.lines = nil
 		m.title, m.lastText = "", ""
 		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
@@ -1279,6 +1289,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// most recent queued message back into the input to edit it.
 		if m.running {
 			if msg.String() == "enter" && strings.TrimSpace(m.input.Value()) != "" {
+				// Slash commands run immediately even mid-run; other text queues.
+				if tp := strings.TrimSpace(m.input.Value()); strings.HasPrefix(tp, "/") {
+					if handled, cmd := m.handleSlash(tp); handled {
+						return m, cmd
+					}
+				}
 				m.queue = append(m.queue, m.input.Value())
 				m.input.Reset()
 				return m, nil
@@ -1321,6 +1337,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, m.quitCmd()
+		case "pgup":
+			m.vp.ViewUp()
+			m.scrolledUp = !m.vp.AtBottom()
+			return m, nil
+		case "pgdown":
+			m.vp.ViewDown()
+			m.scrolledUp = !m.vp.AtBottom()
+			return m, nil
+		case "ctrl+u":
+			m.vp.HalfViewUp()
+			m.scrolledUp = !m.vp.AtBottom()
+			return m, nil
+		case "ctrl+d":
+			m.vp.HalfViewDown()
+			m.scrolledUp = !m.vp.AtBottom()
+			return m, nil
 		case "ctrl+b":
 			// Move the running foreground bash command to the background so the
 			// agent loop continues; a no-op when no foreground command is running.
@@ -1342,6 +1374,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
+				m.scrolledUp = false // a new prompt jumps back to following output
 				prompt := m.input.Value()
 				// "!cmd" runs a shell command directly instead of prompting the
 				// agent, like Claude Code's bash escape.
@@ -1530,7 +1563,9 @@ func (m Model) View() string {
 			content += "\n"
 		}
 		m.vp.SetContent(content + m.renderPicker())
-		m.vp.GotoBottom()
+		if !m.scrolledUp {
+			m.vp.GotoBottom()
+		}
 		body = m.vp.View()
 	} else if m.running {
 		// While working, show the spinner + rotating phrase as a live line at the
@@ -1542,7 +1577,17 @@ func (m Model) View() string {
 			content += "\n"
 		}
 		m.vp.SetContent(content + work)
-		m.vp.GotoBottom()
+		if !m.scrolledUp {
+			m.vp.GotoBottom()
+		}
+		body = m.vp.View()
+	} else if len(m.lines) > 0 {
+		// Idle with a conversation: render the transcript, following the bottom
+		// unless the user has scrolled up (pgup/pgdn, ctrl+u/d).
+		m.vp.SetContent(strings.Join(m.lines, "\n"))
+		if !m.scrolledUp {
+			m.vp.GotoBottom()
+		}
 		body = m.vp.View()
 	}
 	return strings.Join([]string{
@@ -2509,9 +2554,9 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 		width := m.width - 14
 		lines := wrap(e.Data, width)
-		m.append(indent + agentLabel.Render(m.agentName) + "  " + agentText.Render(lines[0]))
+		m.append(indent + agentLabel.Render(m.agentName) + "  " + proseStyle.Render(lines[0]))
 		for _, l := range lines[1:] {
-			m.append(indent + "          " + agentText.Render(l))
+			m.append(indent + "          " + proseStyle.Render(l))
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
