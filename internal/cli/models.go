@@ -159,6 +159,11 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 			"claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",
 		}
 	}
+	if provName == "gemini" {
+		// Generative Language API has a models.list, but keep it dependency-free:
+		// offer the current families (pick any other id via /model gemini <id>).
+		return []string{"gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"}
+	}
 	base := strings.TrimRight(baseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"

@@ -18,6 +18,7 @@ import (
 	_ "github.com/dougkirkley/ergon/pkg/provider/bedrock"
 	_ "github.com/dougkirkley/ergon/pkg/provider/claudecode"
 	_ "github.com/dougkirkley/ergon/pkg/provider/claudesub"
+	_ "github.com/dougkirkley/ergon/pkg/provider/gemini"
 	_ "github.com/dougkirkley/ergon/pkg/provider/openai"
 )
 
