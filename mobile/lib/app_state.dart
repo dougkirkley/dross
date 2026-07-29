@@ -31,6 +31,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Ids of sessions last opened in Chat view. The server has one session type,
+  /// so this local set is what lets the combined Recents list show a session as
+  /// a chat vs code entry and reopen it in the same view. Persisted.
+  final Set<String> _chatViews = {};
+
+  /// The view a session was last opened in (defaults to code).
+  AppMode viewOf(String id) =>
+      _chatViews.contains(id) ? AppMode.chat : AppMode.code;
+
+  /// Records (and persists) which view a session was opened in.
+  Future<void> markView(String id, AppMode m) async {
+    final changed =
+        m == AppMode.chat ? _chatViews.add(id) : _chatViews.remove(id);
+    if (!changed) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList('chatViews', _chatViews.toList());
+    notifyListeners();
+  }
+
   List<Session> sessions = [];
   bool loadingSessions = false;
   Session? current;
@@ -65,6 +84,7 @@ class AppState extends ChangeNotifier {
     baseUrl = p.getString('baseUrl') ?? '';
     // The web build is served by `ergon serve`; default to its own origin.
     if (baseUrl.isEmpty && kIsWeb) baseUrl = defaultWebServer();
+    _chatViews.addAll(p.getStringList('chatViews') ?? const []);
     token = await _secure.read(key: 'remoteToken') ?? '';
     notifyListeners();
     if (remoteConfigured && authed) await refreshSessions();

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
-import '../widgets/prose.dart' show relTimeLong;
 import '../screens/chat_screen.dart';
 import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
@@ -57,32 +56,28 @@ class AppDrawer extends StatelessWidget {
                       itemCount: s.sessions.length,
                       itemBuilder: (_, i) {
                         final sess = s.sessions[i];
+                        // Combined recents: chats and code in one flat list.
+                        // Each reopens in the view it was last used in.
                         return InkWell(
                           onTap: () {
                             final st = context.read<AppState>();
+                            final view = st.viewOf(sess.id);
                             st.attach(sess);
                             Navigator.pop(context); // close drawer
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => st.mode == AppMode.chat
+                                    builder: (_) => view == AppMode.chat
                                         ? const ChatScreen()
                                         : const SessionScreen()));
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 20, vertical: 12),
-                            child: Row(children: [
-                              Expanded(
-                                child: Text(sess.displayTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: T.body),
-                              ),
-                              if (sess.updated != null)
-                                Text(relTimeLong(sess.updated!),
-                                    style: T.metaFaint),
-                            ]),
+                            child: Text(sess.displayTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: T.body),
                           ),
                         );
                       },

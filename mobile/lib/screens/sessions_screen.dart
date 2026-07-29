@@ -197,7 +197,9 @@ class _SessionsScreenState extends State<SessionsScreen> {
         onTap: () {
           // Fire attach (non-blocking) and open immediately — the screen reacts
           // to state as events load, so re-entry never hangs on attach.
-          context.read<AppState>().attach(sess);
+          final st = context.read<AppState>();
+          st.attach(sess);
+          st.markView(sess.id, widget.chat ? AppMode.chat : AppMode.code);
           Navigator.push(context, MaterialPageRoute(builder: (_) => _detail()));
         },
         child: child,
@@ -327,6 +329,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
         model: choice.model, workerModel: choice.worker);
     if (s != null && context.mounted) {
       state.attach(s); // non-blocking; screen reacts as events load
+      state.markView(s.id, widget.chat ? AppMode.chat : AppMode.code);
       Navigator.push(context, MaterialPageRoute(builder: (_) => _detail()));
     }
   }
