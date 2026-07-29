@@ -193,9 +193,33 @@ func newTUICmd() *cobra.Command {
 					_ = saveLeadProvider(cfgPath, st)
 					return []tui.ModelGroup{{Provider: kind, Models: ids}}, nil
 				},
-				func(id string) { st.model = id; _ = saveLeadProvider(cfgPath, st) },
+				func(prov, model string) {
+					// Configure the provider if the pick switched away from the
+					// current one (base URL + key from the catalog / env).
+					if prov != "" && (prov != st.name || st.prov == nil) {
+						impl := providerImpl(prov)
+						base, key := st.baseURL, st.apiKey
+						if c, ok := catalog.Get(prov); ok {
+							impl, base = c.Impl, c.BaseURL
+							if c.APIKeyEnv != "" {
+								key = os.Getenv(c.APIKeyEnv)
+							}
+						}
+						if p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key}); err == nil {
+							st.name, st.baseURL, st.apiKey, st.prov = prov, base, key, p
+						}
+					}
+					st.model = model
+					_ = saveLeadProvider(cfgPath, st)
+				},
 			)
-			mdl.SetProviders(catalog.IDs())
+			// Catalog as provider→models groups for the /model picker.
+			var groups []tui.ModelGroup
+			for _, id := range catalog.IDs() {
+				c, _ := catalog.Get(id)
+				groups = append(groups, tui.ModelGroup{Provider: id, Models: c.Models})
+			}
+			mdl.SetProviders(groups)
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {

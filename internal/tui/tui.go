@@ -250,17 +250,13 @@ type Model struct {
 	// models; onModel switches the model used for subsequent runs.
 	modelList       func() []ModelGroup
 	modelSetup      func(kind, baseURL, apiKey string) ([]ModelGroup, error)
-	onModel         func(id string)
+	onModel         func(provider, model string)
 	modelGroups     []ModelGroup
 	modelFlat       []string // selectable ids, in display order
+	modelFlatProv   []string // provider id parallel to modelFlat
 	modelPickerOpen bool
 	modelSel        int
-
-	// provider picker (first stage of /model): choose a catalog provider, then
-	// its models load into the model picker.
-	providerIDs        []string
-	providerPickerOpen bool
-	providerSel        int
+	catalogGroups   []ModelGroup // provider→models catalog for the /model picker
 
 	slashSel int    // highlighted row in slash-command autocomplete
 	reset    func() // clears persistent conversation memory (/clear)
@@ -456,9 +452,9 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 // SetReset wires /clear to drop persistent conversation memory.
 func (m *Model) SetReset(fn func()) { m.reset = fn }
 
-// SetProviders gives /model a catalog of provider ids to pick from (first stage
-// of the modal). Empty keeps the type-a-provider flow.
-func (m *Model) SetProviders(ids []string) { m.providerIDs = ids }
+// SetProviders gives /model the catalog as provider→models groups. The picker
+// shows each provider as a subtitle with its models underneath.
+func (m *Model) SetProviders(groups []ModelGroup) { m.catalogGroups = groups }
 
 // SetModelPicker wires /model: list returns the configured provider's models
 // (nil if none), setup configures a provider from (kind, baseURL, apiKey) and
@@ -466,11 +462,35 @@ func (m *Model) SetProviders(ids []string) { m.providerIDs = ids }
 func (m *Model) SetModelPicker(
 	list func() []ModelGroup,
 	setup func(kind, baseURL, apiKey string) ([]ModelGroup, error),
-	onPick func(id string),
+	onPick func(provider, model string),
 ) {
 	m.modelList = list
 	m.modelSetup = setup
 	m.onModel = onPick
+}
+
+// openModelPicker loads groups into the model picker (provider subtitles +
+// models) and builds the flattened selection with a parallel provider list.
+func (m *Model) openModelPicker(groups []ModelGroup) {
+	m.modelGroups = groups
+	m.modelFlat = m.modelFlat[:0]
+	m.modelFlatProv = m.modelFlatProv[:0]
+	for _, g := range groups {
+		for _, id := range g.Models {
+			m.modelFlat = append(m.modelFlat, id)
+			m.modelFlatProv = append(m.modelFlatProv, g.Provider)
+		}
+	}
+	if len(m.modelFlat) == 0 {
+		return
+	}
+	m.modelSel = 0
+	for i := range m.modelFlat { // start on the current model
+		if m.modelFlat[i] == m.model && m.modelFlatProv[i] == m.provider {
+			m.modelSel = i
+		}
+	}
+	m.modelPickerOpen = true
 }
 
 // matchSlash returns the slash commands whose names prefix the current input,
@@ -594,30 +614,21 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 				return modelsMsg{groups: g, err: err}
 			}
 		}
-		// No args: open the provider picker modal (first stage). Falls back to
-		// listing the current provider's models if no catalog is wired.
-		if len(m.providerIDs) > 0 && m.modelSetup != nil {
-			m.providerPickerOpen = true
-			m.providerSel = 0
-			for i, id := range m.providerIDs { // start on the current provider
-				if id == m.provider {
-					m.providerSel = i
-				}
+		// No args: open the grouped picker — every catalog provider as a subtitle
+		// with its models underneath, plus the current provider's live models on
+		// top when available.
+		groups := m.catalogGroups
+		if m.modelList != nil {
+			if live := m.modelList(); len(live) > 0 {
+				groups = append(live, m.catalogGroups...)
 			}
+		}
+		if len(groups) == 0 {
+			m.append(metaStyle.Render("no providers — set one up in config, or /model <kind> <baseURL> [key]"))
 			return true, nil
 		}
-		if m.modelList == nil {
-			m.append(metaStyle.Render("model switching not available"))
-			return true, nil
-		}
-		list := m.modelList
-		return true, func() tea.Msg {
-			g := list()
-			if len(g) == 0 {
-				return modelsMsg{err: fmt.Errorf("no provider configured — /model <provider> (e.g. ollama, openai, groq, openrouter) or /model <kind> <baseURL> [key]")}
-			}
-			return modelsMsg{groups: g}
-		}
+		m.openModelPicker(groups)
+		return true, nil
 	case "/login":
 		m.input.Reset()
 		if m.remoteLogin == nil {
@@ -687,32 +698,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.helpOpen = true
 			return m, nil
 		}
-		// Provider picker overlay (first stage of /model) captures keys.
-		if m.providerPickerOpen {
-			switch msg.String() {
-			case "esc", "q":
-				m.providerPickerOpen = false
-			case "up", "k":
-				if m.providerSel > 0 {
-					m.providerSel--
-				}
-			case "down", "j":
-				if m.providerSel < len(m.providerIDs)-1 {
-					m.providerSel++
-				}
-			case "enter":
-				id := m.providerIDs[m.providerSel]
-				m.providerPickerOpen = false
-				m.provider = id
-				m.append(metaStyle.Render("configuring " + id + " …"))
-				setup := m.modelSetup
-				return m, func() tea.Msg {
-					g, err := setup(id, "", "")
-					return modelsMsg{groups: g, err: err}
-				}
-			}
-			return m, nil
-		}
 		// Tools viewer overlay captures keys.
 		if m.toolViewOpen {
 			switch msg.String() {
@@ -745,11 +730,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				if m.modelSel < len(m.modelFlat) {
 					id := m.modelFlat[m.modelSel]
-					m.model = id
-					if m.onModel != nil {
-						m.onModel(id)
+					prov := m.provider
+					if m.modelSel < len(m.modelFlatProv) {
+						prov = m.modelFlatProv[m.modelSel]
 					}
-					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id))
+					m.model, m.provider = id, prov
+					if m.onModel != nil {
+						m.onModel(prov, id) // configures the provider if it changed
+					}
+					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 				}
 				m.modelPickerOpen = false
 			}
@@ -1054,21 +1043,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.append(errStyle.Render(msg.err.Error()))
 			break
 		}
-		m.modelGroups = msg.groups
-		m.modelFlat = m.modelFlat[:0]
-		for _, g := range msg.groups {
-			m.modelFlat = append(m.modelFlat, g.Models...)
-		}
-		if len(m.modelFlat) == 0 {
+		m.openModelPicker(msg.groups)
+		if !m.modelPickerOpen {
 			m.append(metaStyle.Render("no models available"))
-		} else {
-			m.modelSel = 0
-			for i, id := range m.modelFlat { // start on the current model
-				if id == m.model {
-					m.modelSel = i
-				}
-			}
-			m.modelPickerOpen = true
 		}
 	case askMsg:
 		m.pendingAsk = msg.st
@@ -1118,10 +1095,6 @@ func (m Model) View() string {
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
-		body = m.vp.View()
-	} else if m.providerPickerOpen {
-		m.vp.SetContent(m.renderProviderPicker())
-		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if m.toolViewOpen {
 		m.vp.SetContent(m.renderToolView())
@@ -1590,25 +1563,6 @@ func (m Model) renderToolView() string {
 	return b.String()
 }
 
-// renderProviderPicker draws the first stage of /model: choose a provider.
-func (m Model) renderProviderPicker() string {
-	var b strings.Builder
-	b.WriteString(agentLabel.Render("Provider") + metaStyle.Render("  ↑/↓ select · enter · esc cancel") + "\n\n")
-	for i, id := range m.providerIDs {
-		cursor, style := "  ", agentText
-		if i == m.providerSel {
-			cursor, style = promptMark.Render("› "), checkStyle
-		}
-		line := cursor + style.Render(id)
-		if id == m.provider {
-			line += metaStyle.Render("  (current)")
-		}
-		b.WriteString(line + "\n")
-	}
-	b.WriteString("\n" + metaStyle.Render("base URL + API key are filled from the catalog / env; then pick a model"))
-	return b.String()
-}
-
 // renderModels draws the /model picker: available models grouped by provider,
 // with the current one marked.
 func (m Model) renderModels() string {
@@ -1623,7 +1577,7 @@ func (m Model) renderModels() string {
 				cursor, style = promptMark.Render("› "), checkStyle
 			}
 			line := cursor + style.Render(id)
-			if id == m.model {
+			if id == m.model && g.Provider == m.provider {
 				line += metaStyle.Render("  (current)")
 			}
 			b.WriteString(line + "\n")

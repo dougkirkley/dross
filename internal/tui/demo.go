@@ -80,15 +80,21 @@ func DemoBangView(width, height int) string {
 	return m.View()
 }
 
-// DemoProvidersView renders the /model provider picker (first stage).
+// DemoProvidersView renders the /model picker: providers as subtitles with their
+// models underneath.
 func DemoProvidersView(width, height int) string {
 	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	m.providerIDs = []string{"anthropic", "cerebras", "deepseek", "fireworks", "groq", "mistral", "ollama", "openai", "openrouter", "together", "xai"}
 	m.provider = "ollama"
-	m.providerSel = 4
-	m.providerPickerOpen = true
+	m.openModelPicker([]ModelGroup{
+		{Provider: "anthropic", Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
+		{Provider: "deepseek", Models: []string{"deepseek-chat", "deepseek-reasoner"}},
+		{Provider: "groq", Models: []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}},
+		{Provider: "openai", Models: []string{"gpt-5", "gpt-5-mini", "o4-mini"}},
+		{Provider: "xai", Models: []string{"grok-4", "grok-3-mini"}},
+	})
+	m.modelSel = 5
 	return m.View()
 }
 
