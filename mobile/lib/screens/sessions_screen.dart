@@ -8,6 +8,7 @@ import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/new_session_sheet.dart';
 import '../widgets/prose.dart' show relTimeLong;
+import 'chat_screen.dart';
 import 'session_screen.dart';
 import 'settings_screen.dart';
 
@@ -197,11 +198,14 @@ class _SessionsScreenState extends State<SessionsScreen> {
           // Fire attach (non-blocking) and open immediately — the screen reacts
           // to state as events load, so re-entry never hangs on attach.
           context.read<AppState>().attach(sess);
-          Navigator.push(context,
-              MaterialPageRoute(builder: (_) => SessionScreen(chat: widget.chat)));
+          Navigator.push(context, MaterialPageRoute(builder: (_) => _detail()));
         },
         child: child,
       );
+
+  // The Chat tab opens the conversational ChatScreen; Code opens the full
+  // workspace SessionScreen. Same backend session either way.
+  Widget _detail() => widget.chat ? const ChatScreen() : const SessionScreen();
 
   // Red trailing background revealed while swiping a card to delete.
   Widget _swipeBg() => Container(
@@ -323,8 +327,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
         model: choice.model, workerModel: choice.worker);
     if (s != null && context.mounted) {
       state.attach(s); // non-blocking; screen reacts as events load
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => SessionScreen(chat: widget.chat)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => _detail()));
     }
   }
 }

@@ -11,18 +11,11 @@ import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
 
-/// Remote-session conversation. Streams the serve event log (tool calls,
-/// delegation indented, cost) styled to match the app: user bubbles, serif
-/// assistant prose, monospace tool lines.
-///
-/// In `chat` mode the same session is shown conversationally: only user prompts
-/// and assistant prose, with the tool/shell/edit chrome and file/model controls
-/// hidden. The backend session is identical either way.
+/// Remote-session conversation (Code view). Streams the serve event log (tool
+/// calls, delegation indented, cost) styled to match the app: user bubbles,
+/// serif assistant prose, monospace tool lines. The Chat view uses ChatScreen.
 class SessionScreen extends StatefulWidget {
-  const SessionScreen({super.key, this.chat = false});
-
-  final bool chat;
-
+  const SessionScreen({super.key});
   @override
   State<SessionScreen> createState() => _SessionScreenState();
 }
@@ -73,25 +66,15 @@ class _SessionScreenState extends State<SessionScreen> {
             ),
             Expanded(
               child: Builder(builder: (_) {
-                // Chat mode shows only the conversation (prompts + assistant
-                // prose); Code mode shows the full timeline with tool/shell
-                // activity and a background-tasks link.
-                final List<Object> timeline = widget.chat
-                    ? s.events
-                        .where((e) => const {'prompt', 'text', 'review'}
-                            .contains(e.baseKind))
-                        .toList()
-                    : buildTimeline(s.events);
+                final timeline = buildTimeline(s.events);
                 final shells = buildShells(s.events);
                 final runningShells =
                     shells.where((x) => x.running).length;
                 // Trailing items after the conversation: the live spinner (while
-                // the turn runs) and a "N running task" link (background shells,
-                // Code mode only).
+                // the turn runs) and a "N running task" link (background shells).
                 final trailing = <Widget>[
                   if (sess?.isRunning ?? false) _runningRow(s),
-                  if (!widget.chat && runningShells > 0)
-                    _tasksLink(context, shells, runningShells),
+                  if (runningShells > 0) _tasksLink(context, shells, runningShells),
                 ];
                 return ListView.builder(
                   controller: _scroll,
@@ -264,8 +247,7 @@ class _SessionScreenState extends State<SessionScreen> {
           ),
           child: Column(
             children: [
-              if (!widget.chat && s.remotePending.isNotEmpty)
-                _attachChips(context, s),
+              if (s.remotePending.isNotEmpty) _attachChips(context, s),
               Row(children: [
                 Expanded(
                   child: TextField(
@@ -276,7 +258,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     decoration: InputDecoration.collapsed(
                         hintText: running
                             ? 'Queue after this turn…'
-                            : (widget.chat ? 'Message…' : 'Build anything…'),
+                            : 'Build anything…',
                         hintStyle: const TextStyle(color: T.textDim)),
                     onSubmitted: (_) => _send(context),
                   ),
@@ -293,26 +275,22 @@ class _SessionScreenState extends State<SessionScreen> {
                   ),
                 ),
               ]),
-              // Code mode exposes file upload and the per-session model chip;
-              // chat mode keeps just the message field.
-              if (!widget.chat) ...[
-                const SizedBox(height: 8),
-                Row(children: [
-                  _circleAction(Icons.add, () => _pickFile(context)),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: OutlineChip(
-                      onTap: () => showServerModelSheet(context),
-                      child: Text(s.current?.model ?? 'model',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              const TextStyle(color: T.textDim, fontSize: 13)),
-                    ),
+              const SizedBox(height: 8),
+              Row(children: [
+                _circleAction(Icons.add, () => _pickFile(context)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: OutlineChip(
+                    onTap: () => showServerModelSheet(context),
+                    child: Text(s.current?.model ?? 'model',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: T.textDim, fontSize: 13)),
                   ),
-                  const Spacer(),
-                ]),
-              ],
+                ),
+                const Spacer(),
+              ]),
             ],
           ),
         ),

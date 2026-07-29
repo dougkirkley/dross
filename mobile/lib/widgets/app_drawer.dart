@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
+import '../screens/chat_screen.dart';
 import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 
@@ -64,8 +65,9 @@ class AppDrawer extends StatelessWidget {
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => SessionScreen(
-                                        chat: st.mode == AppMode.chat)));
+                                    builder: (_) => st.mode == AppMode.chat
+                                        ? const ChatScreen()
+                                        : const SessionScreen()));
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
