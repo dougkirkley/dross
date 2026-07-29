@@ -1,10 +1,10 @@
-# Holocron Agent Integration Guide
+# Ergon Agent Integration Guide
 
-This document provides essential information for agents working with the Holocron application, which combines a Vue.js frontend with a Go backend to manage multiple AI provider integrations.
+This document provides essential information for agents working with the Ergon application, which combines a Vue.js frontend with a Go backend to manage multiple AI provider integrations.
 
 ## Overview
 
-Holocron is a web application that allows users to interact with different AI providers (Claude, Gemini, Antigravity, CodeX) through a unified UI. It uses server-sent events (SSE) for real-time communication between the frontend and backend.
+Ergon is a web application that allows users to interact with different AI providers (Claude, Gemini, Antigravity, CodeX) through a unified UI. It uses server-sent events (SSE) for real-time communication between the frontend and backend.
 
 ## Architecture
 
@@ -45,10 +45,10 @@ npm run format
 ### Backend
 ```bash
 # Run backend server (assumes Go environment)
-go run cmd/holocron/main.go
+go run cmd/ergon/main.go
 
 # Build Go binary
-go build -o holocron cmd/holocron/main.go
+go build -o ergon cmd/ergon/main.go
 ```
 
 ## How Components Fit Together
@@ -65,7 +65,7 @@ go build -o holocron cmd/holocron/main.go
 - `internal/ai/manager.go` - Core provider manager logic
 - `internal/server/handler.go` - HTTP handlers including command processing
 - `internal/server/sse.go` - Server-Sent Events implementation
-- `cmd/holocron/main.go` - Main application entry point
+- `cmd/ergon/main.go` - Main application entry point
 
 ### Frontend  
 - `frontend/src/App.vue` - Main UI component with chat interface
@@ -126,7 +126,7 @@ Each provider has its own implementation file in `internal/ai/` directory.
 
 ## Integration Points for Charm Crush
 
-When integrating Charm Crush components into Holocron:
+When integrating Charm Crush components into Ergon:
 
 1. **UI Components** - Create Vue components that can use Crush's AI capabilities directly or through the existing SSE infrastructure
 2. **AI Commands** - Add new providers to the manager in `internal/ai/manager.go`

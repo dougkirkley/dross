@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:holocron/app_state.dart';
-import 'package:holocron/direct/provider.dart';
-import 'package:holocron/models.dart';
+import 'package:ergon/app_state.dart';
+import 'package:ergon/direct/provider.dart';
+import 'package:ergon/models.dart';
 
 /// A provider whose reply stream is driven by the test. Each call to [stream]
 /// creates a fresh controller exposed via [controllers].

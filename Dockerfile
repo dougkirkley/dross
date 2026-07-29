@@ -1,4 +1,4 @@
-# Builds the holocron binary with the Flutter web client embedded (go:embed of
+# Builds the ergon binary with the Flutter web client embedded (go:embed of
 # internal/web/dist), so one process serves the UI + JSON/SSE API. Run
 # `flutter build web` (mobile/) before building this image — the prebuilt output
 # is copied into the embed dir so no Flutter SDK is needed here.

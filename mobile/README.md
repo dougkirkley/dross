@@ -1,6 +1,6 @@
-# Holocron mobile
+# Ergon mobile
 
-Flutter client for `holocron serve` — one codebase for **iOS and Android**. A
+Flutter client for `ergon serve` — one codebase for **iOS and Android**. A
 thin client over the server's HTTP + SSE API: create sessions, fire async
 prompts, tail the live event stream (with lossless reconnect), interrupt, and
 see cost. Dark theme, Carolina-blue accent, matching the TUI.
@@ -13,7 +13,7 @@ client is thin and API-driven, so a single Dart codebase ships to both stores.
 ```
 lib/
   models.dart         wire models (Session, Event, PublishResult)
-  api.dart            HolocronClient — REST + SSE (streamEvents)
+  api.dart            ErgonClient — REST + SSE (streamEvents)
   app_state.dart      ChangeNotifier: config, sessions, attached-session stream
   main.dart           app + theme
   screens/
@@ -41,8 +41,8 @@ flutter run                                                       # pick a devic
 `flutter create .` writes the platform scaffolding around the existing `lib/`
 and `pubspec.yaml` without overwriting them.
 
-Then open the app, go to **Settings**, and enter your `holocron serve` URL
-(e.g. `https://holocron.example.com`) and an API token if auth is enabled
+Then open the app, go to **Settings**, and enter your `ergon serve` URL
+(e.g. `https://ergon.example.com`) and an API token if auth is enabled
 (a static token, or an OIDC/SSO bearer). Sessions and prompts flow from there.
 
 ## Notes

@@ -1,4 +1,4 @@
-package com.dougkirkley.holocron
+package com.dougkirkley.ergon
 
 import io.flutter.embedding.android.FlutterActivity
 

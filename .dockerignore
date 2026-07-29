@@ -1,5 +1,5 @@
 .git
-holocron
+ergon
 *.out
 frontend/node_modules
 mobile/.dart_tool

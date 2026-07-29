@@ -6,7 +6,7 @@ import (
 )
 
 func TestStoreRoundTrip(t *testing.T) {
-	s, err := NewStore(t.TempDir(), "https://holocron.example.com")
+	s, err := NewStore(t.TempDir(), "https://ergon.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,7 +17,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if !ValidID(m.ID) || m.Mime != "image/png" || m.Filename != "shot.png" {
 		t.Fatalf("meta = %+v", m)
 	}
-	if s.URL(m.ID) != "https://holocron.example.com/a/"+m.ID {
+	if s.URL(m.ID) != "https://ergon.example.com/a/"+m.ID {
 		t.Fatalf("url = %s", s.URL(m.ID))
 	}
 	data, got, err := s.Get(m.ID)

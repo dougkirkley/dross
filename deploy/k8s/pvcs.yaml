@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: holocron-sessions-pvc
+  name: ergon-sessions-pvc
 spec:
   accessModes:
     - ReadWriteOnce
@@ -12,7 +12,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: holocron-uploads-pvc
+  name: ergon-uploads-pvc
 spec:
   accessModes:
     - ReadWriteOnce

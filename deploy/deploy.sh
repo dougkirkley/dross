@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Deploy Holocron to Kubernetes cluster
+# Deploy Ergon to Kubernetes cluster
 
 echo "Building Docker image..."
-docker build -t holocron .
+docker build -t ergon .
 
 echo "Pushing to registry (update with your registry)..."
-# docker push your-registry/holocron:latest
+# docker push your-registry/ergon:latest
 
 echo "Deploying to Kubernetes..."
 kubectl apply -f deploy/k8s/pvcs.yaml

@@ -17,7 +17,7 @@ func TestBangShellEscape(t *testing.T) {
 		t.Fatal("agent must not run for a ! command")
 		return nil, nil
 	}
-	m := New("holocron", "m", "openai", run)
+	m := New("ergon", "m", "openai", run)
 	m.width, m.height = 80, 24
 	m.layout()
 	m.input.SetValue("!echo bang_marker_42")

@@ -1,18 +1,18 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: holocron-ingress
+  name: ergon-ingress
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: holocron.local
+  - host: ergon.local
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: holocron-service
+            name: ergon-service
             port:
               number: 8080

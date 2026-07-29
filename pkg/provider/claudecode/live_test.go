@@ -10,11 +10,11 @@ import (
 	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
-// TestLive drives the real claude CLI. Gated by HOLOCRON_LIVE=1 so it never runs
+// TestLive drives the real claude CLI. Gated by ERGON_LIVE=1 so it never runs
 // in normal `go test`.
 func TestLive(t *testing.T) {
-	if os.Getenv("HOLOCRON_LIVE") != "1" {
-		t.Skip("set HOLOCRON_LIVE=1 to run against the real claude CLI")
+	if os.Getenv("ERGON_LIVE") != "1" {
+		t.Skip("set ERGON_LIVE=1 to run against the real claude CLI")
 	}
 	p, err := provider.New("claude-code", provider.Config{})
 	if err != nil {

@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: holocron-service
+  name: ergon-service
 spec:
   selector:
-    app: holocron
+    app: ergon
   ports:
     - port: 8080
       targetPort: 8080

@@ -118,15 +118,6 @@ func SearchPaths(explicit string) []string {
 	if dir != "" {
 		paths = append(paths, filepath.Join(dir, "ergon", "config.json"))
 	}
-	// Back-compat: fall back to the pre-rename holocron config locations so
-	// existing setups keep working after the rename to ergon.
-	paths = append(paths, "holocron.json")
-	if home != "" {
-		paths = append(paths, filepath.Join(home, ".holocron", "settings.json"))
-	}
-	if dir != "" {
-		paths = append(paths, filepath.Join(dir, "holocron", "config.json"))
-	}
 	return paths
 }
 

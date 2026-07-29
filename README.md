@@ -89,7 +89,7 @@ reach full OpenCode/Crush provider breadth.
 The `claude-code` provider shells out to the installed Claude Code CLI in
 headless mode, using whatever auth it already has. In *driven* mode ergon
 disables Claude Code's own tools and drives its own loop, so ergon's tools,
-delegation, and permissions stay in control. `HOLOCRON_CLAUDE_DANGEROUS=1`
+delegation, and permissions stay in control. `ERGON_CLAUDE_DANGEROUS=1`
 bypasses Claude Code's permission prompts for unattended runs.
 
 ## Skills & plugins

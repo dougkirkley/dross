@@ -24,7 +24,7 @@ func TestLoadMissingReturnsEmpty(t *testing.T) {
 
 func TestLoadParsesWorker(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "holocron.json")
+	p := filepath.Join(dir, "ergon.json")
 	os.WriteFile(p, []byte(`{
 	  "provider": "anthropic",
 	  "model": "claude-opus-5",
@@ -48,7 +48,7 @@ func TestLoadParsesWorker(t *testing.T) {
 }
 
 func TestLoadMalformedErrors(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "holocron.json")
+	p := filepath.Join(t.TempDir(), "ergon.json")
 	os.WriteFile(p, []byte(`{not json`), 0o644)
 	if _, _, err := Load(p); err == nil {
 		t.Fatal("expected error on malformed json")

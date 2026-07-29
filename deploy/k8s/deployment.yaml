@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: holocron
+  name: ergon
   labels:
-    app: holocron
+    app: ergon
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: holocron
+      app: ergon
   template:
     metadata:
       labels:
-        app: holocron
+        app: ergon
     spec:
       containers:
-      - name: holocron
-        image: holocron:latest
+      - name: ergon
+        image: ergon:latest
         ports:
         - containerPort: 8080
         volumeMounts:
         - name: sessions
-          mountPath: /root/.config/holocron/sessions
+          mountPath: /root/.config/ergon/sessions
         - name: uploads
           mountPath: /app/uploads
         resources:
@@ -34,7 +34,7 @@ spec:
       volumes:
       - name: sessions
         persistentVolumeClaim:
-          claimName: holocron-sessions-pvc
+          claimName: ergon-sessions-pvc
       - name: uploads
         persistentVolumeClaim:
-          claimName: holocron-uploads-pvc
+          claimName: ergon-uploads-pvc

@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:holocron/app_state.dart';
-import 'package:holocron/main.dart';
+import 'package:ergon/app_state.dart';
+import 'package:ergon/main.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AppState(), // defaults to direct mode
-        child: const HolocronApp(),
+        child: const ErgonApp(),
       ),
     );
     await tester.pump();

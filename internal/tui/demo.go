@@ -21,7 +21,7 @@ func DemoWelcomeView(width, height, variant int) string {
 	m.logoVariant = 1
 	m.welcomeStyle = variant // vary the empty-state layout for iterations
 	m.shimmer = demoShimmer  // phase for screenshots of the animated shimmer
-	m.SetMeta("v0.4.0", "/Users/doug/Projects/holocron")
+	m.SetMeta("v0.4.0", "/Users/doug/Projects/ergon")
 	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b")
 	m.layout()
 	return m.View()

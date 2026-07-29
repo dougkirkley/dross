@@ -1,8 +1,8 @@
 # ergon — design
 
-Authoritative design. (Project was renamed from *holocron* to **ergon** for an
-open-source release; the deployment hostname `holocron.farmerjohnparmesan.com`
-is kept for now. Some k8s objects still carry the `ergon-web` / legacy names.)
+Authoritative design. (Formerly *holocron*; renamed to **ergon** for an
+open-source release, including the deployment hostname
+`ergon.farmerjohnparmesan.com`.)
 
 Supersedes `CRUSH_INTEGRATION.md` and `OPENCODE_DEPLOYMENT.md`, both of which are
 AI-generated and factually wrong (Crush does not "generate UI components
@@ -34,7 +34,7 @@ internal/catalog       # known providers (id, base URL, key env, preview models)
 internal/tui           # Charm Bubble Tea terminal client (holographic-crystal theme)
 internal/server        # serve: sessions, SSE, device relay, SSO
 internal/relay         # device relay + SSO loopback login (shared by cli + tui)
-internal/config        # JSON config resolution (ergon.json, back-compat holocron paths)
+internal/config        # JSON config resolution (ergon.json, back-compat ergon paths)
 mobile/                # Flutter client (web build embedded into serve)
 ```
 
