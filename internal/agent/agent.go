@@ -470,7 +470,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 				a.emit("error", content)
 			} else {
 				content = a.maybeCompact(ctx, tc.Name, content, res)
-				a.emit("tool-result", truncate(content, 200))
+				// Emit a generous slice so clients can expand the full output
+				// (the feed still shows a one-line preview); cap to bound payload.
+				a.emit("tool-result", truncate(content, 16000))
 			}
 			results = append(results, provider.ToolResult{ID: tc.ID, Content: content, IsError: isErr})
 		}

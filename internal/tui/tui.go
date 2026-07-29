@@ -138,6 +138,7 @@ type slashCmd struct{ name, desc string }
 var slashCommands = []slashCmd{
 	{"/model", "list and switch models"},
 	{"/usage", "token and cost usage by model"},
+	{"/tools", "expand full tool commands + output"},
 	{"/clear", "start a fresh session"},
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
@@ -258,6 +259,17 @@ type Model struct {
 	slashSel int    // highlighted row in slash-command autocomplete
 	reset    func() // clears persistent conversation memory (/clear)
 	shimmer  int    // animation phase for the holographic welcome shimmer
+
+	// full tool calls this session, for the /tools expandable viewer
+	toolRecs     []toolRec
+	toolViewOpen bool
+	toolSel      int
+}
+
+// toolRec is a full tool call (untruncated command + output) for /tools.
+type toolRec struct {
+	name, args, result string
+	isErr              bool
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -505,6 +517,15 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.input.Reset()
 		m.helpOpen = true
 		return true, nil
+	case "/tools":
+		m.input.Reset()
+		if len(m.toolRecs) == 0 {
+			m.append(metaStyle.Render("no tool calls yet"))
+			return true, nil
+		}
+		m.toolViewOpen = true
+		m.toolSel = len(m.toolRecs) - 1 // start on the most recent
+		return true, nil
 	case "/clear":
 		m.input.Reset()
 		m.lines = nil
@@ -512,6 +533,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.shellOrder, m.shells = nil, nil
+		m.toolRecs = nil
 		m.vp.SetContent("")
 		if m.reset != nil {
 			m.reset() // drop conversation memory too
@@ -640,6 +662,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// "?" on an empty prompt opens the shortcuts overlay.
 		if msg.String() == "?" && m.input.Value() == "" && !m.pickerOpen && m.pendingAsk == nil {
 			m.helpOpen = true
+			return m, nil
+		}
+		// Tools viewer overlay captures keys.
+		if m.toolViewOpen {
+			switch msg.String() {
+			case "esc", "q":
+				m.toolViewOpen = false
+			case "up", "k":
+				if m.toolSel > 0 {
+					m.toolSel--
+				}
+			case "down", "j":
+				if m.toolSel < len(m.toolRecs)-1 {
+					m.toolSel++
+				}
+			}
 			return m, nil
 		}
 		// Model picker overlay captures keys.
@@ -1017,6 +1055,10 @@ func (m Model) View() string {
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if m.toolViewOpen {
+		m.vp.SetContent(m.renderToolView())
+		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if m.modelPickerOpen {
 		m.vp.SetContent(m.renderModels())
@@ -1444,6 +1486,43 @@ func (m *Model) renderUsage() {
 	}
 }
 
+// renderToolView draws the /tools viewer: every tool call this session, with the
+// selected one expanded to its full command and full output.
+func (m Model) renderToolView() string {
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("Tools") + metaStyle.Render("  ↑/↓ select · esc close") + "\n\n")
+	for i, r := range m.toolRecs {
+		cursor, style := "  ", toolName
+		if i == m.toolSel {
+			cursor, style = promptMark.Render("› "), checkStyle
+		}
+		b.WriteString(cursor + style.Render(r.name) + " " + metaStyle.Render(truncate(r.args, 70)) + "\n")
+		if i == m.toolSel {
+			// Expanded: full command then full output, wrapped to width.
+			w := m.width - 4
+			if strings.TrimSpace(r.args) != "" {
+				for _, l := range wrap(r.args, w) {
+					b.WriteString("    " + agentText.Render(l) + "\n")
+				}
+			}
+			out := r.result
+			if strings.TrimSpace(out) == "" {
+				out = "(no output yet)"
+			}
+			b.WriteString("    " + metaStyle.Render(strings.Repeat("─", min(w, 40))) + "\n")
+			st := resultStyle
+			if r.isErr {
+				st = errStyle
+			}
+			for _, l := range wrap(out, w) {
+				b.WriteString("    " + st.Render(l) + "\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 // renderModels draws the /model picker: available models grouped by provider,
 // with the current one marked.
 func (m Model) renderModels() string {
@@ -1795,10 +1874,16 @@ func (m *Model) applyEvent(e agent.Event) {
 				m.bashCmd = ""
 			}
 		}
+		if !worker {
+			m.toolRecs = append(m.toolRecs, toolRec{name: name, args: toolArgLine(name, args)})
+		}
 		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
 	case "tool-result":
 		if !worker {
 			m.bashCmd = ""
+			if n := len(m.toolRecs); n > 0 {
+				m.toolRecs[n-1].result = e.Data
+			}
 		}
 		m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
 	case "edit":

@@ -97,6 +97,23 @@ func DemoModelsView(width, height int) string {
 	return m.View()
 }
 
+// DemoToolsView renders the /tools expandable viewer with one entry expanded to
+// its full command + output.
+func DemoToolsView(width, height int) string {
+	m := New("ergon", "claude-opus-5", "ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.toolRecs = []toolRec{
+		{name: "read", args: "cmd/ergon/main.go", result: "1  package main\n2\n3  import \"github.com/dougkirkley/ergon/internal/cli\""},
+		{name: "bash", args: "go build ./... && go test ./...",
+			result: "ok  github.com/dougkirkley/ergon/internal/agent  0.42s\nok  github.com/dougkirkley/ergon/internal/tui  0.19s\nok  github.com/dougkirkley/ergon/internal/cli  0.31s\nok  github.com/dougkirkley/ergon/internal/config  0.44s"},
+		{name: "edit", args: "internal/cli/output.go", result: "replaced 1 occurrence"},
+	}
+	m.toolSel = 1
+	m.toolViewOpen = true
+	return m.View()
+}
+
 // DemoUsageView renders the /usage output: a context-fill bar per session and
 // model, for the provider in use.
 func DemoUsageView(width, height int) string {
