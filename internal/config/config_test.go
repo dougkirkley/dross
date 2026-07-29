@@ -7,6 +7,9 @@ import (
 )
 
 func TestLoadMissingReturnsEmpty(t *testing.T) {
+	// Isolate from any real user config so the search finds nothing.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ERGON_CONFIG", "")
 	f, path, err := Load(filepath.Join(t.TempDir(), "nope.json"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

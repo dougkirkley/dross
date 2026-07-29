@@ -31,14 +31,14 @@ type File struct {
 	Models      []string    `json:"models,omitempty"`       // allowed model ids to offer
 	Worker      *Provider   `json:"worker,omitempty"`
 	Reviewer    *Provider   `json:"reviewer,omitempty"`
-	Compactor   *Provider   `json:"compactor,omitempty"`   // token-efficiency skill
-	CompactAt   int         `json:"compact_at,omitempty"`  // tool-result byte threshold
-	Phrases     []string    `json:"phrases,omitempty"` // TUI status phrases
-	OAuth       *OAuthLogin `json:"oauth,omitempty"`   // for the claude-sub provider
+	Compactor   *Provider   `json:"compactor,omitempty"`  // token-efficiency skill
+	CompactAt   int         `json:"compact_at,omitempty"` // tool-result byte threshold
+	Phrases     []string    `json:"phrases,omitempty"`    // TUI status phrases
+	OAuth       *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
 }
 
-// OAuthLogin configures the `holocron login` PKCE flow and the claude-sub
-// provider. Every value is user-supplied — holocron ships no OAuth client and
+// OAuthLogin configures the `ergon login` PKCE flow and the claude-sub
+// provider. Every value is user-supplied — ergon ships no OAuth client and
 // impersonates nobody. To use a Claude subscription you must fill these in
 // yourself (client id, endpoints, and the header/system-pin that scope needs).
 type OAuthLogin struct {
@@ -58,21 +58,32 @@ func (o *OAuthLogin) Configured() bool {
 }
 
 // SearchPaths returns the config file locations checked, in order. An explicit
-// path (from --config) wins; then $HOLOCRON_CONFIG; then ./holocron.json; then
+// path (from --config) wins; then $ERGON_CONFIG; then ./ergon.json; then
 // the user config dir.
 func SearchPaths(explicit string) []string {
 	var paths []string
 	if explicit != "" {
 		paths = append(paths, explicit)
 	}
-	if env := os.Getenv("HOLOCRON_CONFIG"); env != "" {
+	if env := os.Getenv("ERGON_CONFIG"); env != "" {
 		paths = append(paths, env)
 	}
+	paths = append(paths, "ergon.json")
+	home, _ := os.UserHomeDir()
+	dir, _ := os.UserConfigDir()
+	if home != "" {
+		paths = append(paths, filepath.Join(home, ".ergon", "settings.json"))
+	}
+	if dir != "" {
+		paths = append(paths, filepath.Join(dir, "ergon", "config.json"))
+	}
+	// Back-compat: fall back to the pre-rename holocron config locations so
+	// existing setups keep working after the rename to ergon.
 	paths = append(paths, "holocron.json")
-	if home, err := os.UserHomeDir(); err == nil {
+	if home != "" {
 		paths = append(paths, filepath.Join(home, ".holocron", "settings.json"))
 	}
-	if dir, err := os.UserConfigDir(); err == nil {
+	if dir != "" {
 		paths = append(paths, filepath.Join(dir, "holocron", "config.json"))
 	}
 	return paths

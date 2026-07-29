@@ -1,4 +1,4 @@
-// Package tui is holocron's terminal client, built on Charm's Bubble Tea and Lip
+// Package tui is ergon's terminal client, built on Charm's Bubble Tea and Lip
 // Gloss — the "Crush feel" without any Crush code. Dark black/gray base with a
 // Carolina-blue accent. It drives an agent in-process and streams its events
 // into a scrolling log.
@@ -19,7 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dougkirkley/holocron/internal/agent"
+	"github.com/dougkirkley/ergon/internal/agent"
 )
 
 // --- palette: dark black/gray + Carolina blue -----------------------------
@@ -284,12 +284,12 @@ func RenderRun(ctx context.Context, width, height int, agentName, model, provide
 // New builds a TUI. run executes a prompt, calling emit for each event.
 func New(agentName, model, provider string, run RunFunc) Model {
 	ti := textinput.New()
-	ti.Placeholder = "ask holocron to build, edit, or run something…"
+	ti.Placeholder = "ask ergon to build, edit, or run something…"
 	ti.Prompt = ""
 	ti.Focus()
 
 	sp := spinner.New()
-	// A spinning holocron: the crystal cycles hollow → faceted → filled →
+	// A spinning ergon: the crystal cycles hollow → faceted → filled →
 	// faceted, as if catching light while it turns. These diamond glyphs render
 	// widely (unlike braille/quadrant, which box out in many fonts).
 	sp.Spinner = spinner.Spinner{
@@ -402,7 +402,7 @@ func (m *Model) removeSession(i int) {
 var DefaultPhrases = []string{
 	"Channeling the Force",
 	"Consulting the Jedi Council",
-	"Decrypting the holocron",
+	"Decrypting the ergon",
 	"Aligning the kyber crystal",
 	"Plotting the jump to lightspeed",
 	"Waking the astromech",
@@ -859,7 +859,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pendingAsk.reply <- ans
 				m.pendingAsk = nil
 				m.input.Reset()
-				m.input.Placeholder = "ask holocron to build, edit, or run something…"
+				m.input.Placeholder = "ask ergon to build, edit, or run something…"
 				return m, nil
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
@@ -1057,7 +1057,7 @@ func (m Model) welcome() string {
 	bodyH := m.height - 1 - 4          // header + footer
 	phase := float64(m.shimmer) * 0.03 // slow flowing shimmer
 	logo := renderLogoAt(m.logoVariant, phase)
-	tagline := gradientTextAt("the archive remembers your code", holoLoop, phase*0.7)
+	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
 	block := lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
@@ -1086,7 +1086,7 @@ func crystalMeter(frac float64, cells int) string {
 }
 
 func (m Model) header() string {
-	left := crystalStyle.Render("◈  ") + gradientText("H O L O C R O N", holoRamp)
+	left := crystalStyle.Render("◈  ") + gradientText("E R G O N", holoRamp)
 	if m.model != "" {
 		left += metaStyle.Render("      " + m.model)
 	}
@@ -1518,7 +1518,7 @@ func (m Model) buildPickOrder() []int {
 	return append(append(work, await...), neu...)
 }
 
-// renderHelp draws the shortcuts overlay (holocron's own keybindings).
+// renderHelp draws the shortcuts overlay (ergon's own keybindings).
 func renderHelp() string {
 	rows := [][2]string{
 		{"enter", "send message"},
@@ -1548,7 +1548,7 @@ func (m Model) renderSessions() string {
 		counts[m.statusOf(i)]++
 	}
 	var b strings.Builder
-	b.WriteString(agentLabel.Render("holocron sessions") + "  " +
+	b.WriteString(agentLabel.Render("ergon sessions") + "  " +
 		metaStyle.Render(fmt.Sprintf("%d awaiting · %d working · %d new",
 			counts["awaiting"], counts["working"], counts["new"])) + "\n")
 	b.WriteString(metaStyle.Render("enter opens · n new · x remove · esc closes") + "\n")

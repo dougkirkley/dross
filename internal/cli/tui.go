@@ -11,10 +11,10 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/agent"
-	"github.com/dougkirkley/holocron/internal/provider"
-	"github.com/dougkirkley/holocron/internal/relay"
-	"github.com/dougkirkley/holocron/internal/tui"
+	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/internal/relay"
+	"github.com/dougkirkley/ergon/internal/tui"
 )
 
 func newTUICmd() *cobra.Command {
@@ -107,7 +107,7 @@ func newTUICmd() *cobra.Command {
 							return tui.Ask(prog, req)
 						}))
 					}
-					a, err := agent.New(agent.Config{Name: "holocron", Model: st.model, Workdir: workdir, Identity: projectCtx},
+					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: projectCtx},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err
@@ -120,10 +120,10 @@ func newTUICmd() *cobra.Command {
 			}
 
 			if once != "" {
-				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "holocron", st.model, st.name, run, once))
+				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "ergon", st.model, st.name, run, once))
 				return nil
 			}
-			mdl := tui.New("holocron", st.model, st.name, run)
+			mdl := tui.New("ergon", st.model, st.name, run)
 			mdl.SetPhrases(res.File.Phrases)
 			mdl.SetReset(func() {
 				if conv != nil {
@@ -221,7 +221,7 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&provName, "provider", "", "provider (default: none — set up via /model)")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
-	f.StringVar(&server, "server", "", "holocron server for /login and /rc device linking")
+	f.StringVar(&server, "server", "", "ergon server for /login and /rc device linking")
 	f.StringVar(&workerProv, "worker-provider", "openai", "worker backend (for /rc)")
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation over /rc)")
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")

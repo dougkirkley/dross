@@ -9,11 +9,11 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/dougkirkley/holocron/internal/agent"
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
-// DeviceOptions configures a device relay: this computer dials OUT to a holocron
+// DeviceOptions configures a device relay: this computer dials OUT to a ergon
 // server and advertises a session the phone can drive. Prompts are relayed back
 // and run locally; the agent's events stream to the server.
 type DeviceOptions struct {
@@ -111,7 +111,7 @@ func (d *device) run(ctx context.Context, id, text string) {
 	if d.opts.Worker != nil && d.opts.WorkerModel != "" {
 		aopts = append(aopts, agent.WithWorker(d.opts.Worker, d.opts.WorkerModel))
 	}
-	ag, err := agent.New(agent.Config{Name: "holocron", Model: d.opts.LeadModel, Workdir: d.opts.Workdir}, d.opts.Lead, aopts...)
+	ag, err := agent.New(agent.Config{Name: "ergon", Model: d.opts.LeadModel, Workdir: d.opts.Workdir}, d.opts.Lead, aopts...)
 	if err != nil {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "error", Data: err.Error()})
 		return

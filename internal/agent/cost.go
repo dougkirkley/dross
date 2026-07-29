@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/dougkirkley/holocron/internal/provider"
+import "github.com/dougkirkley/ergon/internal/provider"
 
 // pricing is USD per 1,000,000 tokens. cacheRead is the discounted rate for
 // cache-read input; cacheWrite is the 5-minute-TTL write premium (1.25x input).

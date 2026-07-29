@@ -9,8 +9,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/dougkirkley/holocron/internal/auth"
-	"github.com/dougkirkley/holocron/internal/relay"
+	"github.com/dougkirkley/ergon/internal/auth"
+	"github.com/dougkirkley/ergon/internal/relay"
 )
 
 // deviceHub tracks laptops linked over the relay WebSocket and routes frames to

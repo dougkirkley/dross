@@ -1,4 +1,4 @@
-module github.com/dougkirkley/holocron
+module github.com/dougkirkley/ergon
 
 go 1.26.4
 

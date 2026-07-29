@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/artifact"
-	"github.com/dougkirkley/holocron/internal/auth"
-	"github.com/dougkirkley/holocron/internal/provider"
-	"github.com/dougkirkley/holocron/internal/server"
-	"github.com/dougkirkley/holocron/internal/storage"
+	"github.com/dougkirkley/ergon/internal/artifact"
+	"github.com/dougkirkley/ergon/internal/auth"
+	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/internal/server"
+	"github.com/dougkirkley/ergon/internal/storage"
 )
 
 func newServeCmd() *cobra.Command {
@@ -119,7 +119,7 @@ func newServeCmd() *cobra.Command {
 				state = "SSO enforced"
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "holocron serve on %s (provider %s, model %s, workspace %s) — %s\n", addr, provName, model, workdir, state)
+			fmt.Fprintf(out, "ergon serve on %s (provider %s, model %s, workspace %s) — %s\n", addr, provName, model, workdir, state)
 			if !srv.AuthEnabled() {
 				fmt.Fprintln(out, "WARNING: no auth configured; do not expose beyond LAN/localhost")
 			}

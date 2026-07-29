@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 // TestSend_ToolCall spins a mock OpenAI-compatible server and verifies the

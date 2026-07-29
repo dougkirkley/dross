@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/config"
+	"github.com/dougkirkley/ergon/internal/config"
 )
 
 // storePath is where session handoff briefs and artifacts live.
@@ -15,7 +15,7 @@ func storePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := configDir + "/holocron/sessions"
+	p := configDir + "/ergon/sessions"
 	if err := os.MkdirAll(p, 0o755); err != nil {
 		return "", err
 	}

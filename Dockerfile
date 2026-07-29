@@ -7,14 +7,14 @@ WORKDIR /app
 COPY . .
 # Replace the committed placeholder with the real web build, then compile.
 RUN rm -rf internal/web/dist && cp -r mobile/build/web internal/web/dist \
-    && CGO_ENABLED=0 GOOS=linux go build -o holocron ./cmd/holocron
+    && CGO_ENABLED=0 GOOS=linux go build -o ergon ./cmd/ergon
 
 FROM alpine:latest
 # Sandboxed Code sessions run shell commands via the bash tool, so the runtime
 # needs bash (alpine ships only /bin/sh) plus git and certs for real work.
 RUN apk add --no-cache bash git ca-certificates
 WORKDIR /app
-COPY --from=builder /app/holocron .
+COPY --from=builder /app/ergon .
 EXPOSE 8080
 # serve binds all interfaces so the gateway can reach it; hosts UI + API.
-ENTRYPOINT ["./holocron", "serve", "--addr", ":8080"]
+ENTRYPOINT ["./ergon", "serve", "--addr", ":8080"]

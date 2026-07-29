@@ -3,7 +3,7 @@ package subauth
 import (
 	"testing"
 
-	"github.com/dougkirkley/holocron/internal/config"
+	"github.com/dougkirkley/ergon/internal/config"
 )
 
 func TestParseCallback(t *testing.T) {

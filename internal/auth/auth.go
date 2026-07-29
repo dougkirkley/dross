@@ -1,4 +1,4 @@
-// Package auth adds SSO to holocron serve. It verifies identities from any OIDC
+// Package auth adds SSO to ergon serve. It verifies identities from any OIDC
 // provider (Keycloak, Google, Microsoft, Okta, Auth0) and from Cloudflare
 // Access, and can run the browser login flow itself. Three ways in:
 //
@@ -34,7 +34,7 @@ type Config struct {
 	Issuer       string // OIDC issuer URL (discovery); e.g. https://keycloak.example.com/realms/homelab
 	ClientID     string // OIDC client id (also the expected audience)
 	ClientSecret string
-	RedirectURL  string // e.g. https://holocron.example.com/auth/callback
+	RedirectURL  string // e.g. https://ergon.example.com/auth/callback
 
 	// Cloudflare Access header verification.
 	CFTeamDomain string // https://<team>.cloudflareaccess.com
@@ -70,8 +70,8 @@ type Authenticator struct {
 }
 
 const (
-	sessionCookie = "holocron_session"
-	stateCookie   = "holocron_oauth"
+	sessionCookie = "ergon_session"
+	stateCookie   = "ergon_oauth"
 	sessionTTL    = 12 * time.Hour
 )
 
@@ -173,7 +173,7 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 			return e, false, true
 		}
 	}
-	// 3b. Bearer holocron session token (issued to native app clients via the
+	// 3b. Bearer ergon session token (issued to native app clients via the
 	// mode=app login flow); the same signed session the cookie carries.
 	if bearer != "" {
 		if e, ok := a.readSession(bearer); ok {
@@ -306,7 +306,7 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 
 // appCallbackScheme is the custom-scheme URL native clients register to capture
 // the session token from the OIDC callback.
-const appCallbackScheme = "holocron://auth"
+const appCallbackScheme = "ergon://auth"
 
 // loopbackURL reports whether u is an http URL on 127.0.0.1/localhost — the only
 // redirect target allowed for the CLI login flow (prevents token exfiltration).

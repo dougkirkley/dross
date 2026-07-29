@@ -2,9 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// ansiRE strips ANSI escape codes so assertions can match text that's rendered
+// with per-character styling (e.g. the gradient tagline/wordmark).
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 func TestRootHasSubcommands(t *testing.T) {
 	root := NewRootCmd()
@@ -39,7 +46,7 @@ func TestTUIRenderIsHermetic(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("tui --render: %v", err)
 	}
-	if !strings.Contains(out.String(), "cost-aware") {
+	if !strings.Contains(stripANSI(out.String()), "pluggable") {
 		t.Fatalf("render missing tagline:\n%s", out.String())
 	}
 }

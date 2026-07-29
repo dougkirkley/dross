@@ -1,12 +1,12 @@
 // Package claudesub registers a "claude-sub" provider that authenticates with an
-// OAuth bearer token from `holocron login` (see internal/subauth) instead of an
+// OAuth bearer token from `ergon login` (see internal/subauth) instead of an
 // API key — for using a subscription-backed endpoint.
 //
-// holocron ships NO OAuth client and impersonates no vendor: the client id,
+// ergon ships NO OAuth client and impersonates no vendor: the client id,
 // endpoints, the anthropic-beta header value, and any required system-prompt pin
 // all come from the user's own config ([oauth]). Import for side effects:
 //
-//	import _ "github.com/dougkirkley/holocron/internal/provider/claudesub"
+//	import _ "github.com/dougkirkley/ergon/internal/provider/claudesub"
 package claudesub
 
 import (
@@ -15,10 +15,10 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/dougkirkley/holocron/internal/config"
-	"github.com/dougkirkley/holocron/internal/provider"
-	"github.com/dougkirkley/holocron/internal/provider/anthropic"
-	"github.com/dougkirkley/holocron/internal/subauth"
+	"github.com/dougkirkley/ergon/internal/config"
+	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider/anthropic"
+	"github.com/dougkirkley/ergon/internal/subauth"
 )
 
 func init() {
@@ -35,7 +35,7 @@ func init() {
 			return nil, fmt.Errorf("claude-sub: %w", err)
 		}
 		if tok == "" {
-			return nil, fmt.Errorf("claude-sub: not logged in — run `holocron login`")
+			return nil, fmt.Errorf("claude-sub: not logged in — run `ergon login`")
 		}
 		opts := []option.RequestOption{option.WithAuthToken(tok)}
 		if f.OAuth.BetaHeader != "" {

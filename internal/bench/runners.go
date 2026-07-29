@@ -4,27 +4,27 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/dougkirkley/holocron/internal/agent"
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
-// HolocronRunner runs tasks with the in-process agent, so it reports real cost.
-type HolocronRunner struct {
+// ErgonRunner runs tasks with the in-process agent, so it reports real cost.
+type ErgonRunner struct {
 	Provider    provider.Provider
 	Model       string
 	Worker      provider.Provider // optional
 	WorkerModel string
 }
 
-func (h *HolocronRunner) Name() string    { return "holocron" }
-func (h *HolocronRunner) Available() bool { return h.Provider != nil }
+func (h *ErgonRunner) Name() string    { return "ergon" }
+func (h *ErgonRunner) Available() bool { return h.Provider != nil }
 
-func (h *HolocronRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics, error) {
+func (h *ErgonRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics, error) {
 	opts := []agent.Option{}
 	if h.Worker != nil && h.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(h.Worker, h.WorkerModel))
 	}
-	ag, err := agent.New(agent.Config{Name: "holocron", Model: h.Model, Workdir: workdir}, h.Provider, opts...)
+	ag, err := agent.New(agent.Config{Name: "ergon", Model: h.Model, Workdir: workdir}, h.Provider, opts...)
 	if err != nil {
 		return Metrics{}, err
 	}

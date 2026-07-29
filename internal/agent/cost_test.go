@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 func TestCost(t *testing.T) {

@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/artifact"
-	"github.com/dougkirkley/holocron/internal/auth"
-	"github.com/dougkirkley/holocron/internal/provider"
-	"github.com/dougkirkley/holocron/internal/storage"
+	"github.com/dougkirkley/ergon/internal/artifact"
+	"github.com/dougkirkley/ergon/internal/auth"
+	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/internal/storage"
 )
 
 func testArts(t *testing.T) *artifact.Store {

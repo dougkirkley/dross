@@ -1,4 +1,4 @@
-// Package cli is holocron's command-line interface, built with Cobra. Each
+// Package cli is ergon's command-line interface, built with Cobra. Each
 // subcommand lives in its own file and is constructed by a newXCmd() function,
 // so commands can be built and exercised in tests without a process.
 package cli
@@ -14,12 +14,12 @@ const defaultModel = "claude-opus-5"
 // NewRootCmd builds the root command with all subcommands attached.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "holocron",
+		Use:           "ergon",
 		Short:         "Cost-aware multi-model coding agent",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().String("config", "", "path to JSON config file (default: ./holocron.json or user config dir)")
+	root.PersistentFlags().String("config", "", "path to JSON config file (default: ./ergon.json or user config dir)")
 	root.AddCommand(
 		newAgentCmd(),
 		newServeCmd(),
@@ -33,7 +33,7 @@ func NewRootCmd() *cobra.Command {
 	return root
 }
 
-// Execute runs the CLI. With no arguments, holocron launches the TUI.
+// Execute runs the CLI. With no arguments, ergon launches the TUI.
 func Execute() error {
 	root := NewRootCmd()
 	if len(os.Args) < 2 {

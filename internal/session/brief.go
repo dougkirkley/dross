@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/storage"
+	"github.com/dougkirkley/ergon/internal/storage"
 )
 
 // Brief is the durable, resumable summary of a session.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 func TestDrivenLive(t *testing.T) {

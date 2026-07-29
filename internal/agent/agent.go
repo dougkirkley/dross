@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 // Style controls how verbose the agent's user-facing output is. Terser styles

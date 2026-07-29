@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/config"
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/config"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 var mentionRE = regexp.MustCompile(`@([^\s@]+)`)
@@ -103,7 +103,7 @@ func saveLeadProvider(explicit string, st *leadState) error {
 		if derr != nil {
 			return derr
 		}
-		path = filepath.Join(dir, "holocron", "config.json")
+		path = filepath.Join(dir, "ergon", "config.json")
 	}
 	f.Provider = providerImpl(st.name)
 	f.BaseURL = st.baseURL

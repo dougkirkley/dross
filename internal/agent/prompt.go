@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/dougkirkley/holocron/internal/provider"
+import "github.com/dougkirkley/ergon/internal/provider"
 
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific

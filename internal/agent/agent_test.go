@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 // scriptedProvider replays a fixed list of responses, one per Send, so a run can

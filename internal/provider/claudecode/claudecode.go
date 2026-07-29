@@ -1,16 +1,16 @@
 // Package claudecode is a provider that drives the locally-installed Claude Code
 // CLI (`claude`) in headless mode. It uses whatever auth the CLI already has —
-// typically a Claude subscription — so holocron can talk to Claude without an
+// typically a Claude subscription — so ergon can talk to Claude without an
 // Anthropic API key. Import for side effects to register:
 //
-//	import _ "github.com/dougkirkley/holocron/internal/provider/claudecode"
+//	import _ "github.com/dougkirkley/ergon/internal/provider/claudecode"
 //
 // Two modes:
 //
-//   - Driven (when the session has holocron tools): Claude Code's built-in tools
+//   - Driven (when the session has ergon tools): Claude Code's built-in tools
 //     are disabled and its persona is replaced with a system prompt that lists
-//     holocron's tools and a strict XML call format. Claude only reasons and
-//     emits tool calls; holocron parses and executes them. holocron's own agent
+//     ergon's tools and a strict XML call format. Claude only reasons and
+//     emits tool calls; ergon parses and executes them. ergon's own agent
 //     loop (delegate, background shells, reviewer, sandbox) stays in control.
 //   - Thin (no tools): the prompt is forwarded and Claude Code runs its own loop.
 package claudecode
@@ -27,7 +27,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 func init() {
@@ -55,9 +55,9 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 		s.system = buildSystem(cfg.System, cfg.Tools)
 	} else {
 		// Thin mode: Claude Code owns permissioning but can't prompt in headless
-		// mode, so auto-accept edits (bypass fully with HOLOCRON_CLAUDE_DANGEROUS).
+		// mode, so auto-accept edits (bypass fully with ERGON_CLAUDE_DANGEROUS).
 		s.permission = "acceptEdits"
-		if v := os.Getenv("HOLOCRON_CLAUDE_DANGEROUS"); v == "1" || v == "true" {
+		if v := os.Getenv("ERGON_CLAUDE_DANGEROUS"); v == "1" || v == "true" {
 			s.permission = ""
 		}
 	}
@@ -74,7 +74,7 @@ type session struct {
 	sessionID  string // captured from the first turn, reused via --resume
 }
 
-// buildSystem produces the driven-mode system prompt: holocron's own system,
+// buildSystem produces the driven-mode system prompt: ergon's own system,
 // then the tool-call protocol and the tool catalog.
 func buildSystem(base string, tools []provider.ToolDef) string {
 	var b strings.Builder
@@ -157,7 +157,7 @@ func parseCalls(s string) ([]provider.ToolCall, string) {
 	return calls, cleaned
 }
 
-// formatResults renders holocron tool results as a user message Claude continues
+// formatResults renders ergon tool results as a user message Claude continues
 // from.
 func formatResults(rs []provider.ToolResult) string {
 	var b strings.Builder
@@ -212,7 +212,7 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	if s.driven {
 		// Give Claude Code ZERO tools (--tools with an empty list) and strip
 		// global MCP servers/settings, so it can't act on its own and instead
-		// emits our XML tool calls for holocron to execute.
+		// emits our XML tool calls for ergon to execute.
 		args = append(args, "--tools", "", "--strict-mcp-config", "--setting-sources", "")
 	} else if s.permission == "" {
 		args = append(args, "--dangerously-skip-permissions")

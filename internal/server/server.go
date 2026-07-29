@@ -3,13 +3,13 @@ package server
 import (
 	"net/http"
 
-	"github.com/dougkirkley/holocron/internal/artifact"
-	"github.com/dougkirkley/holocron/internal/auth"
-	"github.com/dougkirkley/holocron/internal/storage"
-	"github.com/dougkirkley/holocron/internal/web"
+	"github.com/dougkirkley/ergon/internal/artifact"
+	"github.com/dougkirkley/ergon/internal/auth"
+	"github.com/dougkirkley/ergon/internal/storage"
+	"github.com/dougkirkley/ergon/internal/web"
 )
 
-// Server is the HTTP surface for `holocron serve`: server-side sessions that
+// Server is the HTTP surface for `ergon serve`: server-side sessions that
 // clients (TUI, web, phone) attach to over SSE. Runs continue whether or not a
 // client is connected — the remote-control property (see DESIGN.md).
 type Server struct {

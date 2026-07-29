@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 // TestLive drives the real claude CLI. Gated by HOLOCRON_LIVE=1 so it never runs

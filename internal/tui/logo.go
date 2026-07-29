@@ -10,7 +10,7 @@ import (
 )
 
 // holoRamp is the holographic crystal gradient (cyan → blue → violet → magenta)
-// that gives the holocron its signature shimmer.
+// that gives the ergon its signature shimmer.
 var holoRamp = []string{"#5CE1E6", "#4FB8E8", "#6E9BF0", "#A78BFA", "#E06CE6"}
 
 // holoLoop is a seamless cyclic palette (returns to cyan) for the animated
@@ -100,6 +100,8 @@ var glyphs = map[rune][5]string{
 	'C': {" ████", "█    ", "█    ", "█    ", " ████"},
 	'R': {"████ ", "█   █", "████ ", "█  █ ", "█   █"},
 	'N': {"█   █", "██  █", "█ █ █", "█  ██", "█   █"},
+	'E': {"█████", "█    ", "████ ", "█    ", "█████"},
+	'G': {" ████", "█    ", "█  ██", "█   █", " ████"},
 }
 
 // bigLogoRows renders word in the block font, one string per row.
@@ -130,7 +132,7 @@ func renderLogo(variant int) string { return renderLogoAt(variant, -1) }
 // renderLogoAt renders the logo; phase >= 0 animates variant 1's holographic
 // shimmer (the gradient flows down the block as phase advances).
 func renderLogoAt(variant int, phase float64) string {
-	rows := bigLogoRows("HOLOCRON")
+	rows := bigLogoRows("ERGON")
 	switch variant {
 	case 1:
 		// Holographic crystal: cyan → magenta down the block; when animated the

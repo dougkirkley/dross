@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/bench"
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/bench"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 func newBenchCmd() *cobra.Command {
@@ -15,14 +15,14 @@ func newBenchCmd() *cobra.Command {
 	var external bool
 	cmd := &cobra.Command{
 		Use:   "bench",
-		Short: "Benchmark holocron against Claude Code and Codex on coding tasks",
+		Short: "Benchmark ergon against Claude Code and Codex on coding tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			prov, err := provider.New(provName, provider.Config{BaseURL: baseURL, APIKey: apiKey})
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
 			}
-			runners := []bench.Runner{&bench.HolocronRunner{
+			runners := []bench.Runner{&bench.ErgonRunner{
 				Provider: prov, Model: model, Worker: prov, WorkerModel: workerModel,
 			}}
 			if external {
@@ -36,11 +36,11 @@ func newBenchCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&provName, "provider", "openai", "holocron lead backend")
+	f.StringVar(&provName, "provider", "openai", "ergon lead backend")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
-	f.StringVar(&model, "model", "qwen3-coder:30b", "holocron model")
-	f.StringVar(&workerModel, "worker-model", "", "holocron worker model (enables delegation)")
+	f.StringVar(&model, "model", "qwen3-coder:30b", "ergon model")
+	f.StringVar(&workerModel, "worker-model", "", "ergon worker model (enables delegation)")
 	f.BoolVar(&external, "external", true, "also run Claude Code and Codex if installed")
 	return cmd
 }

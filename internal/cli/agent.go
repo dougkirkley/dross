@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/agent"
-	"github.com/dougkirkley/holocron/internal/provider"
-	"github.com/dougkirkley/holocron/internal/session"
-	"github.com/dougkirkley/holocron/internal/storage"
+	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/internal/provider"
+	"github.com/dougkirkley/ergon/internal/session"
+	"github.com/dougkirkley/ergon/internal/storage"
 )
 
 func newAgentCmd() *cobra.Command {

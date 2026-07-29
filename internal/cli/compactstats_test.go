@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/holocron/internal/agent"
+	"github.com/dougkirkley/ergon/internal/agent"
 )
 
 // TestCompactRecorder proves the recorder appends one JSONL line per record and

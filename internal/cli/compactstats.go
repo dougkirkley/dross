@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/holocron/internal/agent"
+	"github.com/dougkirkley/ergon/internal/agent"
 )
 
 // compactStatsPath is where compaction observations are appended (JSONL), so the

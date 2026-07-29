@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/dougkirkley/holocron/internal/provider"
+	"github.com/dougkirkley/ergon/internal/provider"
 )
 
 // convertTools should cache only the last tool (marks the whole tools+system
