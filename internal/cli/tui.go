@@ -243,6 +243,9 @@ func newTUICmd() *cobra.Command {
 			mdl.SetThemeSaver(func(name string) {
 				_ = setConfigKey(configFilePath(cfgPath), "theme", name)
 			})
+			mdl.SetWelcomeSaver(func(name string) {
+				_ = setConfigKey(configFilePath(cfgPath), "welcome", name)
+			})
 			if store != nil {
 				mdl.SetCheckpoint(func(ctx context.Context) error {
 					if conv != nil {

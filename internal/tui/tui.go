@@ -144,6 +144,7 @@ var slashCommands = []slashCmd{
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
 	{"/theme", "switch color theme"},
+	{"/welcome", "switch empty-state layout"},
 	{"/mouse", "toggle mouse (off = select/copy text)"},
 	{"/config", "edit the config file in $EDITOR"},
 	{"/skills", "list available skills"},
@@ -208,6 +209,7 @@ type Model struct {
 	checkpoint     func(context.Context) error // save a handoff brief on exit (SetCheckpoint)
 	quitting       bool                        // a checkpoint-then-quit is in flight
 	onTheme        func(string)                // persist the chosen theme (SetThemeSaver)
+	onWelcome      func(string)                // persist the welcome layout (SetWelcomeSaver)
 	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
 	pluginReload   func() []SkillItem
 	skillsViewOpen bool
@@ -502,6 +504,9 @@ func (m *Model) SetConfigPath(path string) { m.configPath = path }
 // SetThemeSaver wires a callback that persists the theme chosen via /theme.
 func (m *Model) SetThemeSaver(fn func(string)) { m.onTheme = fn }
 
+// SetWelcomeSaver wires a callback that persists the layout chosen via /welcome.
+func (m *Model) SetWelcomeSaver(fn func(string)) { m.onWelcome = fn }
+
 // SetCheckpoint wires a save-on-exit callback that persists a handoff brief so
 // the session can be resumed later.
 func (m *Model) SetCheckpoint(fn func(context.Context) error) { m.checkpoint = fn }
@@ -755,6 +760,27 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		}
 		m.append(startGlyph.Render("▸ ") + metaStyle.Render("theme ") + crystalStyle.Render(name) +
 			metaStyle.Render("  · "+strings.Join(ThemeNames(), " ")))
+		return true, nil
+	case "/welcome":
+		m.input.Reset()
+		args := strings.Fields(text)[1:]
+		var name string
+		if len(args) > 0 {
+			idx := welcomeIndex(args[0])
+			if idx < 0 {
+				m.append(errStyle.Render("unknown layout: " + args[0] + " · try: " + strings.Join(welcomeNames, " ")))
+				return true, nil
+			}
+			m.welcomeStyle, name = idx, args[0]
+		} else {
+			m.welcomeStyle = (m.welcomeStyle + 1) % len(welcomeNames)
+			name = welcomeNames[m.welcomeStyle]
+		}
+		if m.onWelcome != nil {
+			m.onWelcome(name)
+		}
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("welcome ") + crystalStyle.Render(name) +
+			metaStyle.Render("  · "+strings.Join(welcomeNames, " ")))
 		return true, nil
 	case "/mouse":
 		m.input.Reset()
@@ -1496,6 +1522,20 @@ func (m Model) welcome() string {
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return lipgloss.NewStyle().Width(m.width).Height(bodyH).Padding(1, 2).Render(content)
+}
+
+// welcomeNames are the selectable empty-state layouts, index-aligned with
+// welcomeStyle.
+var welcomeNames = []string{"clean", "boxed", "centered"}
+
+// welcomeIndex maps a layout name to its welcomeStyle index, or -1 if unknown.
+func welcomeIndex(name string) int {
+	for i, n := range welcomeNames {
+		if n == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // welcomeCentered is the original splash: the big wordmark centered with a
