@@ -72,7 +72,7 @@ OpenAI-compatible and share one backend, selected by base URL.
 | Kind | How |
 |------|-----|
 | **Local** (ollama, LM Studio, llama.cpp) | no key; `/model ollama` |
-| **OpenAI-compatible hosted** (openai, groq, cerebras, deepseek, xai, mistral, openrouter, together, fireworks, deepinfra, perplexity, nebius, hyperbolic, moonshot) | `<PROVIDER>_API_KEY` in env; `/model <id>` |
+| **OpenAI-compatible hosted** (openai, groq, cerebras, deepseek, xai, mistral, openrouter, together, fireworks, deepinfra, perplexity, nebius, hyperbolic, moonshot, zai, dashscope, github, cohere) | `<PROVIDER>_API_KEY` in env; `/model <id>` |
 | **Anthropic** (native) | `ANTHROPIC_API_KEY`; `/model anthropic` |
 | **Google Gemini** (native, function calling) | `GEMINI_API_KEY`; `/model gemini` (gemini-3-pro, 2.5-pro/flash, …) |
 | **Amazon Bedrock** (Claude + Llama/Nova/Mistral/… via Converse) | AWS default credential chain; `/model bedrock` (region inference-profile ids) |

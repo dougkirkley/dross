@@ -58,6 +58,10 @@ var providers = map[string]Provider{
 	"nebius":     {ID: "nebius", Name: "Nebius", Impl: "openai", BaseURL: "https://api.studio.nebius.ai/v1", APIKeyEnv: "NEBIUS_API_KEY"},
 	"hyperbolic": {ID: "hyperbolic", Name: "Hyperbolic", Impl: "openai", BaseURL: "https://api.hyperbolic.xyz/v1", APIKeyEnv: "HYPERBOLIC_API_KEY"},
 	"moonshot":   {ID: "moonshot", Name: "Moonshot (Kimi)", Impl: "openai", BaseURL: "https://api.moonshot.ai/v1", APIKeyEnv: "MOONSHOT_API_KEY", Models: []string{"kimi-k2", "moonshot-v1-128k"}},
+	"zai":        {ID: "zai", Name: "Z.ai (GLM)", Impl: "openai", BaseURL: "https://api.z.ai/api/paas/v4", APIKeyEnv: "ZAI_API_KEY", Models: []string{"glm-4.6", "glm-4.5", "glm-4.5-air"}},
+	"dashscope":  {ID: "dashscope", Name: "Alibaba Qwen (DashScope)", Impl: "openai", BaseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", APIKeyEnv: "DASHSCOPE_API_KEY", Models: []string{"qwen3-coder-plus", "qwen-max", "qwen-plus"}},
+	"github":     {ID: "github", Name: "GitHub Models", Impl: "openai", BaseURL: "https://models.github.ai/inference", APIKeyEnv: "GITHUB_TOKEN", Models: []string{"openai/gpt-4o", "openai/gpt-4o-mini", "meta/Llama-3.3-70B-Instruct"}},
+	"cohere":     {ID: "cohere", Name: "Cohere (Command)", Impl: "openai", BaseURL: "https://api.cohere.ai/compatibility/v1", APIKeyEnv: "COHERE_API_KEY", Models: []string{"command-a-03-2025", "command-r-plus-08-2024", "command-r7b-12-2024"}},
 }
 
 // Get returns the catalog entry for id (case-sensitive), if any.
