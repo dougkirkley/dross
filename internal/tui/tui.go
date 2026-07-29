@@ -256,6 +256,12 @@ type Model struct {
 	modelPickerOpen bool
 	modelSel        int
 
+	// provider picker (first stage of /model): choose a catalog provider, then
+	// its models load into the model picker.
+	providerIDs        []string
+	providerPickerOpen bool
+	providerSel        int
+
 	slashSel int    // highlighted row in slash-command autocomplete
 	reset    func() // clears persistent conversation memory (/clear)
 	shimmer  int    // animation phase for the holographic welcome shimmer
@@ -450,6 +456,10 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 // SetReset wires /clear to drop persistent conversation memory.
 func (m *Model) SetReset(fn func()) { m.reset = fn }
 
+// SetProviders gives /model a catalog of provider ids to pick from (first stage
+// of the modal). Empty keeps the type-a-provider flow.
+func (m *Model) SetProviders(ids []string) { m.providerIDs = ids }
+
 // SetModelPicker wires /model: list returns the configured provider's models
 // (nil if none), setup configures a provider from (kind, baseURL, apiKey) and
 // returns its models, onPick switches the model for subsequent runs.
@@ -584,6 +594,18 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 				return modelsMsg{groups: g, err: err}
 			}
 		}
+		// No args: open the provider picker modal (first stage). Falls back to
+		// listing the current provider's models if no catalog is wired.
+		if len(m.providerIDs) > 0 && m.modelSetup != nil {
+			m.providerPickerOpen = true
+			m.providerSel = 0
+			for i, id := range m.providerIDs { // start on the current provider
+				if id == m.provider {
+					m.providerSel = i
+				}
+			}
+			return true, nil
+		}
 		if m.modelList == nil {
 			m.append(metaStyle.Render("model switching not available"))
 			return true, nil
@@ -592,7 +614,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, func() tea.Msg {
 			g := list()
 			if len(g) == 0 {
-				return modelsMsg{err: fmt.Errorf("no provider configured — /model <provider> (e.g. ollama, openai, anthropic, groq, openrouter, deepseek, xai, mistral, together, fireworks) auto-fills the URL + API key; or /model <kind> <baseURL> [key]")}
+				return modelsMsg{err: fmt.Errorf("no provider configured — /model <provider> (e.g. ollama, openai, groq, openrouter) or /model <kind> <baseURL> [key]")}
 			}
 			return modelsMsg{groups: g}
 		}
@@ -663,6 +685,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// "?" on an empty prompt opens the shortcuts overlay.
 		if msg.String() == "?" && m.input.Value() == "" && !m.pickerOpen && m.pendingAsk == nil {
 			m.helpOpen = true
+			return m, nil
+		}
+		// Provider picker overlay (first stage of /model) captures keys.
+		if m.providerPickerOpen {
+			switch msg.String() {
+			case "esc", "q":
+				m.providerPickerOpen = false
+			case "up", "k":
+				if m.providerSel > 0 {
+					m.providerSel--
+				}
+			case "down", "j":
+				if m.providerSel < len(m.providerIDs)-1 {
+					m.providerSel++
+				}
+			case "enter":
+				id := m.providerIDs[m.providerSel]
+				m.providerPickerOpen = false
+				m.provider = id
+				m.append(metaStyle.Render("configuring " + id + " …"))
+				setup := m.modelSetup
+				return m, func() tea.Msg {
+					g, err := setup(id, "", "")
+					return modelsMsg{groups: g, err: err}
+				}
+			}
 			return m, nil
 		}
 		// Tools viewer overlay captures keys.
@@ -1070,6 +1118,10 @@ func (m Model) View() string {
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
+		body = m.vp.View()
+	} else if m.providerPickerOpen {
+		m.vp.SetContent(m.renderProviderPicker())
+		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if m.toolViewOpen {
 		m.vp.SetContent(m.renderToolView())
@@ -1535,6 +1587,25 @@ func (m Model) renderToolView() string {
 			b.WriteString("\n")
 		}
 	}
+	return b.String()
+}
+
+// renderProviderPicker draws the first stage of /model: choose a provider.
+func (m Model) renderProviderPicker() string {
+	var b strings.Builder
+	b.WriteString(agentLabel.Render("Provider") + metaStyle.Render("  ↑/↓ select · enter · esc cancel") + "\n\n")
+	for i, id := range m.providerIDs {
+		cursor, style := "  ", agentText
+		if i == m.providerSel {
+			cursor, style = promptMark.Render("› "), checkStyle
+		}
+		line := cursor + style.Render(id)
+		if id == m.provider {
+			line += metaStyle.Render("  (current)")
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n" + metaStyle.Render("base URL + API key are filled from the catalog / env; then pick a model"))
 	return b.String()
 }
 

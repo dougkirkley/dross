@@ -80,6 +80,18 @@ func DemoBangView(width, height int) string {
 	return m.View()
 }
 
+// DemoProvidersView renders the /model provider picker (first stage).
+func DemoProvidersView(width, height int) string {
+	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.providerIDs = []string{"anthropic", "cerebras", "deepseek", "fireworks", "groq", "mistral", "ollama", "openai", "openrouter", "together", "xai"}
+	m.provider = "ollama"
+	m.providerSel = 4
+	m.providerPickerOpen = true
+	return m.View()
+}
+
 // DemoModelsView renders the /model picker: served models grouped by provider.
 func DemoModelsView(width, height int) string {
 	m := New("ergon", "qwen3-coder:30b", "ollama", nil)

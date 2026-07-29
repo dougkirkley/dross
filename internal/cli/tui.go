@@ -23,7 +23,7 @@ func newTUICmd() *cobra.Command {
 		render, welcome, running, ask, sessions, shortcuts bool
 		shimmer                                            int
 		subagents, subagentFocus, shells, bang             bool
-		models, slash, usage, toolsv                       bool
+		models, slash, usage, toolsv, provs                bool
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
@@ -53,6 +53,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoBangView(width, height))
 				case models:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoModelsView(width, height))
+				case provs:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoProvidersView(width, height))
 				case slash:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSlashView(width, height))
 				case usage:
@@ -193,6 +195,7 @@ func newTUICmd() *cobra.Command {
 				},
 				func(id string) { st.model = id; _ = saveLeadProvider(cfgPath, st) },
 			)
+			mdl.SetProviders(catalog.IDs())
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {
@@ -244,6 +247,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&slash, "slash", false, "with --render, show slash-command autocomplete")
 	f.BoolVar(&usage, "usage", false, "with --render, show the /usage output")
 	f.BoolVar(&toolsv, "tools", false, "with --render, show the /tools viewer")
+	f.BoolVar(&provs, "providers", false, "with --render, show the provider picker")
 	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
