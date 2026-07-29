@@ -123,7 +123,12 @@ func newTUICmd() *cobra.Command {
 				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "ergon", st.model, st.name, run, once))
 				return nil
 			}
-			mdl := tui.New("ergon", st.model, st.name, run)
+			appName := "ergon"
+			if res.File.Name != "" {
+				appName = res.File.Name
+			}
+			tui.SetLogoWord(appName)
+			mdl := tui.New(appName, st.model, st.name, run)
 			mdl.SetPhrases(res.File.Phrases)
 			mdl.SetReset(func() {
 				if conv != nil {

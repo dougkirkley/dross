@@ -284,7 +284,7 @@ func RenderRun(ctx context.Context, width, height int, agentName, model, provide
 // New builds a TUI. run executes a prompt, calling emit for each event.
 func New(agentName, model, provider string, run RunFunc) Model {
 	ti := textinput.New()
-	ti.Placeholder = "ask ergon to build, edit, or run something…"
+	ti.Placeholder = "ask " + agentName + " to build, edit, or run something…"
 	ti.Prompt = ""
 	ti.Focus()
 
@@ -859,7 +859,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pendingAsk.reply <- ans
 				m.pendingAsk = nil
 				m.input.Reset()
-				m.input.Placeholder = "ask ergon to build, edit, or run something…"
+				m.input.Placeholder = "ask " + m.agentName + " to build, edit, or run something…"
 				return m, nil
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
@@ -1086,7 +1086,7 @@ func crystalMeter(frac float64, cells int) string {
 }
 
 func (m Model) header() string {
-	left := crystalStyle.Render("◈  ") + gradientText("E R G O N", holoRamp)
+	left := crystalStyle.Render("◈  ") + gradientText(logoWord, holoRamp)
 	if m.model != "" {
 		left += metaStyle.Render("      " + m.model)
 	}

@@ -129,10 +129,38 @@ func bigLogo(word string) string { return strings.Join(bigLogoRows(word), "\n") 
 //	3 wordmark   — slim spaced one-line mark with a rule
 func renderLogo(variant int) string { return renderLogoAt(variant, -1) }
 
+// logoWord is the wordmark rendered in the block font. Configurable so a fork or
+// rename shows its own name (see SetLogoWord).
+var logoWord = "ERGON"
+
+// SetLogoWord overrides the wordmark (uppercased). Empty keeps the default.
+func SetLogoWord(w string) {
+	if w = strings.ToUpper(strings.TrimSpace(w)); w != "" {
+		logoWord = w
+	}
+}
+
+// hasGlyphs reports whether every rune of w has a block-font glyph.
+func hasGlyphs(w string) bool {
+	for _, r := range w {
+		if _, ok := glyphs[r]; !ok {
+			return false
+		}
+	}
+	return len(w) > 0
+}
+
 // renderLogoAt renders the logo; phase >= 0 animates variant 1's holographic
-// shimmer (the gradient flows down the block as phase advances).
+// shimmer (the gradient flows down the block as phase advances). Words with a
+// letter the block font lacks fall back to a one-line gradient wordmark.
 func renderLogoAt(variant int, phase float64) string {
-	rows := bigLogoRows("ERGON")
+	if !hasGlyphs(logoWord) {
+		if phase >= 0 {
+			return gradientTextAt(logoWord, holoLoop, phase)
+		}
+		return gradientText(logoWord, holoRamp)
+	}
+	rows := bigLogoRows(logoWord)
 	switch variant {
 	case 1:
 		// Holographic crystal: cyan → magenta down the block; when animated the
@@ -155,7 +183,7 @@ func renderLogoAt(variant int, phase float64) string {
 			Padding(1, 4).
 			Render(body)
 	case 3:
-		wm := crystalStyle.Render("◈  ") + gradientText("H O L O C R O N", holoRamp) + crystalStyle.Render("  ◈")
+		wm := crystalStyle.Render("◈  ") + gradientText(logoWord, holoRamp) + crystalStyle.Render("  ◈")
 		rule := lipgloss.NewStyle().Foreground(dim).Render(strings.Repeat("─", lipgloss.Width(wm)))
 		return lipgloss.JoinVertical(lipgloss.Center, wm, rule)
 	default:

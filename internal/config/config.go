@@ -21,6 +21,7 @@ type Provider struct {
 
 // File is the on-disk config. All fields optional.
 type File struct {
+	Name        string      `json:"name,omitempty"` // app/wordmark name shown in the TUI
 	Provider    string      `json:"provider,omitempty"`
 	Model       string      `json:"model,omitempty"`
 	BaseURL     string      `json:"base_url,omitempty"`
