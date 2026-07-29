@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
-import 'models.dart';
 import 'theme.dart';
-import 'screens/chats_screen.dart';
+import 'screens/server_setup_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'screens/sign_in_screen.dart';
-import 'screens/welcome_screen.dart';
 
 void main() {
   runApp(
@@ -32,24 +30,19 @@ class ErgonApp extends StatelessWidget {
   }
 }
 
-/// Routes to the direct-mode chat list or the remote-session list based on the
-/// selected connection mode.
+/// The app is a thin client for `ergon serve`. Startup gate: pick a server URL,
+/// sign in via Google SSO, then the session list. Both steps are one-time (the
+/// URL is editable later in Settings; web is pre-authed via Cloudflare Access).
 class Home extends StatelessWidget {
   const Home({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final onboarded = context.select<AppState, bool>((s) => s.onboarded);
-    if (!onboarded) return const WelcomeScreen();
-    final mode = context.select<AppState, ConnMode>((s) => s.mode);
-    if (mode == ConnMode.remote) {
-      // Server-backed: one Google SSO at the start covers the whole app. Web is
-      // already authed via the same-origin Cloudflare Access session.
-      final authed = context.select<AppState, bool>((s) => s.authed);
-      if (!authed) return const SignInScreen();
-      return const SessionsScreen();
-    }
-    return const ChatsScreen();
+    final configured = context.select<AppState, bool>((s) => s.remoteConfigured);
+    if (!configured) return const ServerSetupScreen();
+    final authed = context.select<AppState, bool>((s) => s.authed);
+    if (!authed) return const SignInScreen();
+    return const SessionsScreen();
   }
 }
 

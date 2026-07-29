@@ -6,10 +6,10 @@ import '../models.dart';
 import '../theme.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
+import '../widgets/prose.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
-import 'chat_screen.dart' show ProseText;
 
 /// Remote-session conversation. Streams the serve event log (tool calls,
 /// delegation indented, cost) styled to match the app: user bubbles, serif

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
-import '../models.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
 
@@ -66,15 +65,6 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 16),
                   Text(_error!, style: const TextStyle(color: T.danger), textAlign: TextAlign.center),
                 ],
-                const SizedBox(height: 18),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => context.read<AppState>().setMode(ConnMode.direct),
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Use a direct provider instead', style: T.meta),
-                  ),
-                ),
               ],
             ),
           ),

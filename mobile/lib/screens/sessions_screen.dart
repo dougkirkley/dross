@@ -7,7 +7,7 @@ import '../theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/new_session_sheet.dart';
-import 'chats_screen.dart' show relTimeLong;
+import '../widgets/prose.dart' show relTimeLong;
 import 'session_screen.dart';
 import 'settings_screen.dart';
 

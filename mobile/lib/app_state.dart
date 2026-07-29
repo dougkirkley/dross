@@ -1,483 +1,79 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
-import 'direct/provider.dart';
 import 'models.dart';
 import 'util/file_pick.dart';
 
-/// AppState is the single source of truth for both worlds:
-///   - Direct mode (default): client-side chat against a provider, with an
-///     editable send queue while a reply streams.
-///   - Remote mode: attach to `ergon serve` (server-side sessions, SSE).
-/// Non-secret config lives in SharedPreferences; API keys and OAuth tokens live
-/// in the platform secure store.
+/// AppState is a thin client for `ergon serve`. All agent/provider config lives
+/// on the server — the app only needs the server URL and a Google SSO session.
+/// The app has no local settings beyond the server URL.
 class AppState extends ChangeNotifier {
   final _secure = const FlutterSecureStorage();
 
-  // --- config ---------------------------------------------------------
-  ConnMode mode = ConnMode.direct;
-  bool onboarded = false; // false → show the first-run welcome screen
-
-  // direct: provider selection + per-provider config
-  ProviderKind providerKind = ProviderKind.openai;
-  String openaiBaseUrl = 'https://ollama.farmerjohnparmesan.com/v1';
-  String openaiKey = '';
-  String openaiModel = 'qwen3-coder:30b';
-
-  String anthropicBaseUrl = 'https://api.anthropic.com';
-  String anthropicKey = '';
-  String anthropicModel = 'claude-opus-5';
-
-  /// Allowed models offered in the picker per provider. Empty = fall back to
-  /// the built-in presets. Editable under Settings (comma-separated).
-  List<String> openaiModels = [];
-  List<String> anthropicModels = [];
-
-  String identity = '';
-
-  // Agent permission mode (Claude-style). Enforced by the serve agent in remote
-  // mode; informational in direct mode (no tools).
-  PermissionMode permissionMode = PermissionMode.auto;
-
-  // remote (serve)
   String baseUrl = '';
   String token = '';
 
-  // --- direct state ---------------------------------------------------
-  final List<DirectChat> chats = [];
-  DirectChat? currentChat;
-
-  /// Messages typed while a reply is streaming. Editable: an item can be
-  /// dropped back out before it fires.
-  final List<String> queue = [];
-  StreamSubscription<String>? _directSub;
-
-  /// Files attached to the next message (chips shown above the input).
-  final List<Attachment> pending = [];
-
-  /// Test seam: when set, [_startTurn] uses this instead of building a real
-  /// provider from config, so streaming + queue behaviour can be driven without
-  /// a network.
-  @visibleForTesting
-  Future<DirectProvider> Function()? providerOverride;
-
-  // --- remote state (unchanged behaviour) -----------------------------
   List<Session> sessions = [];
   bool loadingSessions = false;
   Session? current;
   final List<Event> events = [];
-  StreamSubscription<Event>? _sub;
 
+  /// Messages typed while a turn is running; drained when it finishes.
+  final List<String> queue = [];
+
+  /// Files uploaded to the current session's workspace, awaiting the next prompt.
+  final List<({String name, String path})> remotePending = [];
+
+  StreamSubscription<Event>? _sub;
   String? error;
 
-  bool get isDirect => mode == ConnMode.direct;
   bool get remoteConfigured => baseUrl.isNotEmpty;
 
-  /// Whether the user is authenticated for server-backed (remote) use. On web
-  /// the same-origin session (Cloudflare Access / cookie) covers it, so no
-  /// in-app login is needed; on native we need a stored SSO token.
+  /// Whether the user is authenticated. On web the same-origin session
+  /// (Cloudflare Access / cookie) covers it; on native we need an SSO token.
   bool get authed => kIsWeb || token.isNotEmpty;
-  bool get streaming =>
-      currentChat?.messages.isNotEmpty == true &&
-      currentChat!.messages.last.streaming;
-
-  String get currentModel => switch (providerKind) {
-        ProviderKind.openai => openaiModel,
-        ProviderKind.anthropic => anthropicModel,
-      };
-
-  /// Allowed models for the active provider (empty = use built-in presets).
-  List<String> get allowedModels => switch (providerKind) {
-        ProviderKind.openai => openaiModels,
-        ProviderKind.anthropic => anthropicModels,
-      };
 
   ErgonClient get _client => ErgonClient(baseUrl: baseUrl, token: token);
 
-  // --- load / save ----------------------------------------------------
+  // --- load / server config -------------------------------------------
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    // The web build is served by `ergon serve`, so it is server-backed by
-    // definition — open in remote mode against its own origin. Native defaults to
-    // direct (BYO provider); the sidebar can switch.
-    mode = kIsWeb ? ConnMode.remote : ConnMode.direct;
-    providerKind = ProviderKind.values[p.getInt('providerKind') ?? 0];
-    openaiBaseUrl = p.getString('openaiBaseUrl') ?? openaiBaseUrl;
-    openaiModel = p.getString('openaiModel') ?? openaiModel;
-    anthropicBaseUrl = p.getString('anthropicBaseUrl') ?? anthropicBaseUrl;
-    anthropicModel = p.getString('anthropicModel') ?? anthropicModel;
-    openaiModels = p.getStringList('openaiModels') ?? [];
-    anthropicModels = p.getStringList('anthropicModels') ?? [];
-    identity = p.getString('identity') ?? '';
-    permissionMode = PermissionMode.values[p.getInt('permissionMode') ?? 0];
     baseUrl = p.getString('baseUrl') ?? '';
-    // On the web build (served by `ergon serve`), default the Code server to the
-    // origin the frontend was loaded from — same process hosts UI + API.
-    if (baseUrl.isEmpty && kIsWeb) {
-      baseUrl = defaultWebServer();
-    }
-    // secrets
-    openaiKey = await _secure.read(key: 'openaiKey') ?? '';
-    anthropicKey = await _secure.read(key: 'anthropicKey') ?? '';
+    // The web build is served by `ergon serve`; default to its own origin.
+    if (baseUrl.isEmpty && kIsWeb) baseUrl = defaultWebServer();
     token = await _secure.read(key: 'remoteToken') ?? '';
-    // chats
-    final raw = p.getString('chats');
-    if (raw != null) {
-      chats
-        ..clear()
-        ..addAll((jsonDecode(raw) as List)
-            .map((e) => DirectChat.fromJson(e as Map<String, dynamic>)));
-      chats.sort((a, b) => b.updated.compareTo(a.updated));
-    }
-    // Existing users (with chats or a configured server) skip the welcome.
-    onboarded =
-        p.getBool('onboarded') ?? (chats.isNotEmpty || baseUrl.isNotEmpty);
     notifyListeners();
-    if (!isDirect && remoteConfigured) await refreshSessions();
+    if (remoteConfigured && authed) await refreshSessions();
   }
 
-  /// Marks the first-run welcome as seen (persisted) and dismisses it.
-  Future<void> completeOnboarding() async {
-    if (onboarded) return;
-    onboarded = true;
-    notifyListeners();
+  /// Sets (or updates) the server URL — the app's only setting.
+  Future<void> setServer(String url) async {
+    url = url.trim();
+    if (url.isEmpty || url == baseUrl) return;
+    baseUrl = url;
     final p = await SharedPreferences.getInstance();
-    await p.setBool('onboarded', true);
-  }
-
-  Future<void> saveConfig() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setInt('providerKind', providerKind.index);
-    await p.setString('openaiBaseUrl', openaiBaseUrl);
-    await p.setString('openaiModel', openaiModel);
-    await p.setString('anthropicBaseUrl', anthropicBaseUrl);
-    await p.setString('anthropicModel', anthropicModel);
-    await p.setStringList('openaiModels', openaiModels);
-    await p.setStringList('anthropicModels', anthropicModels);
-    await p.setString('identity', identity);
-    await p.setInt('permissionMode', permissionMode.index);
     await p.setString('baseUrl', baseUrl);
-    await _secure.write(key: 'openaiKey', value: openaiKey);
-    await _secure.write(key: 'anthropicKey', value: anthropicKey);
-    await _secure.write(key: 'remoteToken', value: token);
     notifyListeners();
-    if (!isDirect && remoteConfigured) await refreshSessions();
+    if (authed) await refreshSessions();
   }
 
-  Future<void> _persistChats() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(
-        'chats', jsonEncode(chats.map((c) => c.toJson()).toList()));
-  }
-
-  // --- direct chat ----------------------------------------------------
-
-  Future<DirectProvider> _buildProvider() async {
-    switch (providerKind) {
-      case ProviderKind.openai:
-        return OpenAICompatProvider(
-            baseUrl: openaiBaseUrl,
-            apiKey: openaiKey,
-            model: openaiModel,
-            system: identity);
-      case ProviderKind.anthropic:
-        if (anthropicKey.isEmpty) {
-          throw Exception('set an Anthropic API key under Settings');
-        }
-        return AnthropicProvider(
-            model: anthropicModel,
-            apiKey: anthropicKey,
-            baseUrl: anthropicBaseUrl,
-            identity: identity);
-    }
-  }
-
-  DirectChat newChat() {
-    final c = DirectChat(
-      id: 'c${DateTime.now().microsecondsSinceEpoch}',
-      title: 'New chat',
-      messages: [],
-      updated: DateTime.now(),
-    );
-    chats.insert(0, c);
-    currentChat = c;
-    queue.clear();
-    notifyListeners();
-    return c;
-  }
-
-  void openChat(DirectChat c) {
-    _directSub?.cancel();
-    currentChat = c;
-    queue.clear();
+  Future<void> signOut() async {
+    token = '';
+    await _secure.delete(key: 'remoteToken');
+    detach();
+    sessions = [];
     notifyListeners();
   }
 
-  Future<void> deleteChat(DirectChat c) async {
-    chats.remove(c);
-    if (currentChat == c) currentChat = null;
-    await _persistChats();
-    notifyListeners();
-  }
-
-  /// Switches between direct (Chats) and remote (Code) views. Not persisted:
-  /// the app always opens on Chats.
-  void setMode(ConnMode m) {
-    if (mode == m) return;
-    mode = m;
-    notifyListeners();
-    if (m == ConnMode.remote && remoteConfigured) refreshSessions();
-  }
-
-  /// Sets the model for the active direct provider and persists it.
-  void setModel(String m) {
-    m = m.trim();
-    if (m.isEmpty) return;
-    switch (providerKind) {
-      case ProviderKind.openai:
-        openaiModel = m;
-      case ProviderKind.anthropic:
-        anthropicModel = m;
-    }
-    notifyListeners();
-    saveConfig();
-  }
-
-  /// Selects a provider and model together (from the grouped model picker),
-  /// then persists.
-  void setProviderModel(ProviderKind kind, String model) {
-    model = model.trim();
-    if (model.isEmpty) return;
-    providerKind = kind;
-    switch (kind) {
-      case ProviderKind.openai:
-        openaiModel = model;
-      case ProviderKind.anthropic:
-        anthropicModel = model;
-    }
-    notifyListeners();
-    saveConfig();
-  }
-
-  /// Allowed models for a specific provider (empty = built-in presets).
-  List<String> modelsFor(ProviderKind kind) => switch (kind) {
-        ProviderKind.openai => openaiModels,
-        ProviderKind.anthropic => anthropicModels,
-      };
-
-  /// Queries the OpenAI-compatible endpoint (e.g. ollama) for the models it
-  /// actually serves, so the picker never offers unavailable ones. Returns an
-  /// empty list on any error (caller falls back to the configured/preset list).
-  Future<List<String>> availableOpenAIModels() async {
-    if (openaiBaseUrl.isEmpty) return [];
-    try {
-      final r = await http.get(
-        Uri.parse('$openaiBaseUrl/models'),
-        headers: {
-          if (openaiKey.isNotEmpty) 'Authorization': 'Bearer $openaiKey',
-        },
-      ).timeout(const Duration(seconds: 6));
-      if (r.statusCode != 200) return [];
-      final body = jsonDecode(r.body) as Map<String, dynamic>;
-      final data = (body['data'] as List?) ?? const [];
-      final ids = <String>[];
-      for (final m in data) {
-        final id = (m as Map<String, dynamic>)['id'] as String?;
-        if (id != null && id.isNotEmpty) ids.add(id);
-      }
-      ids.sort();
-      return ids;
-    } catch (_) {
-      return [];
-    }
-  }
-
-  void setPermissionMode(PermissionMode m) {
-    permissionMode = m;
-    notifyListeners();
-    SharedPreferences.getInstance()
-        .then((p) => p.setInt('permissionMode', m.index));
-  }
-
-  void addAttachment(Attachment a) {
-    pending.add(a);
-    notifyListeners();
-  }
-
-  void removeAttachment(int i) {
-    if (i >= 0 && i < pending.length) {
-      pending.removeAt(i);
-      notifyListeners();
-    }
-  }
-
-  /// Folds attachments into the message text. Text-like files are inlined in a
-  /// fenced block; other files get a marker (direct-mode providers here are
-  /// text-only). Remote mode uploads files separately.
-  String _composeWithAttachments(String text, List<Attachment> atts) {
-    if (atts.isEmpty) return text;
-    final b = StringBuffer();
-    for (final a in atts) {
-      if (a.text != null && a.text!.isNotEmpty) {
-        b.writeln('Attached file `${a.name}`:\n```\n${a.text}\n```\n');
-      } else {
-        b.writeln(
-            '[attached ${a.name}${a.mime.isEmpty ? '' : ' (${a.mime})'} — not inlined]\n');
-      }
-    }
-    b.write(text);
-    return b.toString().trim();
-  }
-
-  /// Sends [text] (plus any pending attachments) in the current chat. Direct
-  /// chat does not queue: while a reply streams, sending is disabled (use the
-  /// stop button), so a send while streaming is a no-op.
-  Future<void> sendDirect(String text) async {
-    if (streaming) return;
-    final atts = List<Attachment>.from(pending);
-    final composed = _composeWithAttachments(text.trim(), atts);
-    if (composed.isEmpty) return;
-    pending.clear();
-    currentChat ??= newChat();
-    await _startTurn(composed);
-  }
-
-  /// Removes queued message [i] and returns its text so the UI can drop it back
-  /// into the input for editing ("drop out of the queue").
-  String removeQueued(int i) {
-    if (i < 0 || i >= queue.length) return '';
-    final s = queue.removeAt(i);
-    notifyListeners();
-    return s;
-  }
-
-  /// Promotes queued message [i] to the current turn: interrupts the in-flight
-  /// reply and immediately runs the queued message. Mirrors the TUI's Ctrl+C
-  /// behaviour (default promotes the head of the queue).
-  void promoteQueued([int i = 0]) {
-    if (i < 0 || i >= queue.length) return;
-    final text = queue.removeAt(i);
-    _directSub?.cancel();
-    _directSub = null;
-    final m = currentChat?.messages;
-    if (m != null && m.isNotEmpty && m.last.streaming) {
-      m.last.streaming = false;
-      if (m.last.text.isEmpty) m.last.text = '(interrupted)';
-    }
-    _startTurn(text);
-  }
-
-  Future<void> _startTurn(String userText) async {
-    final chat = currentChat!;
-    chat.messages.add(ChatMessage(role: 'user', text: userText));
-    final assistant = ChatMessage(role: 'assistant', streaming: true);
-    chat.messages.add(assistant);
-    if (chat.title == 'New chat' || chat.title.isEmpty) {
-      chat.title =
-          userText.length > 48 ? '${userText.substring(0, 48)}…' : userText;
-    }
-    chat.updated = DateTime.now();
-    _bumpChat(chat);
-    notifyListeners();
-
-    try {
-      final prov = await (providerOverride ?? _buildProvider)();
-      // History excludes the still-empty streaming assistant turn.
-      final history = chat.messages.sublist(0, chat.messages.length - 1);
-      _directSub = prov.stream(history).listen(
-        (delta) {
-          assistant.text += delta;
-          notifyListeners();
-        },
-        onDone: () => _finishTurn(assistant),
-        onError: (e) {
-          assistant.text += assistant.text.isEmpty ? '' : '\n\n';
-          assistant.text += '⚠ $e';
-          _finishTurn(assistant);
-        },
-        cancelOnError: true,
-      );
-    } catch (e) {
-      assistant.text = '⚠ $e';
-      _finishTurn(assistant);
-    }
-  }
-
-  void _finishTurn(ChatMessage assistant) {
-    assistant.streaming = false;
-    _directSub = null;
-    _persistChats();
-    notifyListeners();
-  }
-
-  void interruptDirect() {
-    _directSub?.cancel();
-    _directSub = null;
-    final m = currentChat?.messages;
-    if (m != null && m.isNotEmpty && m.last.streaming) {
-      m.last.streaming = false;
-      if (m.last.text.isEmpty) m.last.text = '(interrupted)';
-    }
-    _persistChats();
-    notifyListeners();
-  }
-
-  void _bumpChat(DirectChat c) {
-    chats.remove(c);
-    chats.insert(0, c);
-  }
-
-  // --- remote (serve) -------------------------------------------------
-
-  /// Files uploaded to the current remote session's workspace, awaiting the next
-  /// prompt (which references them so the agent can read them).
-  final List<({String name, String path})> remotePending = [];
-
-  /// Uploads [f] into the server workspace and stages it for the next prompt.
-  /// Returns an error string, or null on success.
-  Future<String?> attachRemote(PickedFile f) async {
-    try {
-      final path = await _client.upload(f.bytes, f.name);
-      remotePending.add((name: f.name, path: path));
-      notifyListeners();
-      return null;
-    } catch (e) {
-      error = e.toString();
-      notifyListeners();
-      return e.toString();
-    }
-  }
-
-  void removeRemotePending(int i) {
-    if (i >= 0 && i < remotePending.length) {
-      remotePending.removeAt(i);
-      notifyListeners();
-    }
-  }
-
-  String _withRemoteAttachments(String text) {
-    if (remotePending.isEmpty) return text;
-    final b = StringBuffer('Files uploaded to the workspace:\n');
-    for (final a in remotePending) {
-      b.writeln('- ${a.path}');
-    }
-    b.writeln();
-    b.write(text);
-    return b.toString();
-  }
-
-  /// Runs the server's Google SSO flow and stores the returned session token as
-  /// the remote bearer. On native it opens an external browser (custom-scheme
-  /// callback); on web the same-origin session cookie already covers API calls,
-  /// so it just refreshes. Returns an error string, or null on success.
+  /// Runs the server's Google SSO flow and stores the returned session token. On
+  /// web the same-origin session cookie already covers API calls, so it just
+  /// refreshes. Returns an error string, or null on success.
   Future<String?> signInRemote() async {
     if (baseUrl.isEmpty) return 'Set the server URL first';
     if (kIsWeb) {
@@ -500,6 +96,8 @@ class AppState extends ChangeNotifier {
       return e.toString();
     }
   }
+
+  // --- sessions -------------------------------------------------------
 
   Future<void> refreshSessions() async {
     loadingSessions = true;
@@ -529,7 +127,6 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteSession(Session s) async {
-    // Remove locally first so the list updates immediately, then tell the server.
     sessions.removeWhere((x) => x.id == s.id);
     if (current?.id == s.id) {
       await _sub?.cancel();
@@ -555,7 +152,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Changes the current remote session's model (applies to the next prompt).
+  /// Changes the current session's model (applies to the next prompt).
   Future<void> setSessionModel(String model) async {
     final s = current;
     if (s == null || model.trim().isEmpty || model == s.model) return;
@@ -571,9 +168,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // --- attach / stream ------------------------------------------------
+
   Future<void> attach(Session s) async {
-    // Fire-and-forget cancel: on web the SSE stream (BrowserClient) may never
-    // complete, so awaiting cancel() could hang and block re-entry.
     _sub?.cancel();
     _sub = null;
     current = s;
@@ -618,13 +215,12 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     try {
       current = await _client.getSession(s.id);
-      notifyListeners(); // reflect the new status (e.g. running -> idle)
+      notifyListeners();
     } catch (_) {}
   }
 
-  /// Sends [text] to the current remote session. If the session is running the
-  /// message is queued (visible, editable) and fires when the turn completes —
-  /// the queuing UX mirrors the TUI.
+  // --- prompts / queue ------------------------------------------------
+
   Future<void> sendPrompt(String text) async {
     final s = current;
     if (s == null || text.trim().isEmpty) return;
@@ -645,7 +241,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Fires the head of the queue against the current session once it is idle.
   Future<void> _drainQueue() async {
     if (queue.isEmpty) return;
     final s = current;
@@ -656,7 +251,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// Moves queued item [i] to the front and interrupts the running turn so it
-  /// runs next ("run now"). Mirrors the TUI's promote behaviour.
+  /// runs next ("run now").
   Future<void> promoteRemote(int i) async {
     if (i < 0 || i >= queue.length) return;
     if (i != 0) {
@@ -666,10 +261,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     final s = current;
     if (s != null && s.isRunning) {
-      await interrupt(); // the drain on the done/error event runs the head next
+      await interrupt();
     } else {
       await _drainQueue();
     }
+  }
+
+  String removeQueued(int i) {
+    if (i < 0 || i >= queue.length) return '';
+    final s = queue.removeAt(i);
+    notifyListeners();
+    return s;
   }
 
   Future<void> interrupt() async {
@@ -678,6 +280,40 @@ class AppState extends ChangeNotifier {
     try {
       await _client.interrupt(s.id);
     } catch (_) {}
+  }
+
+  // --- attachments ----------------------------------------------------
+
+  /// Uploads [f] into the server workspace and stages it for the next prompt.
+  Future<String?> attachRemote(PickedFile f) async {
+    try {
+      final path = await _client.upload(f.bytes, f.name);
+      remotePending.add((name: f.name, path: path));
+      notifyListeners();
+      return null;
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return e.toString();
+    }
+  }
+
+  void removeRemotePending(int i) {
+    if (i >= 0 && i < remotePending.length) {
+      remotePending.removeAt(i);
+      notifyListeners();
+    }
+  }
+
+  String _withRemoteAttachments(String text) {
+    if (remotePending.isEmpty) return text;
+    final b = StringBuffer('Files uploaded to the workspace:\n');
+    for (final a in remotePending) {
+      b.writeln('- ${a.path}');
+    }
+    b.writeln();
+    b.write(text);
+    return b.toString();
   }
 
   void detach() {
@@ -691,14 +327,12 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _sub?.cancel();
-    _directSub?.cancel();
     super.dispose();
   }
 }
 
 /// defaultWebServer returns the origin the web app was served from (its own
-/// `ergon serve`), used as the default Code server URL on web. Empty off web or
-/// for non-http origins.
+/// `ergon serve`). Empty off web or for non-http origins.
 String defaultWebServer() {
   try {
     final u = Uri.base;

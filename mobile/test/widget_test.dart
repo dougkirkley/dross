@@ -1,25 +1,19 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ergon/app_state.dart';
-import 'package:ergon/main.dart';
+import 'package:ergon/screens/server_setup_screen.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
-
-  testWidgets('direct mode is the default home and shows the Chats list',
-      (tester) async {
+  testWidgets('first-run shows the server setup screen', (tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => AppState(), // defaults to direct mode
-        child: const ErgonApp(),
+        create: (_) => AppState(),
+        child: const MaterialApp(home: ServerSetupScreen()),
       ),
     );
-    await tester.pump();
-
-    expect(find.text('Chats'), findsOneWidget);
-    expect(find.text('New chat'), findsOneWidget);
-    expect(find.text('Cost-aware coding,\nin your pocket.'), findsOneWidget);
+    expect(find.text('Connect to your server'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
   });
 }
