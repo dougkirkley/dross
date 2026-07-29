@@ -36,6 +36,16 @@ type File struct {
 	CompactAt   int         `json:"compact_at,omitempty"` // tool-result byte threshold
 	Phrases     []string    `json:"phrases,omitempty"`    // TUI status phrases
 	OAuth       *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
+
+	Tools       *ToolPolicy       `json:"tools,omitempty"`       // enable/disable built-in tools
+	Permissions map[string]string `json:"permissions,omitempty"` // per-tool: allow|ask|deny
+}
+
+// ToolPolicy filters which tools the agent offers. A non-empty Allow list is
+// exclusive; Deny always wins.
+type ToolPolicy struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
 }
 
 // OAuthLogin configures the `ergon login` PKCE flow and the claude-sub

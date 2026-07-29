@@ -107,6 +107,12 @@ func newTUICmd() *cobra.Command {
 							return tui.Ask(prog, req)
 						}))
 					}
+					if t := res.File.Tools; t != nil {
+						opts = append(opts, agent.WithToolFilter(t.Allow, t.Deny))
+					}
+					if len(res.File.Permissions) > 0 {
+						opts = append(opts, agent.WithToolPermissions(res.File.Permissions))
+					}
 					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: projectCtx},
 						st.prov, opts...)
 					if err != nil {

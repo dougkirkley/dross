@@ -545,3 +545,41 @@ func TestConversationMemory(t *testing.T) {
 		t.Fatalf("stateless should restart: s1=%q s2=%q", s1.Text, s2.Text)
 	}
 }
+
+// TestToolFilterAndPermissions verifies config-driven tool disabling and
+// per-tool deny both block a tool via the gate.
+func TestToolFilterAndPermissions(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(opt Option) *Agent {
+		prov := &scriptedProvider{steps: []provider.Response{
+			{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+				toolCall("1", "write", map[string]string{"path": "z.go", "content": "package main\n"}),
+			}},
+			{StopReason: provider.StopEndTurn, Text: "ok"},
+		}}
+		a, _ := New(Config{Name: "t", Model: "m", Workdir: dir}, prov, opt)
+		return a
+	}
+	// Deny via tool filter.
+	a := mk(WithToolFilter(nil, []string{"write"}))
+	a.Run(context.Background(), "x")
+	if _, err := os.Stat(filepath.Join(dir, "z.go")); !os.IsNotExist(err) {
+		t.Fatal("disabled write must not run")
+	}
+	// Deny via per-tool permission rule.
+	dir2 := t.TempDir()
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+			toolCall("1", "write", map[string]string{"path": "z.go", "content": "x"}),
+		}},
+		{StopReason: provider.StopEndTurn, Text: "ok"},
+	}}
+	b, _ := New(Config{Name: "t", Model: "m", Workdir: dir2}, prov, WithToolPermissions(map[string]string{"write": "deny"}))
+	b.Run(context.Background(), "x")
+	if _, err := os.Stat(filepath.Join(dir2, "z.go")); !os.IsNotExist(err) {
+		t.Fatal("denied write must not run")
+	}
+	if !strings.Contains(prov.last.lastInput, "denied by configuration") {
+		t.Fatalf("model should see denial, got %q", prov.last.lastInput)
+	}
+}

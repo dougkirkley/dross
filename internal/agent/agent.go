@@ -136,6 +136,51 @@ func WithPermission(mode string) Option {
 // starts fresh — the default for one-shot and server use.
 func WithConversation() Option { return func(a *Agent) { a.conv = true } }
 
+// ToolPermission is a per-tool gating decision from config: run freely, ask
+// first, or refuse.
+type ToolPermission string
+
+const (
+	ToolAllow ToolPermission = "allow"
+	ToolAsk   ToolPermission = "ask"
+	ToolDeny  ToolPermission = "deny"
+)
+
+// WithToolFilter restricts which tools are offered/runnable. If allow is
+// non-empty, only those tools are enabled; anything in deny is always disabled
+// (deny wins). Names are the tool ids (read, write, edit, bash, monitor,
+// shell_output, delegate, publish, ask_user, web_search, …).
+func WithToolFilter(allow, deny []string) Option {
+	return func(a *Agent) {
+		if len(allow) > 0 {
+			a.allowTools = map[string]bool{}
+			for _, n := range allow {
+				a.allowTools[n] = true
+			}
+		}
+		if len(deny) > 0 {
+			a.denyTools = map[string]bool{}
+			for _, n := range deny {
+				a.denyTools[n] = true
+			}
+		}
+	}
+}
+
+// WithToolPermissions sets per-tool gating rules (allow|ask|deny) that override
+// the permission mode for those tools.
+func WithToolPermissions(rules map[string]string) Option {
+	return func(a *Agent) {
+		if len(rules) == 0 {
+			return
+		}
+		a.permRules = map[string]ToolPermission{}
+		for name, r := range rules {
+			a.permRules[name] = ToolPermission(strings.ToLower(strings.TrimSpace(r)))
+		}
+	}
+}
+
 // SetEventHook, SetPermission, and ResetConversation let a long-lived agent (see
 // WithConversation) be re-tuned between turns without rebuilding it.
 func (a *Agent) SetEventHook(fn func(Event)) { a.hook = fn }
@@ -247,8 +292,11 @@ type Agent struct {
 	publish      PublishFunc
 	asker        AskFunc
 	permMode     PermMode
-	conv         bool             // keep the session across Run calls
-	sess         provider.Session // persisted session when conv is set
+	allowTools   map[string]bool           // if non-empty, only these tools are enabled
+	denyTools    map[string]bool           // tools always disabled
+	permRules    map[string]ToolPermission // per-tool allow/ask/deny overrides
+	conv         bool                      // keep the session across Run calls
+	sess         provider.Session          // persisted session when conv is set
 	resume       string
 	checkpoint   func(brief string) error
 	emitMu       sync.Mutex // serializes emit across parallel workers
@@ -327,7 +375,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	if fresh {
 		sess = a.prov.NewSession(provider.SessionConfig{
 			System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
-			Tools:     toolDefs(a.worker != nil, a.publish != nil, a.asker != nil),
+			Tools:     a.enabledTools(),
 			Model:     a.cfg.Model,
 			MaxTokens: a.cfg.MaxTokens,
 		})
@@ -552,10 +600,54 @@ func (a *Agent) runReview(ctx context.Context, res *Result) {
 	a.emit("review", resp.Text)
 }
 
-// gate applies the permission mode. It returns (denialMessage, false) to block a
-// tool (the message is fed back to the model as the tool result), or ("", true)
-// to allow it. Only mutating tools are gated; reads never are.
+// toolEnabled reports whether a tool is allowed by the configured filter (deny
+// wins; a non-empty allow-list is exclusive).
+func (a *Agent) toolEnabled(name string) bool {
+	if a.denyTools[name] {
+		return false
+	}
+	if len(a.allowTools) > 0 && !a.allowTools[name] {
+		return false
+	}
+	return true
+}
+
+// enabledTools returns the offered tool defs after applying the config filter.
+func (a *Agent) enabledTools() []provider.ToolDef {
+	defs := toolDefs(a.worker != nil, a.publish != nil, a.asker != nil)
+	if a.denyTools == nil && a.allowTools == nil {
+		return defs
+	}
+	out := defs[:0]
+	for _, d := range defs {
+		if a.toolEnabled(d.Name) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// gate applies the tool filter, per-tool permission rules, then the permission
+// mode. It returns (denialMessage, false) to block a tool (fed back to the model
+// as the tool result), or ("", true) to allow it.
 func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
+	if !a.toolEnabled(tc.Name) {
+		return "the " + tc.Name + " tool is disabled by configuration.", false
+	}
+	// Per-tool rules from config override the mode for that tool.
+	if r, ok := a.permRules[tc.Name]; ok {
+		switch r {
+		case ToolAllow:
+			return "", true
+		case ToolDeny:
+			return "the " + tc.Name + " tool is denied by configuration.", false
+		case ToolAsk:
+			if !a.approve(tc) {
+				return "denied by the user.", false
+			}
+			return "", true
+		}
+	}
 	writes := tc.Name == "write" || tc.Name == "edit"
 	commands := tc.Name == "bash" || tc.Name == "monitor"
 	if !writes && !commands {
