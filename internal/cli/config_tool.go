@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -85,6 +87,16 @@ func configFilePath(explicit string) string {
 		return explicit
 	}
 	return defaultConfigPath()
+}
+
+// newSessionID returns a short random hex id for a TUI session (used by the
+// --resume hint). Falls back to a fixed label if randomness is unavailable.
+func newSessionID() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return "session"
+	}
+	return hex.EncodeToString(b)
 }
 
 func defaultConfigPath() string {

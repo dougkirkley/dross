@@ -56,6 +56,7 @@ No default provider ships — you choose one via `/model` (persisted to config).
 
 ```
 ergon                         # interactive TUI (default; bare command = TUI)
+ergon --resume <id>           # resume a prior TUI session (id printed on exit)
 ergon agent  [flags] <prompt> # run the agent once against a workspace
 ergon serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
 ergon rc     --server <url>   # link this machine so a phone can drive it

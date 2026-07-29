@@ -298,10 +298,17 @@ func WithResume(brief string) Option {
 	return func(a *Agent) { a.resume = brief }
 }
 
-// WithCheckpoint makes the agent produce a compact handoff brief at the end of a
-// run and hand it to save (e.g. persist it under a session name). The brief is
-// what a future WithResume replays.
+// WithCheckpoint makes the agent produce a compact handoff brief at the end of
+// every run and hand it to save (e.g. persist it under a session name). The
+// brief is what a future WithResume replays.
 func WithCheckpoint(save func(brief string) error) Option {
+	return func(a *Agent) { a.checkpoint = save; a.autoBrief = true }
+}
+
+// WithCheckpointSaver sets the brief-save callback used by Checkpoint (on-demand)
+// without producing a brief automatically after each run — for callers that
+// checkpoint only at defined moments (e.g. a TUI session closing).
+func WithCheckpointSaver(save func(brief string) error) Option {
 	return func(a *Agent) { a.checkpoint = save }
 }
 
@@ -394,6 +401,7 @@ type Agent struct {
 	sess         provider.Session      // persisted session when conv is set
 	resume       string
 	checkpoint   func(brief string) error
+	autoBrief    bool // if set, produce a handoff brief at the end of every run
 	emitMu       sync.Mutex // serializes emit across parallel workers
 
 	shellMu  sync.Mutex // guards the background-shell registry
@@ -536,7 +544,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 
 	// Handoff brief: one extra turn on the same session (full context) asking
 	// for a compact resume summary. Cheap, and what a future run replays.
-	if a.checkpoint != nil {
+	if a.checkpoint != nil && a.autoBrief {
 		if brief := a.makeBrief(ctx, sess, res); brief != "" {
 			if err := a.checkpoint(brief); err != nil {
 				a.emit("error", "checkpoint: "+err.Error())
@@ -547,6 +555,21 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// Checkpoint generates a handoff brief for the current persistent conversation
+// and passes it to the WithCheckpoint save fn. It is a no-op without a
+// checkpoint fn or an active conversation session. Use it to persist state on
+// demand (e.g. when a TUI session closes) so it can be resumed with WithResume.
+func (a *Agent) Checkpoint(ctx context.Context) error {
+	if a.checkpoint == nil || a.sess == nil {
+		return nil
+	}
+	brief := a.makeBrief(ctx, a.sess, &Result{})
+	if brief == "" {
+		return nil
+	}
+	return a.checkpoint(brief)
 }
 
 // makeBrief asks the model to summarize crucial state for a fresh session,

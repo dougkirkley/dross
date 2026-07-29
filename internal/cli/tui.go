@@ -11,12 +11,14 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
 	"github.com/dougkirkley/ergon/internal/catalog"
 	"github.com/dougkirkley/ergon/internal/plugins"
-	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/internal/relay"
+	"github.com/dougkirkley/ergon/internal/session"
+	"github.com/dougkirkley/ergon/internal/storage"
 	"github.com/dougkirkley/ergon/internal/tui"
+	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/ergon/pkg/provider"
 )
 
 func newTUICmd() *cobra.Command {
@@ -24,11 +26,12 @@ func newTUICmd() *cobra.Command {
 		render, welcome, running, ask, sessions, shortcuts bool
 		shimmer                                            int
 		subagents, subagentFocus, shells, bang             bool
-		models, slash, usage, toolsv, provs                bool
+		models, slash, usage, toolsv, provs, skillsv       bool
+		pluginv                                            bool
 		logo, width, height                                int
 		once                                               string
 		workdir, model, provName                           string
-		baseURL, apiKey, server                            string
+		baseURL, apiKey, server, resume                    string
 		workerProv, workerModel, workerBU                  string
 	)
 	cmd := &cobra.Command{
@@ -62,6 +65,10 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoUsageView(width, height))
 				case toolsv:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoToolsView(width, height))
+				case skillsv:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSkillsView(width, height))
+				case pluginv:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoPluginView(width, height, logo))
 				case subagentFocus:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSubagentFocusView(width, height))
 				case ask:
@@ -118,6 +125,7 @@ func newTUICmd() *cobra.Command {
 			var skillSpecs []agent.SkillSpec
 			var skillItems []tui.SkillItem
 			var skillGen int
+			skillOff := map[string]bool{} // skills disabled via the /skills modal
 			loadSkills := func() {
 				skillSpecs, skillItems = skillSpecs[:0], skillItems[:0]
 				for _, s := range plugins.LoadAll(workdir) {
@@ -125,12 +133,29 @@ func newTUICmd() *cobra.Command {
 						Name: s.Name, Desc: s.Description, Body: s.Body,
 						Source: s.Source, UserInvocable: s.UserInvocable,
 					})
-					if !s.DisableModelInvocation {
+					if !s.DisableModelInvocation && !skillOff[s.Name] {
 						skillSpecs = append(skillSpecs, agent.SkillSpec{Name: s.Name, Description: s.Description, Body: s.Body})
 					}
 				}
 			}
 			loadSkills()
+
+			// Session persistence for resume: a handoff brief is saved under a
+			// session id on exit, and --resume <id> seeds a new session from it.
+			var store *storage.SessionStore
+			if sp, err := mustStorePath(); err == nil {
+				store = storage.NewSessionStore(sp)
+			}
+			sessionID := resume
+			if sessionID == "" {
+				sessionID = newSessionID()
+			}
+			resumeBrief := ""
+			if resume != "" && store != nil {
+				if b, ok, _ := session.Load(store, resume); ok {
+					resumeBrief = b.Content
+				}
+			}
 
 			// One persistent agent per (provider, model, skills) so the conversation
 			// is remembered across prompts; rebuilt when any of those change.
@@ -144,6 +169,15 @@ func newTUICmd() *cobra.Command {
 				if conv == nil || key != convKey {
 					opts := []agent.Option{agent.WithConversation()}
 					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+					if store != nil {
+						opts = append(opts, agent.WithCheckpointSaver(func(brief string) error {
+							return session.Save(store, sessionID, brief)
+						}))
+					}
+					if resumeBrief != "" {
+						opts = append(opts, agent.WithResume(resumeBrief))
+						resumeBrief = "" // seed only the first session
+					}
 					if len(skillSpecs) > 0 {
 						opts = append(opts, agent.WithSkills(skillSpecs))
 					}
@@ -200,6 +234,14 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
+			if store != nil {
+				mdl.SetCheckpoint(func(ctx context.Context) error {
+					if conv != nil {
+						return conv.Checkpoint(ctx)
+					}
+					return nil
+				})
+			}
 			mdl.SetWelcomeStyle(welcomeStyleFor(res.File.Welcome))
 			mdl.SetPhrases(res.File.Phrases)
 			mdl.SetSkillItems(skillItems)
@@ -213,6 +255,12 @@ func newTUICmd() *cobra.Command {
 				skillGen++
 				conv = nil // rebuild the agent with the new skill set on the next run
 				return skillItems
+			})
+			mdl.SetSkillsApply(func(off map[string]bool) {
+				skillOff = off
+				loadSkills()
+				skillGen++
+				conv = nil // apply the new enabled/disabled set on the next run
 			})
 			mdl.SetReset(func() {
 				if conv != nil {
@@ -350,11 +398,20 @@ func newTUICmd() *cobra.Command {
 			// selection / copy-paste works; /mouse toggles it on for
 			// click-to-expand tool output.
 			prog = tea.NewProgram(mdl, tea.WithAltScreen())
-			_, err = prog.Run()
-			return err
+			if _, err = prog.Run(); err != nil {
+				return err
+			}
+			// If a handoff brief was saved this session, tell the user how to resume.
+			if store != nil {
+				if _, ok, _ := session.Load(store, sessionID); ok {
+					fmt.Fprintf(cmd.OutOrStdout(), "\nResume this session with:\n  ergon --resume %s\n", sessionID)
+				}
+			}
+			return nil
 		},
 	}
 	f := cmd.Flags()
+	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
@@ -365,6 +422,8 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&slash, "slash", false, "with --render, show slash-command autocomplete")
 	f.BoolVar(&usage, "usage", false, "with --render, show the /usage output")
 	f.BoolVar(&toolsv, "tools", false, "with --render, show the /tools viewer")
+	f.BoolVar(&skillsv, "skills-view", false, "with --render, show the /skills modal")
+	f.BoolVar(&pluginv, "plugin-view", false, "with --render, show the /plugin browser (--logo picks the tab)")
 	f.BoolVar(&provs, "providers", false, "with --render, show the provider picker")
 	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")
 	f.BoolVar(&ask, "ask", false, "with --render, show the ask_user multi-question picker")

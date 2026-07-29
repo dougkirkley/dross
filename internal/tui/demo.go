@@ -20,7 +20,7 @@ func DemoWelcomeView(width, height, variant int) string {
 	m.width, m.height = width, height
 	m.logoVariant = 1
 	m.welcomeStyle = variant // vary the empty-state layout for iterations
-	m.shimmer = demoShimmer   // phase for screenshots of the animated shimmer
+	m.shimmer = demoShimmer  // phase for screenshots of the animated shimmer
 	m.SetMeta("v0.4.0", "/Users/doug/Projects/holocron")
 	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b")
 	m.SetSkills([]string{"code-review", "git-commit", "jq"})
@@ -114,6 +114,39 @@ func DemoModelsView(width, height int) string {
 		{Provider: "groq", Models: []string{"llama-3.3-70b", "kimi-k2"}},
 	})
 	return m.View()
+}
+
+// DemoPluginView renders the /plugin browser modal (reads live ~/.ergon state).
+func DemoPluginView(width, height, tab int) string {
+	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.pluginViewOpen, m.pluginTab = true, tab
+	return m.View()
+}
+
+// DemoSkillsView renders the /skills modal for screenshots.
+func DemoSkillsView(width, height int) string {
+	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m.width, m.height = width, height
+	m.skillOff = map[string]bool{"regression-lens": true}
+	m.SetSkillItems([]SkillItem{
+		{Name: "review-mr", Desc: "Review a merge request", Source: "user", Body: makeBody(1200), UserInvocable: true},
+		{Name: "regression-lens", Desc: "Find regressions in a diff", Source: "project", Body: makeBody(640), UserInvocable: true},
+		{Name: "docs:grill-with-docs", Desc: "Answer using project docs", Source: "docs", Body: makeBody(160), UserInvocable: false},
+		{Name: "flow:ticket", Desc: "Create a ticket from context", Source: "flow", Body: makeBody(360), UserInvocable: true},
+	})
+	m.layout()
+	m.skillsViewOpen, m.skillSel = true, 1
+	return m.View()
+}
+
+func makeBody(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = 'x'
+	}
+	return string(b)
 }
 
 // DemoToolsView renders the /tools expandable viewer with one entry expanded to

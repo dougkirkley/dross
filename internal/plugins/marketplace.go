@@ -265,6 +265,41 @@ func SetEnabled(name string, enabled bool) error {
 	return saveState(s)
 }
 
+// Listing is a plugin offered by an added marketplace, for the browse view.
+type Listing struct {
+	Name        string
+	Marketplace string
+	Description string
+	Installed   bool
+}
+
+// Available returns every plugin offered across all added marketplaces, marking
+// those already installed.
+func Available() ([]Listing, error) {
+	s, err := LoadState()
+	if err != nil {
+		return nil, err
+	}
+	installed := map[string]bool{}
+	for _, p := range s.Plugins {
+		installed[p.Name] = true
+	}
+	var out []Listing
+	for _, ref := range s.Marketplaces {
+		m, err := readMarketplaceFile(ref.Dir)
+		if err != nil {
+			continue
+		}
+		for _, p := range m.Plugins {
+			out = append(out, Listing{
+				Name: p.Name, Marketplace: m.Name,
+				Description: p.Description, Installed: installed[p.Name],
+			})
+		}
+	}
+	return out, nil
+}
+
 // RemoveMarketplace forgets an added marketplace (its clone is deleted).
 func RemoveMarketplace(name string) error {
 	s, err := LoadState()

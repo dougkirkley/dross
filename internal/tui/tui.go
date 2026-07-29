@@ -197,21 +197,30 @@ type session struct {
 
 // Model is the TUI state.
 type Model struct {
-	agentName string
-	model     string
-	provider  string
-	version    string // shown in the welcome header (SetMeta)
-	workdir    string // shown in the welcome header (SetMeta)
-	configPath string // config file path for /config (SetConfigPath)
-	mouseOn    bool   // mouse capture (click-to-expand); off lets the terminal select text
-	skills       []string    // loaded skill names (for the welcome; SetSkills)
-	skillItems   []SkillItem // discovered skills (for /skills + /name; SetSkillItems)
-	pluginReload func() []SkillItem
-	welcomeStyle int      // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
-	cost      float64
-	turns     int
-	inTok     int64
-	outTok    int64
+	agentName      string
+	model          string
+	provider       string
+	version        string                      // shown in the welcome header (SetMeta)
+	workdir        string                      // shown in the welcome header (SetMeta)
+	configPath     string                      // config file path for /config (SetConfigPath)
+	mouseOn        bool                        // mouse capture (click-to-expand); off lets the terminal select text
+	checkpoint     func(context.Context) error // save a handoff brief on exit (SetCheckpoint)
+	quitting       bool                        // a checkpoint-then-quit is in flight
+	skills         []string                    // loaded skill names (for the welcome; SetSkills)
+	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
+	pluginReload   func() []SkillItem
+	skillsViewOpen bool
+	skillSel       int
+	skillOff       map[string]bool           // session-disabled skills (by name)
+	onSkillsApply  func(off map[string]bool) // rebuild the agent with the new off-set
+	pluginViewOpen bool
+	pluginTab      int // 0 installed, 1 marketplaces, 2 browse
+	pluginSel      int
+	welcomeStyle   int // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
+	cost           float64
+	turns          int
+	inTok          int64
+	outTok         int64
 
 	vp          viewport.Model
 	input       textinput.Model
@@ -291,7 +300,7 @@ type Model struct {
 	slashSel     int    // highlighted row in slash-command autocomplete
 	reset        func() // clears persistent conversation memory (/clear)
 	backgrounder func() // ctrl+b: move the running foreground bash to background
-	shimmer  int    // animation phase for the holographic welcome shimmer
+	shimmer      int    // animation phase for the holographic welcome shimmer
 
 	// full tool calls this session, for the /tools expandable viewer
 	toolRecs     []toolRec
@@ -489,6 +498,28 @@ func (m *Model) SetMeta(version, workdir string) { m.version, m.workdir = versio
 // SetConfigPath sets the config file /config opens in $EDITOR.
 func (m *Model) SetConfigPath(path string) { m.configPath = path }
 
+// SetCheckpoint wires a save-on-exit callback that persists a handoff brief so
+// the session can be resumed later.
+func (m *Model) SetCheckpoint(fn func(context.Context) error) { m.checkpoint = fn }
+
+// quitMsg is delivered after an exit-time checkpoint completes.
+type quitMsg struct{}
+
+// quitCmd saves a handoff brief (if there's a conversation to save and no run is
+// active) before quitting; otherwise it quits immediately.
+func (m *Model) quitCmd() tea.Cmd {
+	if m.checkpoint == nil || m.quitting || m.running || (m.turns == 0 && len(m.lines) == 0) {
+		return tea.Quit
+	}
+	m.quitting = true
+	m.append(metaStyle.Render("saving session…"))
+	fn := m.checkpoint
+	return func() tea.Msg {
+		_ = fn(context.Background())
+		return quitMsg{}
+	}
+}
+
 // SetSkills sets the loaded skill names (shown in the welcome panel).
 func (m *Model) SetSkills(names []string) { m.skills = names }
 
@@ -498,6 +529,10 @@ func (m *Model) SetSkillItems(items []SkillItem) { m.skillItems = items }
 // SetPluginReload wires a callback that re-scans skills/plugins after a /plugin
 // change and returns the refreshed list.
 func (m *Model) SetPluginReload(fn func() []SkillItem) { m.pluginReload = fn }
+
+// SetSkillsApply wires a callback invoked when the /skills modal toggles skills
+// on/off, so the agent is rebuilt with the disabled set excluded.
+func (m *Model) SetSkillsApply(fn func(off map[string]bool)) { m.onSkillsApply = fn }
 
 // applyReload refreshes the skill list (and the welcome panel's name list) after
 // a /plugin change.
@@ -720,7 +755,14 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, m.editConfig()
 	case "/skills":
 		m.input.Reset()
-		m.showSkills()
+		if len(m.skillItems) == 0 {
+			m.showSkills()
+			return true, nil
+		}
+		if m.skillOff == nil {
+			m.skillOff = map[string]bool{}
+		}
+		m.skillsViewOpen, m.skillSel = true, 0
 		return true, nil
 	case "/plugin":
 		return true, m.handlePlugin(text)
@@ -881,6 +923,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "?" && m.input.Value() == "" && !m.pickerOpen && m.pendingAsk == nil {
 			m.helpOpen = true
 			return m, nil
+		}
+		// Skills modal captures keys: space toggles a skill on/off (plugin skills
+		// are locked); esc/enter closes and applies the change.
+		if m.skillsViewOpen {
+			switch msg.String() {
+			case "esc", "q", "enter":
+				m.skillsViewOpen = false
+				if m.onSkillsApply != nil {
+					m.onSkillsApply(m.skillOff)
+				}
+			case "up", "k":
+				if m.skillSel > 0 {
+					m.skillSel--
+				}
+			case "down", "j":
+				if m.skillSel < len(m.skillItems)-1 {
+					m.skillSel++
+				}
+			case " ":
+				if m.skillSel < len(m.skillItems) {
+					s := m.skillItems[m.skillSel]
+					if s.Source == "project" || s.Source == "user" { // plugin skills are locked
+						m.skillOff[s.Name] = !m.skillOff[s.Name]
+					}
+				}
+			}
+			return m, nil
+		}
+		// Plugin browser modal captures keys.
+		if m.pluginViewOpen {
+			return m.updatePluginView(msg)
 		}
 		// Tools viewer overlay captures keys.
 		if m.toolViewOpen {
@@ -1156,7 +1229,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "ctrl+c", "esc":
-			return m, tea.Quit
+			return m, m.quitCmd()
 		case "ctrl+b":
 			// Move the running foreground bash command to the background so the
 			// agent loop continues; a no-op when no foreground command is running.
@@ -1282,6 +1355,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.reload {
 			m.applyReload()
 		}
+	case quitMsg:
+		return m, tea.Quit
 	case editorDoneMsg:
 		if msg.err != nil {
 			m.append(errStyle.Render("editor: " + msg.err.Error()))
@@ -1342,6 +1417,10 @@ func (m Model) View() string {
 		m.vp.SetContent(renderHelp())
 		m.vp.GotoBottom()
 		body = m.vp.View()
+	} else if m.skillsViewOpen {
+		body = m.skillsBox(bodyH)
+	} else if m.pluginViewOpen {
+		body = m.pluginBox(bodyH)
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
