@@ -60,7 +60,7 @@ var (
 	violStyle    = lipgloss.NewStyle().Foreground(holoViol)
 	inputBox     = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(accent).
+			BorderForeground(holoCyan).
 			Padding(0, 1)
 )
 
@@ -288,7 +288,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		Frames: []string{"◇", "◈", "◆", "◈"},
 		FPS:    time.Second / 5,
 	}
-	sp.Style = lipgloss.NewStyle().Foreground(accent)
+	sp.Style = lipgloss.NewStyle().Foreground(holoCyan)
 
 	bar := progress.New(progress.WithGradient("#2B6C8F", "#8FC7E8"), progress.WithoutPercentage())
 
@@ -1022,7 +1022,7 @@ func (m Model) View() string {
 		// While working, show the spinner + rotating phrase as a live line at the
 		// bottom of the conversation, the way Claude Code does.
 		content := strings.Join(m.lines, "\n")
-		work := m.bashBlock() + m.sp.View() + agentText.Render(" "+m.phrase()+"…") +
+		work := m.bashBlock() + m.sp.View() + " " + gradientText(m.phrase()+"…", holoRamp) +
 			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
 		if content != "" {
 			content += "\n"
@@ -1669,7 +1669,7 @@ func (m Model) footer() string {
 	// Shell-mode ("!"): gold border + prompt mark, so it's obvious the next
 	// Enter runs a shell command instead of prompting the agent.
 	bang := strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!")
-	mark, boxStyle := promptMark.Render("› "), inputBox
+	mark, boxStyle := crystalStyle.Render("◈ "), inputBox
 	if bang {
 		mark, boxStyle = goldStyle.Render("! "), inputBox.BorderForeground(gold)
 	}
@@ -1763,7 +1763,7 @@ func (m *Model) applyEvent(e agent.Event) {
 				m.bashCmd = ""
 			}
 		}
-		m.append(indent + startGlyph.Render("▸ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
+		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 70)))
 	case "tool-result":
 		if !worker {
 			m.bashCmd = ""
@@ -1780,7 +1780,7 @@ func (m *Model) applyEvent(e agent.Event) {
 			if i := strings.LastIndexByte(base, '/'); i >= 0 {
 				base = base[i+1:]
 			}
-			m.append(indent + resultStyle.Render("Edited ") + toolName.Render(base) + " " +
+			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
 				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
 		}
