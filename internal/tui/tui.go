@@ -105,6 +105,13 @@ type askMsg struct{ st *askState }
 // remoteStatusMsg reports progress of a /login or /rc slash command.
 type remoteStatusMsg struct{ text string }
 
+// shimmerMsg drives the animated holographic shimmer on the welcome screen.
+type shimmerMsg struct{}
+
+func shimmerTick() tea.Cmd {
+	return tea.Tick(110*time.Millisecond, func(time.Time) tea.Msg { return shimmerMsg{} })
+}
+
 // bangMsg carries the output of a "!command" shell escape.
 type bangMsg struct {
 	out string
@@ -250,6 +257,7 @@ type Model struct {
 
 	slashSel int    // highlighted row in slash-command autocomplete
 	reset    func() // clears persistent conversation memory (/clear)
+	shimmer  int    // animation phase for the holographic welcome shimmer
 }
 
 // RenderRun executes one real prompt synchronously, feeding its events into a
@@ -615,7 +623,7 @@ func (m Model) phrase() string {
 	return m.phrases[m.phraseIdx%len(m.phrases)]
 }
 
-func (m Model) Init() tea.Cmd { return textinput.Blink }
+func (m Model) Init() tea.Cmd { return tea.Batch(textinput.Blink, shimmerTick()) }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -924,6 +932,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bashCmd = ""
 			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
 		}
+	case shimmerMsg:
+		m.shimmer++
+		return m, shimmerTick()
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
 			m.remoteLinked = false
@@ -1043,9 +1054,11 @@ func (m Model) View() string {
 
 // welcome is the empty-state splash: the big logo, centered, with a tagline.
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 4 // header + footer
-	tagline := violStyle.Render("the archive remembers your code")
-	block := lipgloss.JoinVertical(lipgloss.Center, renderLogo(m.logoVariant), "", tagline)
+	bodyH := m.height - 1 - 4          // header + footer
+	phase := float64(m.shimmer) * 0.03 // slow flowing shimmer
+	logo := renderLogoAt(m.logoVariant, phase)
+	tagline := gradientTextAt("the archive remembers your code", holoLoop, phase*0.7)
+	block := lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
 

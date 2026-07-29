@@ -20,6 +20,7 @@ import (
 func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
+		shimmer                                            int
 		subagents, subagentFocus, shells, bang             bool
 		models, slash, usage                               bool
 		logo, width, height                                int
@@ -37,6 +38,7 @@ func newTUICmd() *cobra.Command {
 				// --render pipes to a file (not a TTY), so lipgloss would strip
 				// to 16 colors. Force truecolor so screenshots show real hues.
 				lipgloss.SetColorProfile(termenv.TrueColor)
+				tui.SetDemoShimmer(shimmer)
 				switch {
 				case welcome:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoWelcomeView(width, height, logo))
@@ -210,6 +212,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&sessions, "sessions", false, "with --render, show the session switcher")
 	f.BoolVar(&shortcuts, "shortcuts", false, "with --render, show the shortcuts overlay")
 	f.IntVar(&logo, "logo", 0, "logo variant: 0 filled, 1 gradient, 2 boxed, 3 wordmark")
+	f.IntVar(&shimmer, "shimmer", 0, "with --render --welcome, shimmer animation phase")
 	f.StringVar(&once, "once", "", "run one real prompt, print the final frame, and exit")
 	f.IntVar(&width, "width", 96, "width for --render/--once")
 	f.IntVar(&height, "height", 28, "height for --render/--once")

@@ -19,9 +19,17 @@ func DemoWelcomeView(width, height, variant int) string {
 	m := New("holocron", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.logoVariant = variant
+	m.shimmer = demoShimmer // phase for screenshots of the animated shimmer
 	m.layout()
 	return m.View()
 }
+
+// demoShimmer sets the welcome shimmer phase for --render screenshots.
+var demoShimmer int
+
+// SetDemoShimmer sets the shimmer phase used by DemoWelcomeView (for capturing
+// animation frames).
+func SetDemoShimmer(n int) { demoShimmer = n }
 
 // DemoView renders a populated TUI at the given size for screenshots and manual
 // inspection — no live model required.
