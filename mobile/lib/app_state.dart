@@ -79,6 +79,11 @@ class AppState extends ChangeNotifier {
 
   bool get isDirect => mode == ConnMode.direct;
   bool get remoteConfigured => baseUrl.isNotEmpty;
+
+  /// Whether the user is authenticated for server-backed (remote) use. On web
+  /// the same-origin session (Cloudflare Access / cookie) covers it, so no
+  /// in-app login is needed; on native we need a stored SSO token.
+  bool get authed => kIsWeb || token.isNotEmpty;
   bool get streaming =>
       currentChat?.messages.isNotEmpty == true &&
       currentChat!.messages.last.streaming;
@@ -100,9 +105,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    // Always open on Chats; the sidebar selection follows `mode`, so restoring
-    // a persisted `remote` here left Code highlighted on the Chats page.
-    mode = ConnMode.direct;
+    // The web build is served by `ergon serve`, so it is server-backed by
+    // definition — open in remote mode against its own origin. Native defaults to
+    // direct (BYO provider); the sidebar can switch.
+    mode = kIsWeb ? ConnMode.remote : ConnMode.direct;
     providerKind = ProviderKind.values[p.getInt('providerKind') ?? 0];
     openaiBaseUrl = p.getString('openaiBaseUrl') ?? openaiBaseUrl;
     openaiModel = p.getString('openaiModel') ?? openaiModel;
@@ -113,6 +119,11 @@ class AppState extends ChangeNotifier {
     identity = p.getString('identity') ?? '';
     permissionMode = PermissionMode.values[p.getInt('permissionMode') ?? 0];
     baseUrl = p.getString('baseUrl') ?? '';
+    // On the web build (served by `ergon serve`), default the Code server to the
+    // origin the frontend was loaded from — same process hosts UI + API.
+    if (baseUrl.isEmpty && kIsWeb) {
+      baseUrl = defaultWebServer();
+    }
     // secrets
     openaiKey = await _secure.read(key: 'openaiKey') ?? '';
     anthropicKey = await _secure.read(key: 'anthropicKey') ?? '';
@@ -683,4 +694,17 @@ class AppState extends ChangeNotifier {
     _directSub?.cancel();
     super.dispose();
   }
+}
+
+/// defaultWebServer returns the origin the web app was served from (its own
+/// `ergon serve`), used as the default Code server URL on web. Empty off web or
+/// for non-http origins.
+String defaultWebServer() {
+  try {
+    final u = Uri.base;
+    if (u.scheme == 'http' || u.scheme == 'https') {
+      return u.origin;
+    }
+  } catch (_) {}
+  return '';
 }
