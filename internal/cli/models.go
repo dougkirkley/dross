@@ -148,18 +148,20 @@ func saveLeadProvider(explicit string, st *leadState) error {
 }
 
 // fetchModelIDs lists the models a provider serves, for the TUI /model picker.
-// For OpenAI-compatible backends (including ollama) it calls GET {baseURL}/models
-// and filters to nothing extra — whatever the server advertises. Anthropic has
-// no list endpoint, so a known set is returned.
+// It queries each provider's live list endpoint — OpenAI-compatible /models,
+// Anthropic /v1/models, Gemini models.list, Bedrock ListInferenceProfiles — so
+// ids stay current, falling back to the catalog previews on failure. claude-code
+// is the only static one (no list endpoint).
 func fetchModelIDs(provName, baseURL, apiKey string) []string {
 	if provName == "claude-code" {
 		// Claude Code has no list endpoint; offer its model aliases.
 		return []string{"opus", "sonnet", "haiku", "fable"}
 	}
 	if provName == "anthropic" {
-		return []string{
-			"claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",
+		if ids := fetchAnthropicModels(baseURL, apiKey); len(ids) > 0 {
+			return ids
 		}
+		return catalogModels("anthropic")
 	}
 	if provName == "bedrock" {
 		// Resolve the real, region-correct inference-profile ids from AWS; fall
@@ -169,14 +171,13 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 		if ids, err := bedrock.ListModels(ctx); err == nil && len(ids) > 0 {
 			return ids
 		}
-		if c, ok := catalog.Get("bedrock"); ok {
-			return c.Models
-		}
+		return catalogModels("bedrock")
 	}
 	if provName == "gemini" {
-		// Generative Language API has a models.list, but keep it dependency-free:
-		// offer the current families (pick any other id via /model gemini <id>).
-		return []string{"gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"}
+		if ids := fetchGeminiModels(baseURL, apiKey); len(ids) > 0 {
+			return ids
+		}
+		return catalogModels("gemini")
 	}
 	base := strings.TrimRight(baseURL, "/")
 	if base == "" {
@@ -210,5 +211,92 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 		}
 	}
 	sort.Strings(ids)
+	return ids
+}
+
+// catalogModels returns a provider's static preview ids (fallback when a live
+// list can't be fetched).
+func catalogModels(id string) []string {
+	if c, ok := catalog.Get(id); ok {
+		return c.Models
+	}
+	return nil
+}
+
+// fetchAnthropicModels lists models from the Anthropic /v1/models endpoint.
+func fetchAnthropicModels(baseURL, apiKey string) []string {
+	if apiKey == "" {
+		return nil
+	}
+	base := strings.TrimRight(baseURL, "/")
+	if base == "" {
+		base = "https://api.anthropic.com/v1"
+	}
+	req, err := http.NewRequest(http.MethodGet, base+"/models?limit=100", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return nil
+	}
+	var ids []string
+	for _, m := range body.Data {
+		if m.ID != "" {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids
+}
+
+// fetchGeminiModels lists generateContent-capable models from the Generative
+// Language API.
+func fetchGeminiModels(baseURL, apiKey string) []string {
+	if apiKey == "" {
+		return nil
+	}
+	base := strings.TrimRight(baseURL, "/")
+	if base == "" {
+		base = "https://generativelanguage.googleapis.com/v1beta"
+	}
+	req, err := http.NewRequest(http.MethodGet, base+"/models?pageSize=200", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("x-goog-api-key", apiKey)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Models []struct {
+			Name      string   `json:"name"`
+			Supported []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return nil
+	}
+	var ids []string
+	for _, m := range body.Models {
+		for _, s := range m.Supported {
+			if s == "generateContent" {
+				ids = append(ids, strings.TrimPrefix(m.Name, "models/"))
+				break
+			}
+		}
+	}
 	return ids
 }
