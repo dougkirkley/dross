@@ -1,19 +1,23 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -90,6 +94,151 @@ func newWorkspace(root string) (*workspace, error) {
 		return nil, fmt.Errorf("workspace %s is not a directory", abs)
 	}
 	return &workspace{root: abs}, nil
+}
+
+// grep searches file contents under path (or the whole workspace) for a regexp,
+// returning matches as "rel:line: text". Skips VCS/dep dirs and binary/large
+// files, and caps the result.
+func (w *workspace) grep(pattern, path string) (string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("bad pattern: %w", err)
+	}
+	base := w.root
+	if path != "" {
+		abs, err := w.resolve(path)
+		if err != nil {
+			return "", err
+		}
+		base = abs
+	}
+	const maxMatches = 300
+	var out strings.Builder
+	matches := 0
+	walkErr := filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDir(d.Name()) && p != base {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if matches >= maxMatches {
+			return io.EOF
+		}
+		if info, err := d.Info(); err == nil && info.Size() > 1<<20 {
+			return nil // skip large files
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		rel, _ := filepath.Rel(w.root, p)
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+		ln := 0
+		for sc.Scan() {
+			ln++
+			line := sc.Text()
+			if !utf8.ValidString(line) {
+				return nil // binary file
+			}
+			if re.MatchString(line) {
+				fmt.Fprintf(&out, "%s:%d: %s\n", rel, ln, truncate(strings.TrimSpace(line), 300))
+				matches++
+				if matches >= maxMatches {
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if walkErr != nil && walkErr != io.EOF {
+		return "", walkErr
+	}
+	if matches == 0 {
+		return "[no matches]", nil
+	}
+	res := out.String()
+	if matches >= maxMatches {
+		res += fmt.Sprintf("[truncated at %d matches]\n", maxMatches)
+	}
+	return res, nil
+}
+
+// glob lists workspace files matching a glob pattern (supports ** ).
+func (w *workspace) glob(pattern string) (string, error) {
+	re, err := globToRegex(pattern)
+	if err != nil {
+		return "", err
+	}
+	var out []string
+	filepath.WalkDir(w.root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDir(d.Name()) && p != w.root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel(w.root, p)
+		if re.MatchString(rel) {
+			out = append(out, rel)
+		}
+		return nil
+	})
+	if len(out) == 0 {
+		return "[no files]", nil
+	}
+	sort.Strings(out)
+	if len(out) > 500 {
+		out = append(out[:500], "[truncated]")
+	}
+	return strings.Join(out, "\n"), nil
+}
+
+func skipDir(name string) bool {
+	switch name {
+	case ".git", "node_modules", "vendor", ".venv", "dist", "build":
+		return true
+	}
+	return false
+}
+
+// globToRegex converts a glob (with ** for any depth, * within a segment) into an
+// anchored regexp over the forward-slash path.
+func globToRegex(g string) (*regexp.Regexp, error) {
+	var b strings.Builder
+	b.WriteString("^")
+	for i := 0; i < len(g); i++ {
+		c := g[i]
+		switch c {
+		case '*':
+			if i+1 < len(g) && g[i+1] == '*' {
+				b.WriteString(".*")
+				i++
+				if i+1 < len(g) && g[i+1] == '/' {
+					i++
+				}
+			} else {
+				b.WriteString("[^/]*")
+			}
+		case '?':
+			b.WriteString("[^/]")
+		case '.', '(', ')', '+', '|', '^', '$', '{', '}', '[', ']', '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteString("$")
+	return regexp.Compile(b.String())
 }
 
 // resolve turns a tool-supplied path (relative to the workspace, or absolute)

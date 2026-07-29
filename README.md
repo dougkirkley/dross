@@ -207,8 +207,8 @@ on macOS). `/model` writes your provider/model choice here.
   terminal, not ergon.)
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
-  `write`, `edit`, `bash`, `monitor`, `shell_output`, `web_fetch`, `delegate`,
-  `publish`, `ask_user`.
+  `write`, `edit`, `bash`, `grep`, `glob`, `monitor`, `shell_output`, `web_fetch`,
+  `delegate`, `publish`, `ask_user`.
 - **permission** — per-tool `allow`|`ask`|`deny`; for command tools a map of
   command glob → decision (opencode-style). Enforced regardless of the UI mode.
 - **plugins** — external command tools imported without recompiling: the model

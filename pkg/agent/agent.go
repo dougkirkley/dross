@@ -1028,6 +1028,23 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 			return err.Error(), true
 		}
 		return orErr(webFetch(ctx, in.URL))
+	case "grep":
+		var in struct {
+			Pattern string `json:"pattern"`
+			Path    string `json:"path"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return orErr(a.ws.grep(in.Pattern, in.Path))
+	case "glob":
+		var in struct {
+			Pattern string `json:"pattern"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return orErr(a.ws.glob(in.Pattern))
 	case "delegate":
 		var in struct {
 			Task  string   `json:"task"`
@@ -1076,7 +1093,13 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		a.emit("answer", ans)
 		return ans, false
 	default:
-		return fmt.Sprintf("unknown tool %q", tc.Name), true
+		// Help the model recover instead of dead-ending: name the real tools.
+		names := make([]string, 0, len(a.enabledTools()))
+		for _, d := range a.enabledTools() {
+			names = append(names, d.Name)
+		}
+		return fmt.Sprintf("no tool named %q. Available tools: %s. Use the exact lowercase name.",
+			tc.Name, strings.Join(names, ", ")), true
 	}
 }
 

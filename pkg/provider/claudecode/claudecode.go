@@ -92,7 +92,8 @@ func buildSystem(base string, tools []provider.ToolDef) string {
 	b.WriteString("- To act, output one or more <function> blocks and NOTHING else — no prose.\n")
 	b.WriteString("- Put each parameter's value verbatim between its tags (multi-line is fine).\n")
 	b.WriteString("- Never describe a call in words; emit the block.\n")
-	b.WriteString("- Tool results come back as <tool_result> messages; continue from there.\n")
+	b.WriteString("- Use ONLY the tools under \"Available tools\". Their names are lowercase EXACTLY as shown (e.g. `read`, `bash` — never `Read`, `Grep`, or any tool not listed).\n")
+	b.WriteString("- Tool results come back as <tool_result> messages. NEVER emit <tool_result>, <function_results>, or repeat tool output back — the results are given to you; use them, don't reproduce them.\n")
 	b.WriteString("- Only when the task is fully complete, reply with your final answer as plain text and NO <function> blocks.\n\n")
 	b.WriteString("# Available tools\n")
 	for _, t := range tools {
@@ -129,13 +130,34 @@ func buildSystem(base string, tools []provider.ToolDef) string {
 var (
 	funcRE  = regexp.MustCompile(`(?s)<function=([^>\s]+)\s*>(.*?)</function>`)
 	paramRE = regexp.MustCompile(`(?s)<parameter=([^>\s]+)\s*>(.*?)</parameter>`)
+	// resultBlockRE removes echoed result blocks (the model sometimes parrots the
+	// <tool_result>/<function_results> wrappers it was handed).
+	resultBlockRE = regexp.MustCompile(`(?s)<(tool_result|tool_error|function_results|function_calls)\b[^>]*>.*?</(tool_result|tool_error|function_results|function_calls)>`)
+	// strayTagRE removes any leftover protocol tags (malformed/half-emitted).
+	strayTagRE = regexp.MustCompile(`</?(function|parameter|tool_result|tool_error|function_results|function_calls|invoke)\b[^>]*>`)
 )
+
+// toolAlias maps common Claude-native tool names to ergon's lowercase tools, so
+// a driven model that reaches for its built-in names still hits the right tool.
+var toolAlias = map[string]string{
+	"read": "read", "write": "write", "edit": "edit", "bash": "bash",
+	"grep": "grep", "glob": "glob", "webfetch": "web_fetch", "web_fetch": "web_fetch",
+}
+
+// normalizeToolName lowercases and de-aliases a tool name from the model.
+func normalizeToolName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if a, ok := toolAlias[n]; ok {
+		return a
+	}
+	return n
+}
 
 // parseCalls extracts XML tool calls from the model's text and returns them plus
 // the text with those blocks removed.
 func parseCalls(s string) ([]provider.ToolCall, string) {
 	if !strings.Contains(s, "<function=") {
-		return nil, s
+		return nil, stripProtocol(s)
 	}
 	var calls []provider.ToolCall
 	for i, m := range funcRE.FindAllStringSubmatch(s, -1) {
@@ -149,12 +171,19 @@ func parseCalls(s string) ([]provider.ToolCall, string) {
 		}
 		calls = append(calls, provider.ToolCall{
 			ID:    fmt.Sprintf("call_%d", i),
-			Name:  strings.TrimSpace(m[1]),
+			Name:  normalizeToolName(m[1]),
 			Input: raw,
 		})
 	}
-	cleaned := strings.TrimSpace(funcRE.ReplaceAllString(s, ""))
-	return calls, cleaned
+	return calls, stripProtocol(funcRE.ReplaceAllString(s, ""))
+}
+
+// stripProtocol removes tool-call protocol scaffolding (echoed result blocks and
+// stray tags) so it never leaks into the user-facing assistant text.
+func stripProtocol(s string) string {
+	s = resultBlockRE.ReplaceAllString(s, "")
+	s = strayTagRE.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
 }
 
 // formatResults renders ergon tool results as a user message Claude continues
@@ -279,9 +308,11 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 
 	if s.driven {
-		if calls, cleaned := parseCalls(out); len(calls) > 0 {
+		calls, cleaned := parseCalls(out)
+		if len(calls) > 0 {
 			return &provider.Response{Text: cleaned, ToolCalls: calls, StopReason: provider.StopToolUse, Usage: usage}, nil
 		}
+		return &provider.Response{Text: cleaned, StopReason: provider.StopEndTurn, Usage: usage}, nil
 	}
 	return &provider.Response{Text: out, StopReason: provider.StopEndTurn, Usage: usage}, nil
 }

@@ -1,0 +1,43 @@
+package claudecode
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestNormalizeToolName(t *testing.T) {
+	cases := map[string]string{
+		"Read": "read", "GREP": "grep", "Glob": "glob",
+		"Bash": "bash", "WebFetch": "web_fetch", "edit": "edit",
+	}
+	for in, want := range cases {
+		if got := normalizeToolName(in); got != want {
+			t.Errorf("normalizeToolName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestParseCallsExtractsAndCleans(t *testing.T) {
+	// A valid call plus echoed protocol scaffolding the model shouldn't emit.
+	s := "Let me read it.\n<function=Read>\n<parameter=path>go.mod</parameter>\n</function>\n" +
+		"<tool_result>\nstale echoed output\n</tool_result>\n</parameter>"
+	calls, text := parseCalls(s)
+	if len(calls) != 1 || calls[0].Name != "read" {
+		t.Fatalf("calls = %+v", calls)
+	}
+	for _, leak := range []string{"<function", "</function", "<parameter", "</parameter", "<tool_result", "function_results"} {
+		if strings.Contains(text, leak) {
+			t.Fatalf("protocol leaked into text %q: %q", leak, text)
+		}
+	}
+	if strings.Contains(text, "stale echoed output") {
+		t.Fatalf("echoed tool result not stripped: %q", text)
+	}
+}
+
+func TestStripProtocolNoCalls(t *testing.T) {
+	s := "Here is the answer.\n<function_results>7 CLAUDE.md</function_results>\n</function>"
+	if got := stripProtocol(s); strings.Contains(got, "<") {
+		t.Fatalf("stray tags remain: %q", got)
+	}
+}

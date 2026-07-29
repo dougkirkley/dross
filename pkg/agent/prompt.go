@@ -163,6 +163,21 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Properties:  map[string]any{"url": strProp("The absolute http(s) URL to fetch.")},
 			Required:    []string{"url"},
 		},
+		{
+			Name:        "grep",
+			Description: "Search file contents in the workspace for a regular expression. Returns matching lines as path:line:text.",
+			Properties: map[string]any{
+				"pattern": strProp("Regular expression to search for."),
+				"path":    strProp("Optional file or directory to search (relative to the workspace root; default whole workspace)."),
+			},
+			Required: []string{"pattern"},
+		},
+		{
+			Name:        "glob",
+			Description: "List files in the workspace matching a glob pattern (e.g. **/*.go, cmd/*/main.go).",
+			Properties:  map[string]any{"pattern": strProp("Glob pattern relative to the workspace root.")},
+			Required:    []string{"pattern"},
+		},
 	}
 	if hasWorker {
 		defs = append(defs, provider.ToolDef{
