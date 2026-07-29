@@ -4,10 +4,13 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
+import '../widgets/prose.dart' show relTimeLong;
+import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 
-/// The left navigation drawer: the app is a thin `ergon serve` client, so it
-/// holds the identity header, a link to Settings (server URL), and sign out.
+/// The left navigation drawer: a Chat tab and a Code tab (both `ergon serve`
+/// sessions, differing only in presentation), plus recent sessions. Mirrors the
+/// Claude app's sidebar; the active tab is highlighted.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -22,7 +25,7 @@ class AppDrawer extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 20),
               child: Row(
                 children: [
                   ErgonLogo(size: 34, showWordmark: false),
@@ -31,22 +34,64 @@ class AppDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Text(s.baseUrl,
-                  maxLines: 1, overflow: TextOverflow.ellipsis, style: T.metaFaint),
+            _navItem(context, Icons.chat_bubble_outline, 'Chat',
+                active: s.mode == AppMode.chat,
+                onTap: () => _go(context, AppMode.chat)),
+            _navItem(context, Icons.code, 'Code',
+                active: s.mode == AppMode.code,
+                onTap: () => _go(context, AppMode.code)),
+            const SizedBox(height: 16),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Recents', style: T.metaFaint),
+            ),
+            Expanded(
+              child: s.sessions.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: Text('No sessions yet', style: T.metaFaint),
+                    )
+                  : ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: s.sessions.length,
+                      itemBuilder: (_, i) {
+                        final sess = s.sessions[i];
+                        return InkWell(
+                          onTap: () {
+                            final st = context.read<AppState>();
+                            st.attach(sess);
+                            Navigator.pop(context); // close drawer
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => SessionScreen(
+                                        chat: st.mode == AppMode.chat)));
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            child: Row(children: [
+                              Expanded(
+                                child: Text(sess.displayTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: T.body),
+                              ),
+                              if (sess.updated != null)
+                                Text(relTimeLong(sess.updated!),
+                                    style: T.metaFaint),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
             ),
             const Divider(height: 1, color: T.borderFaint),
-            const Spacer(),
-            const Divider(height: 1, color: T.borderFaint),
-            _navItem(context, Icons.settings_outlined, 'Settings', onTap: () {
+            _navItem(context, Icons.settings_outlined, 'Settings',
+                active: false, onTap: () {
               Navigator.pop(context);
               Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const SettingsScreen()));
-            }),
-            _navItem(context, Icons.logout, 'Sign out', onTap: () {
-              Navigator.pop(context);
-              context.read<AppState>().signOut();
             }),
             const SizedBox(height: 8),
           ],
@@ -55,12 +100,17 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
+  void _go(BuildContext context, AppMode mode) {
+    Navigator.pop(context); // close drawer
+    context.read<AppState>().setMode(mode); // Home re-routes to the tab
+  }
+
   Widget _navItem(BuildContext context, IconData icon, String label,
-          {required VoidCallback onTap}) =>
+          {required bool active, required VoidCallback onTap}) =>
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         child: Material(
-          color: Colors.transparent,
+          color: active ? T.surface : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
@@ -68,11 +118,13 @@ class AppDrawer extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
               child: Row(children: [
-                Icon(icon, size: 22, color: T.textDim),
+                Icon(icon, size: 22, color: active ? T.accentHi : T.textDim),
                 const SizedBox(width: 16),
                 Text(label,
-                    style: const TextStyle(
-                        color: T.textDim, fontSize: 17, fontWeight: FontWeight.w500)),
+                    style: TextStyle(
+                        color: active ? T.text : T.textDim,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500)),
               ]),
             ),
           ),

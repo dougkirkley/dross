@@ -42,7 +42,8 @@ class Home extends StatelessWidget {
     if (!configured) return const ServerSetupScreen();
     final authed = context.select<AppState, bool>((s) => s.authed);
     if (!authed) return const SignInScreen();
-    return const SessionsScreen();
+    final mode = context.select<AppState, AppMode>((s) => s.mode);
+    return SessionsScreen(chat: mode == AppMode.chat);
   }
 }
 

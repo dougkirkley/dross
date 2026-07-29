@@ -9,6 +9,11 @@ import 'api.dart';
 import 'models.dart';
 import 'util/file_pick.dart';
 
+/// The active sidebar tab. Both tabs are backed by the same `ergon serve`
+/// sessions; only the presentation differs (chat = conversational, code = full
+/// workspace UI).
+enum AppMode { chat, code }
+
 /// AppState is a thin client for `ergon serve`. All agent/provider config lives
 /// on the server — the app only needs the server URL and a Google SSO session.
 /// The app has no local settings beyond the server URL.
@@ -17,6 +22,14 @@ class AppState extends ChangeNotifier {
 
   String baseUrl = '';
   String token = '';
+
+  /// Which sidebar tab is showing (Chat vs Code). UI-only.
+  AppMode mode = AppMode.code;
+  void setMode(AppMode m) {
+    if (mode == m) return;
+    mode = m;
+    notifyListeners();
+  }
 
   List<Session> sessions = [];
   bool loadingSessions = false;
@@ -34,9 +47,14 @@ class AppState extends ChangeNotifier {
 
   bool get remoteConfigured => baseUrl.isNotEmpty;
 
+  /// Set true by signOut so the app gates behind the sign-in screen even on web
+  /// (where a same-origin cookie would otherwise keep `authed` true). Cleared on
+  /// the next successful sign-in.
+  bool _signedOut = false;
+
   /// Whether the user is authenticated. On web the same-origin session
   /// (Cloudflare Access / cookie) covers it; on native we need an SSO token.
-  bool get authed => kIsWeb || token.isNotEmpty;
+  bool get authed => !_signedOut && (kIsWeb || token.isNotEmpty);
 
   ErgonClient get _client => ErgonClient(baseUrl: baseUrl, token: token);
 
@@ -64,6 +82,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _signedOut = true;
     token = '';
     await _secure.delete(key: 'remoteToken');
     detach();
@@ -77,6 +96,8 @@ class AppState extends ChangeNotifier {
   Future<String?> signInRemote() async {
     if (baseUrl.isEmpty) return 'Set the server URL first';
     if (kIsWeb) {
+      _signedOut = false;
+      notifyListeners();
       await refreshSessions();
       return null;
     }
@@ -88,6 +109,7 @@ class AppState extends ChangeNotifier {
       final session = Uri.parse(result).queryParameters['session'];
       if (session == null || session.isEmpty) return 'No session returned';
       token = session;
+      _signedOut = false;
       await _secure.write(key: 'remoteToken', value: token);
       notifyListeners();
       await refreshSessions();

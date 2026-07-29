@@ -11,11 +11,17 @@ import '../widgets/prose.dart' show relTimeLong;
 import 'session_screen.dart';
 import 'settings_screen.dart';
 
-/// Remote-mode session list (attaches to `ergon serve`). Mirrors the Claude
-/// app's Code page: a Devices card and session cards with status + last message,
-/// a near-white "New session" pill.
+/// Session list attached to `ergon serve`. The same server sessions back both
+/// the Chat and Code tabs; `chat` only changes the header and which renderer a
+/// tapped session opens (conversational vs full workspace). All model/provider
+/// config lives on the server.
 class SessionsScreen extends StatefulWidget {
-  const SessionsScreen({super.key});
+  const SessionsScreen({super.key, this.chat = false});
+
+  /// When true this is the Chat tab: stripped conversational view; otherwise the
+  /// Code tab with the full workspace UI (tasks, shell, edits, uploads).
+  final bool chat;
+
   @override
   State<SessionsScreen> createState() => _SessionsScreenState();
 }
@@ -41,7 +47,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
         child: Column(
           children: [
             FlatHeader(
-              title: 'Code',
+              title: widget.chat ? 'Chat' : 'Code',
               leading: Builder(
                 builder: (ctx) => CircleIconButton(
                     icon: Icons.menu,
@@ -192,7 +198,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
           // to state as events load, so re-entry never hangs on attach.
           context.read<AppState>().attach(sess);
           Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const SessionScreen()));
+              MaterialPageRoute(builder: (_) => SessionScreen(chat: widget.chat)));
         },
         child: child,
       );
@@ -318,7 +324,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
     if (s != null && context.mounted) {
       state.attach(s); // non-blocking; screen reacts as events load
       Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const SessionScreen()));
+          MaterialPageRoute(builder: (_) => SessionScreen(chat: widget.chat)));
     }
   }
 }
