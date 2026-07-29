@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -21,8 +22,10 @@ func configToolDef() provider.ToolDef {
 		Description: "Read or edit ergon's own JSON config (provider, model, worker, reviewer, review, tools, permission, welcome, identity_prompt, name, phrases). " +
 			"op=get returns the current config; op=set merges the `patch` object into it (only provided top-level keys are overwritten) and saves. Use this when the user asks to change ergon's settings.",
 		Properties: map[string]any{
-			"op":    map[string]any{"type": "string", "enum": []string{"get", "set", "schema"}, "description": "get current config, set (with patch), or schema (list keys)"},
-			"patch": map[string]any{"type": "object", "description": "top-level config keys to set (op=set); a JSON object"},
+			"op":    map[string]any{"type": "string", "enum": []string{"get", "set", "schema"}, "description": "get current config, set, or schema (list keys)"},
+			"patch": map[string]any{"type": "object", "description": "op=set: a JSON object of top-level config keys to merge (preferred, e.g. {\"name\":\"x\"})"},
+			"key":   map[string]any{"type": "string", "description": "op=set: single key to set (alternative to patch, with value)"},
+			"value": map[string]any{"description": "op=set: value for key"},
 		},
 		Required: []string{"op"},
 	}
@@ -36,6 +39,8 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 		var in struct {
 			Op    string          `json:"op"`
 			Patch json.RawMessage `json:"patch"`
+			Key   string          `json:"key"`
+			Value json.RawMessage `json:"value"`
 		}
 		if err := json.Unmarshal(input, &in); err != nil {
 			return err.Error(), true
@@ -46,12 +51,9 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 			return configSchemaHelp(), false
 		}
 		if in.Op == "set" {
-			if len(in.Patch) == 0 {
-				return "op=set requires a non-empty patch object", true
-			}
-			patch, err := decodePatch(in.Patch)
+			patch, err := decodeSetArgs(in.Patch, in.Key, in.Value)
 			if err != nil {
-				return "invalid patch: " + err.Error(), true
+				return err.Error(), true
 			}
 			cur := map[string]any{}
 			if b, err := os.ReadFile(path); err == nil {
@@ -78,6 +80,31 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 		}
 		return "no config file yet (" + path + "); defaults are in effect", false
 	}
+}
+
+// decodeSetArgs builds the set patch from either a `patch` object or a
+// `key`+`value` pair (both forms the model tends to use).
+func decodeSetArgs(rawPatch json.RawMessage, key string, value json.RawMessage) (map[string]any, error) {
+	if len(rawPatch) > 0 {
+		p, err := decodePatch(rawPatch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid patch: %w", err)
+		}
+		if len(p) > 0 {
+			return p, nil
+		}
+	}
+	if key != "" {
+		var v any
+		if len(value) == 0 {
+			return nil, fmt.Errorf("op=set with key requires a value")
+		}
+		if err := json.Unmarshal(value, &v); err != nil {
+			v = string(value) // treat a bare/unquoted value as a string
+		}
+		return map[string]any{key: v}, nil
+	}
+	return nil, fmt.Errorf("op=set requires a patch object, or key+value")
 }
 
 // decodePatch parses a config patch, tolerating a patch that was passed as a

@@ -21,3 +21,24 @@ func TestDecodePatch(t *testing.T) {
 		t.Fatal("non-object/non-string patch should error")
 	}
 }
+
+func TestDecodeSetArgs(t *testing.T) {
+	// patch object.
+	p, err := decodeSetArgs([]byte(`{"name":"x"}`), "", nil)
+	if err != nil || p["name"] != "x" {
+		t.Fatalf("patch form: %v %v", p, err)
+	}
+	// key + value form (what the model used).
+	p, err = decodeSetArgs(nil, "name", []byte(`"holocron"`))
+	if err != nil || p["name"] != "holocron" {
+		t.Fatalf("key/value form: %v %v", p, err)
+	}
+	// key with no value errors.
+	if _, err := decodeSetArgs(nil, "name", nil); err == nil {
+		t.Fatal("key without value should error")
+	}
+	// nothing errors.
+	if _, err := decodeSetArgs(nil, "", nil); err == nil {
+		t.Fatal("empty set should error")
+	}
+}
