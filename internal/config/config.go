@@ -158,6 +158,10 @@ func EnvFor(provider string) (baseURL, apiKey string) {
 		return base, os.Getenv("OPENAI_API_KEY")
 	case "bedrock":
 		return os.Getenv("ANTHROPIC_BEDROCK_BASE_URL"), ""
+	case "azure":
+		return os.Getenv("AZURE_OPENAI_ENDPOINT"), os.Getenv("AZURE_OPENAI_API_KEY")
+	case "gemini":
+		return "", os.Getenv("GEMINI_API_KEY")
 	}
 	return "", ""
 }

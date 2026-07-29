@@ -179,6 +179,13 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 		}
 		return catalogModels("gemini")
 	}
+	if provName == "vertex" {
+		return catalogModels("vertex")
+	}
+	if provName == "azure" {
+		// Azure model ids are user-defined deployment names; show common defaults.
+		return catalogModels("azure")
+	}
 	base := strings.TrimRight(baseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"

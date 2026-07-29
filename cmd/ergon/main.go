@@ -15,6 +15,7 @@ import (
 
 	// Register model backends (driver-style; see internal/provider).
 	_ "github.com/dougkirkley/ergon/pkg/provider/anthropic"
+	_ "github.com/dougkirkley/ergon/pkg/provider/azure"
 	_ "github.com/dougkirkley/ergon/pkg/provider/bedrock"
 	_ "github.com/dougkirkley/ergon/pkg/provider/claudecode"
 	_ "github.com/dougkirkley/ergon/pkg/provider/claudesub"

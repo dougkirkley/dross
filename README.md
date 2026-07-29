@@ -77,6 +77,7 @@ OpenAI-compatible and share one backend, selected by base URL.
 | **Google Gemini** (native, function calling) | `GEMINI_API_KEY`; `/model gemini` (gemini-3-pro, 2.5-pro/flash, …) |
 | **Amazon Bedrock** (Claude + Llama/Nova/Mistral/… via Converse) | AWS default credential chain; `/model bedrock` (region inference-profile ids) |
 | **Google Vertex AI** (Gemini, native) | GCP ADC auth + `VERTEX_PROJECT`/`VERTEX_REGION`; `/model vertex` |
+| **Azure OpenAI** | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY`; `/model azure` (model = deployment name) |
 | **Claude subscription** (`claude-code`) | drives the local `claude` CLI — no API key; `/model claude-code` |
 
 The `/model` picker shows every catalog provider as a subtitle with its models
