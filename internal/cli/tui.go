@@ -254,11 +254,6 @@ func newTUICmd() *cobra.Command {
 			mdl.SetWelcomeStyle(welcomeStyleFor(res.File.Welcome))
 			mdl.SetPhrases(res.File.Phrases)
 			mdl.SetSkillItems(skillItems)
-			skillNames := make([]string, 0, len(skillItems))
-			for _, s := range skillItems {
-				skillNames = append(skillNames, s.Name)
-			}
-			mdl.SetSkills(skillNames)
 			mdl.SetPluginReload(func() []tui.SkillItem {
 				loadSkills()
 				skillGen++

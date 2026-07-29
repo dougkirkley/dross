@@ -23,7 +23,6 @@ func DemoWelcomeView(width, height, variant int) string {
 	m.shimmer = demoShimmer  // phase for screenshots of the animated shimmer
 	m.SetMeta("v0.4.0", "/Users/doug/Projects/holocron")
 	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b")
-	m.SetSkills([]string{"code-review", "git-commit", "jq"})
 	m.layout()
 	return m.View()
 }

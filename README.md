@@ -193,8 +193,8 @@ on macOS). `/model` writes your provider/model choice here.
 - **name** — the wordmark/branding shown in the TUI.
 - **identity_prompt** — a system-prompt addendum (persona/task framing) prepended
   to any `AGENTS.md`/`CLAUDE.md` context.
-- **welcome** — empty-state layout: `clean` (default), `skills`, `columns`,
-  `boxed`, or `centered` (the original big centered wordmark).
+- **welcome** — empty-state layout: `clean` (default), `boxed`, or `centered`
+  (the original big centered wordmark).
 - **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`,
   or `mono`. Switch live with `/theme [name]` (bare `/theme` cycles); override
   once with `ergon --theme <name>`.

@@ -85,14 +85,10 @@ type leadState struct {
 // welcomeStyleFor maps a config welcome name to the TUI layout variant.
 func welcomeStyleFor(name string) int {
 	switch name {
-	case "skills":
-		return 1
-	case "columns":
-		return 2
 	case "boxed":
-		return 3
+		return 1
 	case "centered":
-		return 4
+		return 2
 	default: // "clean" or unset
 		return 0
 	}

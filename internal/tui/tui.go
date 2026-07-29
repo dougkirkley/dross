@@ -208,7 +208,6 @@ type Model struct {
 	checkpoint     func(context.Context) error // save a handoff brief on exit (SetCheckpoint)
 	quitting       bool                        // a checkpoint-then-quit is in flight
 	onTheme        func(string)                // persist the chosen theme (SetThemeSaver)
-	skills         []string                    // loaded skill names (for the welcome; SetSkills)
 	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
 	pluginReload   func() []SkillItem
 	skillsViewOpen bool
@@ -525,9 +524,6 @@ func (m *Model) quitCmd() tea.Cmd {
 	}
 }
 
-// SetSkills sets the loaded skill names (shown in the welcome panel).
-func (m *Model) SetSkills(names []string) { m.skills = names }
-
 // SetSkillItems sets the discovered skills (for /skills and /name commands).
 func (m *Model) SetSkillItems(items []SkillItem) { m.skillItems = items }
 
@@ -539,17 +535,12 @@ func (m *Model) SetPluginReload(fn func() []SkillItem) { m.pluginReload = fn }
 // on/off, so the agent is rebuilt with the disabled set excluded.
 func (m *Model) SetSkillsApply(fn func(off map[string]bool)) { m.onSkillsApply = fn }
 
-// applyReload refreshes the skill list (and the welcome panel's name list) after
-// a /plugin change.
+// applyReload refreshes the skill list after a /plugin change.
 func (m *Model) applyReload() {
 	if m.pluginReload == nil {
 		return
 	}
 	m.skillItems = m.pluginReload()
-	m.skills = m.skills[:0]
-	for _, s := range m.skillItems {
-		m.skills = append(m.skills, s.Name)
-	}
 }
 
 // isBuiltinSlash reports whether name is a reserved built-in command. Built-ins
@@ -1487,27 +1478,20 @@ func (m Model) View() string {
 
 // welcome is the empty-state splash. Layout variants (SetWelcomeStyle):
 //
-//	0 clean   — logo top-left, directory, model (default)
-//	1 skills  — clean plus a Skills list
-//	2 columns — clean plus Skills | Tools columns (crush-style)
-//	3 boxed   — identity inside a rounded panel
-//	4 centered — the original big centered wordmark + tagline
+//	0 clean    — logo top-left, directory, model (default)
+//	1 boxed    — identity inside a rounded panel
+//	2 centered — the original big centered wordmark + tagline
 func (m Model) welcome() string {
 	bodyH := m.height - 1 - 4 // header + footer
-	if m.welcomeStyle == 4 {
+	if m.welcomeStyle == 2 {
 		return m.welcomeCentered(bodyH)
 	}
 	var rows []string
-	switch m.welcomeStyle {
-	case 1:
-		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.skillsPanel(), "", m.wTagline()}
-	case 2:
-		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.welcomeColumns(), "", m.wTagline()}
-	case 3:
+	if m.welcomeStyle == 1 { // boxed
 		inner := lipgloss.JoinVertical(lipgloss.Left, m.wLogo(), "", m.wDir(), m.wModel())
 		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoViol).Padding(0, 2).Render(inner)
 		rows = []string{box, "", m.wTagline()}
-	default:
+	} else { // clean
 		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.wTagline()}
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
@@ -1522,31 +1506,6 @@ func (m Model) welcomeCentered(bodyH int) string {
 	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
 	block := lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
-}
-
-// skillsPanel lists the loaded skills (green bullets), or a hint when none.
-func (m Model) skillsPanel() string {
-	head := metaStyle.Render("Skills")
-	if len(m.skills) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, head,
-			metaStyle.Render("  none yet · ")+crystalStyle.Render("/plugin")+metaStyle.Render(" to add"))
-	}
-	lines := []string{head}
-	for _, s := range m.skills {
-		lines = append(lines, checkStyle.Render("● ")+agentText.Render(s))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
-}
-
-// welcomeColumns renders Skills | Tools side by side (crush-style).
-func (m Model) welcomeColumns() string {
-	toolLines := []string{metaStyle.Render("Tools"),
-		checkStyle.Render("● ") + agentText.Render("read · edit · write"),
-		checkStyle.Render("● ") + agentText.Render("bash · web_fetch"),
-		checkStyle.Render("● ") + agentText.Render("delegate · monitor")}
-	tools := lipgloss.JoinVertical(lipgloss.Left, toolLines...)
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(30).Render(m.skillsPanel()), tools)
 }
 
 func (m Model) wLogo() string {
