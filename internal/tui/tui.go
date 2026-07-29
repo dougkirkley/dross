@@ -1763,7 +1763,7 @@ func crystalMeter(frac float64, cells int) string {
 }
 
 func (m Model) header() string {
-	left := crystalStyle.Render("◈  ") + gradientText(logoWord, holoRamp)
+	left := crystalStyle.Render("◈  ") + gradientText(strings.ToLower(logoWord), holoRamp)
 	if m.model != "" {
 		left += metaStyle.Render("      " + m.model)
 	}
