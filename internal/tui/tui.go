@@ -1735,18 +1735,17 @@ func (m Model) themeBox(bodyH int) string {
 	title := crystalStyle.Render("◈ ") + gradientText("theme", holoRamp)
 	rule := gradientText(strings.Repeat("─", inner), holoLoop)
 
+	// Plain list — the whole UI (border, header, footer, input) recolors to the
+	// highlighted theme live, so the selection itself is the preview.
 	var lines []string
 	for i, t := range themes {
-		swatch := gradientText("███████", t.ramp) // preview bar in this theme's colors
-		name := gradientText(t.Name, t.ramp)
-		caret := "  "
 		if i == m.themeSel {
-			caret = crystalStyle.Render("◈ ")
-			name += metaStyle.Render("  ◂")
+			lines = append(lines, crystalStyle.Render("◈ "+t.Name))
+		} else {
+			lines = append(lines, "  "+metaStyle.Render(t.Name))
 		}
-		lines = append(lines, caret+swatch+"  "+name)
 	}
-	foot := metaStyle.Render("↑/↓ preview · enter apply · esc cancel")
+	foot := metaStyle.Render("↑/↓ preview live · enter apply · esc cancel")
 	parts := append([]string{title, rule, ""}, lines...)
 	parts = append(parts, "", foot)
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).
