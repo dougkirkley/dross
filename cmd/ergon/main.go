@@ -20,6 +20,7 @@ import (
 	_ "github.com/dougkirkley/ergon/pkg/provider/claudesub"
 	_ "github.com/dougkirkley/ergon/pkg/provider/gemini"
 	_ "github.com/dougkirkley/ergon/pkg/provider/openai"
+	_ "github.com/dougkirkley/ergon/pkg/provider/vertex"
 )
 
 func main() {
