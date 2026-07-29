@@ -257,6 +257,7 @@ type Model struct {
 	modelPickerOpen bool
 	modelSel        int          // index into modelFiltered
 	modelQuery      string       // /model search filter
+	modelSearching  bool         // /model picker is in search mode (started with "/")
 	modelFiltered   []int        // indices into modelFlat matching the query
 	catalogGroups   []ModelGroup // provider→models catalog for the /model picker
 
@@ -486,7 +487,7 @@ func (m *Model) openModelPicker(groups []ModelGroup) {
 	if len(m.modelFlat) == 0 {
 		return
 	}
-	m.modelQuery = ""
+	m.modelQuery, m.modelSearching = "", false
 	m.filterModels()
 	for i, idx := range m.modelFiltered { // start on the current model
 		if m.modelFlat[idx] == m.model && m.modelFlatProv[idx] == m.provider {
@@ -737,20 +738,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Model picker overlay captures keys (type to search).
+		// Model picker overlay. Navigate by default; "/" starts a search.
 		if m.modelPickerOpen {
-			switch msg.Type {
-			case tea.KeyEsc:
-				m.modelPickerOpen = false
-			case tea.KeyUp:
-				if m.modelSel > 0 {
-					m.modelSel--
-				}
-			case tea.KeyDown:
-				if m.modelSel < len(m.modelFiltered)-1 {
-					m.modelSel++
-				}
-			case tea.KeyEnter:
+			pick := func() {
 				if m.modelSel < len(m.modelFiltered) {
 					idx := m.modelFiltered[m.modelSel]
 					id, prov := m.modelFlat[idx], m.modelFlatProv[idx]
@@ -761,17 +751,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 				}
 				m.modelPickerOpen = false
-			case tea.KeyBackspace:
-				if m.modelQuery != "" {
-					m.modelQuery = m.modelQuery[:len(m.modelQuery)-1]
+			}
+			if m.modelSearching {
+				switch msg.Type {
+				case tea.KeyEsc: // leave search, keep the picker open
+					m.modelSearching, m.modelQuery = false, ""
+					m.filterModels()
+				case tea.KeyEnter:
+					pick()
+				case tea.KeyUp:
+					if m.modelSel > 0 {
+						m.modelSel--
+					}
+				case tea.KeyDown:
+					if m.modelSel < len(m.modelFiltered)-1 {
+						m.modelSel++
+					}
+				case tea.KeyBackspace:
+					if m.modelQuery != "" {
+						m.modelQuery = m.modelQuery[:len(m.modelQuery)-1]
+						m.filterModels()
+					}
+				case tea.KeySpace:
+					m.modelQuery += " "
+					m.filterModels()
+				case tea.KeyRunes:
+					m.modelQuery += string(msg.Runes)
 					m.filterModels()
 				}
-			case tea.KeySpace:
-				m.modelQuery += " "
-				m.filterModels()
-			case tea.KeyRunes:
-				m.modelQuery += string(msg.Runes)
-				m.filterModels()
+				return m, nil
+			}
+			switch msg.String() {
+			case "/":
+				m.modelSearching = true
+			case "esc", "q":
+				m.modelPickerOpen = false
+			case "up", "k":
+				if m.modelSel > 0 {
+					m.modelSel--
+				}
+			case "down", "j":
+				if m.modelSel < len(m.modelFiltered)-1 {
+					m.modelSel++
+				}
+			case "enter":
+				pick()
 			}
 			return m, nil
 		}
@@ -1598,8 +1622,13 @@ func (m Model) renderToolView() string {
 // grouped by provider (subtitle), with the current one marked.
 func (m Model) renderModels() string {
 	var b strings.Builder
-	b.WriteString(agentLabel.Render("Models") + metaStyle.Render("   search ") +
-		agentText.Render(m.modelQuery) + crystalStyle.Render("▏") + "\n\n")
+	head := agentLabel.Render("Models")
+	if m.modelSearching {
+		head += metaStyle.Render("   search ") + agentText.Render(m.modelQuery) + crystalStyle.Render("▏")
+	} else if m.modelQuery != "" {
+		head += metaStyle.Render("   search " + m.modelQuery)
+	}
+	b.WriteString(head + "\n\n")
 	lastProv := ""
 	for row, idx := range m.modelFiltered {
 		prov, id := m.modelFlatProv[idx], m.modelFlat[idx]
@@ -1623,7 +1652,11 @@ func (m Model) renderModels() string {
 	if len(m.modelFiltered) == 0 {
 		b.WriteString(metaStyle.Render("  no matches") + "\n")
 	}
-	b.WriteString("\n" + metaStyle.Render("type to search · ↑/↓ select · enter switch · esc cancel"))
+	hint := "/ search · ↑/↓ select · enter switch · esc close"
+	if m.modelSearching {
+		hint = "type to filter · ↑/↓ select · enter switch · esc clear"
+	}
+	b.WriteString("\n" + metaStyle.Render(hint))
 	return b.String()
 }
 

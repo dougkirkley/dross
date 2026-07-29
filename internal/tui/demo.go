@@ -107,7 +107,7 @@ func DemoModelsView(width, height int) string {
 		"deepseek-coder-v2:16b", "gemma2:9b", "llama3.1:8b",
 		"qwen2.5-coder:7b", "qwen2.5-coder:14b", "qwen3-coder:30b",
 	}}})
-	m.modelQuery = "coder" // demo the search filter
+	m.modelSearching, m.modelQuery = true, "coder" // demo the search filter
 	m.filterModels()
 	return m.View()
 }
