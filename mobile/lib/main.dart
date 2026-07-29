@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
+import 'screens/chats_screen.dart';
 import 'screens/server_setup_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'screens/sign_in_screen.dart';
@@ -43,7 +44,7 @@ class Home extends StatelessWidget {
     final authed = context.select<AppState, bool>((s) => s.authed);
     if (!authed) return const SignInScreen();
     final mode = context.select<AppState, AppMode>((s) => s.mode);
-    return SessionsScreen(chat: mode == AppMode.chat);
+    return mode == AppMode.chat ? const ChatsScreen() : const SessionsScreen();
   }
 }
 

@@ -90,6 +90,10 @@ class AppDrawer extends StatelessWidget {
               Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const SettingsScreen()));
             }),
+            _navItem(context, Icons.logout, 'Sign out', active: false, onTap: () {
+              Navigator.pop(context);
+              context.read<AppState>().signOut();
+            }),
             const SizedBox(height: 8),
           ],
         ),
