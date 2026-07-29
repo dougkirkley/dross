@@ -675,13 +675,38 @@ func (m *Model) filterModels() {
 	}
 }
 
-// matchSlash returns the slash commands whose names prefix the current input,
-// for autocomplete. Empty when the input isn't a bare "/command" fragment.
+// matchSlash returns autocomplete suggestions for the current input: command
+// names for a bare "/frag", or argument values once a "/cmd " has a space (e.g.
+// "/theme em" → "/theme ember"). Empty when nothing applies.
 func (m Model) matchSlash() []slashCmd {
-	v := strings.TrimSpace(m.input.Value())
-	if len(v) == 0 || v[0] != '/' || strings.Contains(v, " ") {
+	raw := m.input.Value()
+	v := strings.TrimSpace(raw)
+	if v == "" || v[0] != '/' {
 		return nil
 	}
+	// Argument completion: input has a space after the command.
+	if strings.Contains(raw, " ") {
+		fields := strings.Fields(v)
+		opts := m.argOptions(fields[0])
+		if len(opts) == 0 {
+			return nil
+		}
+		partial := ""
+		if !strings.HasSuffix(raw, " ") && len(fields) > 1 {
+			partial = fields[len(fields)-1]
+		}
+		var out []slashCmd
+		for _, o := range opts {
+			if strings.HasPrefix(o, partial) {
+				out = append(out, slashCmd{fields[0] + " " + o, ""})
+			}
+		}
+		if len(out) == 1 && out[0].name == v { // already complete
+			return nil
+		}
+		return out
+	}
+	// Command-name completion.
 	var out []slashCmd
 	for _, c := range m.userSlash() {
 		if strings.HasPrefix(c.name, v) {
@@ -692,6 +717,20 @@ func (m Model) matchSlash() []slashCmd {
 		return nil
 	}
 	return out
+}
+
+// argOptions returns the completable argument values for a slash command, or nil
+// if it takes no completable arguments.
+func (m Model) argOptions(cmd string) []string {
+	switch cmd {
+	case "/theme":
+		return ThemeNames()
+	case "/welcome":
+		return welcomeNames
+	case "/plugin":
+		return []string{"marketplace", "install", "uninstall", "enable", "disable", "list"}
+	}
+	return nil
 }
 
 // resolveSlash maps a possibly-partial "/cmd" to a full command name by exact or
