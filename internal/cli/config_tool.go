@@ -77,6 +77,24 @@ func configToolHandler(cfgPath string) agent.ToolHandler {
 	}
 }
 
+// setConfigKey merges a single top-level key into the config file at path,
+// preserving the custom `permission` shape and any unknown keys.
+func setConfigKey(path, key string, val any) error {
+	cur := map[string]any{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &cur)
+	}
+	cur[key] = val
+	out, err := json.MarshalIndent(cur, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
+}
+
 // configFilePath resolves where to read/write config: the first existing search
 // path, else the default user config location.
 func configFilePath(explicit string) string {

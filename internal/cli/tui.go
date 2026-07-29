@@ -29,7 +29,7 @@ func newTUICmd() *cobra.Command {
 		models, slash, usage, toolsv, provs, skillsv       bool
 		pluginv                                            bool
 		logo, width, height                                int
-		once                                               string
+		once, theme                                        string
 		workdir, model, provName                           string
 		baseURL, apiKey, server, resume                    string
 		workerProv, workerModel, workerBU                  string
@@ -39,6 +39,9 @@ func newTUICmd() *cobra.Command {
 		Short: "Interactive terminal client",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if theme != "" {
+				tui.SetTheme(theme) // flag overrides the config theme
+			}
 			if render {
 				// --render pipes to a file (not a TTY), so lipgloss would strip
 				// to 16 colors. Force truecolor so screenshots show real hues.
@@ -234,6 +237,12 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
+			if theme == "" && res.File.Theme != "" {
+				tui.SetTheme(res.File.Theme)
+			}
+			mdl.SetThemeSaver(func(name string) {
+				_ = setConfigKey(configFilePath(cfgPath), "theme", name)
+			})
 			if store != nil {
 				mdl.SetCheckpoint(func(ctx context.Context) error {
 					if conv != nil {
@@ -412,6 +421,7 @@ func newTUICmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
+	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")

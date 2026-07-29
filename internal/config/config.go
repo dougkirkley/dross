@@ -24,6 +24,7 @@ type File struct {
 	Name           string   `json:"name,omitempty"`            // app/wordmark name shown in the TUI
 	IdentityPrompt string   `json:"identity_prompt,omitempty"` // system-prompt addendum (persona/task framing)
 	Welcome        string   `json:"welcome,omitempty"`         // empty-state layout: clean|skills|columns|boxed|centered
+	Theme          string   `json:"theme,omitempty"`           // TUI color theme: crystal|ember|matrix|grape|mono
 	Provider       string   `json:"provider,omitempty"`
 	Model       string      `json:"model,omitempty"`
 	BaseURL     string      `json:"base_url,omitempty"`

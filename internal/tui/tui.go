@@ -143,6 +143,7 @@ var slashCommands = []slashCmd{
 	{"/clear", "start a fresh session"},
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
+	{"/theme", "switch color theme"},
 	{"/mouse", "toggle mouse (off = select/copy text)"},
 	{"/config", "edit the config file in $EDITOR"},
 	{"/skills", "list available skills"},
@@ -206,6 +207,7 @@ type Model struct {
 	mouseOn        bool                        // mouse capture (click-to-expand); off lets the terminal select text
 	checkpoint     func(context.Context) error // save a handoff brief on exit (SetCheckpoint)
 	quitting       bool                        // a checkpoint-then-quit is in flight
+	onTheme        func(string)                // persist the chosen theme (SetThemeSaver)
 	skills         []string                    // loaded skill names (for the welcome; SetSkills)
 	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
 	pluginReload   func() []SkillItem
@@ -498,6 +500,9 @@ func (m *Model) SetMeta(version, workdir string) { m.version, m.workdir = versio
 // SetConfigPath sets the config file /config opens in $EDITOR.
 func (m *Model) SetConfigPath(path string) { m.configPath = path }
 
+// SetThemeSaver wires a callback that persists the theme chosen via /theme.
+func (m *Model) SetThemeSaver(fn func(string)) { m.onTheme = fn }
+
 // SetCheckpoint wires a save-on-exit callback that persists a handoff brief so
 // the session can be resumed later.
 func (m *Model) SetCheckpoint(fn func(context.Context) error) { m.checkpoint = fn }
@@ -741,6 +746,25 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, tea.Batch(m.startRun(prompt), m.sp.Tick, m.pump())
 	}
 	switch name {
+	case "/theme":
+		m.input.Reset()
+		args := strings.Fields(text)[1:]
+		var name string
+		if len(args) > 0 {
+			if !SetTheme(args[0]) {
+				m.append(errStyle.Render("unknown theme: " + args[0] + " · try: " + strings.Join(ThemeNames(), " ")))
+				return true, nil
+			}
+			name = args[0]
+		} else {
+			name = nextTheme() // bare /theme cycles
+		}
+		if m.onTheme != nil {
+			m.onTheme(name)
+		}
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("theme ") + crystalStyle.Render(name) +
+			metaStyle.Render("  · "+strings.Join(ThemeNames(), " ")))
+		return true, nil
 	case "/mouse":
 		m.input.Reset()
 		m.mouseOn = !m.mouseOn

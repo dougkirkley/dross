@@ -126,8 +126,9 @@ lists what's loaded. Installed plugins live under `~/.ergon/`.
   `/model` (provider+model picker with a Lead/Worker toggle), `/usage`
   (token+cost by model), `/tools` (expand full tool commands + output),
   `/skills` (list skills), `/plugin` (manage plugins + marketplaces),
-  `/config` (edit the config in `$EDITOR`), `/mouse` (toggle mouse capture),
-  `/clear`, `/init` (generate `AGENTS.md`), `/help`, `/login`, `/rc`.
+  `/config` (edit the config in `$EDITOR`), `/theme` (switch color theme),
+  `/mouse` (toggle mouse capture), `/clear`, `/init` (generate `AGENTS.md`),
+  `/help`, `/login`, `/rc`.
   User-invocable skills also appear as `/<skill-name>`.
 - **Mouse** is off by default so your terminal's text selection / copy-paste
   works; `/mouse` turns on click-to-expand tool output (and scroll-wheel
@@ -194,6 +195,9 @@ on macOS). `/model` writes your provider/model choice here.
   to any `AGENTS.md`/`CLAUDE.md` context.
 - **welcome** — empty-state layout: `clean` (default), `skills`, `columns`,
   `boxed`, or `centered` (the original big centered wordmark).
+- **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`,
+  or `mono`. Switch live with `/theme [name]` (bare `/theme` cycles); override
+  once with `ergon --theme <name>`.
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `monitor`, `shell_output`, `web_fetch`, `delegate`,
