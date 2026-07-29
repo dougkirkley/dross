@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/dougkirkley/ergon/internal/catalog"
 	"github.com/dougkirkley/ergon/internal/config"
 	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/ergon/pkg/provider/bedrock"
 )
 
 var mentionRE = regexp.MustCompile(`@([^\s@]+)`)
@@ -157,6 +159,18 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 	if provName == "anthropic" {
 		return []string{
 			"claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",
+		}
+	}
+	if provName == "bedrock" {
+		// Resolve the real, region-correct inference-profile ids from AWS; fall
+		// back to the catalog previews if credentials/region aren't available.
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if ids, err := bedrock.ListModels(ctx); err == nil && len(ids) > 0 {
+			return ids
+		}
+		if c, ok := catalog.Get("bedrock"); ok {
+			return c.Models
 		}
 	}
 	if provName == "gemini" {

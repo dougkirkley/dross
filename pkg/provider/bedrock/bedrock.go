@@ -1,7 +1,8 @@
-// Package bedrock is the AWS Bedrock backend for the provider registry. It
-// speaks the Anthropic Messages API over Bedrock's transport, reusing the
-// anthropic package's session logic. Import it for side effects to register the
-// "bedrock" provider:
+// Package bedrock is the AWS Bedrock backend for the provider registry. Claude
+// model ids use the Anthropic Messages API over Bedrock's transport (reusing the
+// anthropic package, with prompt caching); every other model (Llama, Nova,
+// Mistral, Cohere, …) uses Bedrock's unified Converse API. Import it for side
+// effects to register the "bedrock" provider:
 //
 //	import _ "github.com/dougkirkley/ergon/pkg/provider/bedrock"
 //
@@ -17,6 +18,8 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
 	"github.com/dougkirkley/ergon/pkg/provider"
 	"github.com/dougkirkley/ergon/pkg/provider/anthropic"
@@ -31,6 +34,27 @@ func init() {
 		if cfg.BaseURL != "" {
 			opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 		}
-		return anthropic.NewWithClient(sdk.NewClient(opts...), "bedrock"), nil
+		p := &prov{claude: anthropic.NewWithClient(sdk.NewClient(opts...), "bedrock")}
+		// Converse client for non-Claude models (Llama, Nova, Mistral, …).
+		if awsCfg, err := awscfg.LoadDefaultConfig(context.Background()); err == nil {
+			p.brc = bedrockruntime.NewFromConfig(awsCfg)
+		}
+		return p, nil
 	})
+}
+
+// prov dispatches per model: Claude ids use the anthropic-over-bedrock backend
+// (prompt caching); everything else uses the unified Converse API.
+type prov struct {
+	claude provider.Provider
+	brc    *bedrockruntime.Client
+}
+
+func (p *prov) Name() string { return "bedrock" }
+
+func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
+	if isAnthropicModel(cfg.Model) || p.brc == nil {
+		return p.claude.NewSession(cfg)
+	}
+	return newConverseSession(p.brc, cfg)
 }

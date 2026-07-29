@@ -75,6 +75,7 @@ OpenAI-compatible and share one backend, selected by base URL.
 | **OpenAI-compatible hosted** (openai, groq, cerebras, deepseek, xai, mistral, openrouter, together, fireworks, deepinfra, perplexity, nebius, hyperbolic, moonshot) | `<PROVIDER>_API_KEY` in env; `/model <id>` |
 | **Anthropic** (native) | `ANTHROPIC_API_KEY`; `/model anthropic` |
 | **Google Gemini** (native, function calling) | `GEMINI_API_KEY`; `/model gemini` (gemini-3-pro, 2.5-pro/flash, …) |
+| **Amazon Bedrock** (Claude + Llama/Nova/Mistral/… via Converse) | AWS default credential chain; `/model bedrock` (region inference-profile ids) |
 | **Claude subscription** (`claude-code`) | drives the local `claude` CLI — no API key; `/model claude-code` |
 
 The `/model` picker shows every catalog provider as a subtitle with its models

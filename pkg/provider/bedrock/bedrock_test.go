@@ -3,8 +3,55 @@ package bedrock
 import (
 	"testing"
 
+	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+
 	"github.com/dougkirkley/ergon/pkg/provider"
 )
+
+func TestIsAnthropicModel(t *testing.T) {
+	claude := []string{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", "anthropic.claude-3-haiku"}
+	other := []string{"us.amazon.nova-pro-v1:0", "us.meta.llama3-3-70b-instruct-v1:0", "mistral.mistral-large-2407-v1:0"}
+	for _, m := range claude {
+		if !isAnthropicModel(m) {
+			t.Errorf("%q should route to the anthropic path", m)
+		}
+	}
+	for _, m := range other {
+		if isAnthropicModel(m) {
+			t.Errorf("%q should route to Converse", m)
+		}
+	}
+}
+
+func TestConvertConverseTools(t *testing.T) {
+	tools := convertConverseTools([]provider.ToolDef{{
+		Name: "read", Description: "read a file",
+		Properties: map[string]any{"path": map[string]any{"type": "string"}},
+		Required:   []string{"path"},
+	}})
+	if len(tools) != 1 {
+		t.Fatalf("want 1 tool, got %d", len(tools))
+	}
+	spec, ok := tools[0].(*brtypes.ToolMemberToolSpec)
+	if !ok || spec.Value.Name == nil || *spec.Value.Name != "read" {
+		t.Fatalf("tool spec wrong: %+v", tools[0])
+	}
+	if _, ok := spec.Value.InputSchema.(*brtypes.ToolInputSchemaMemberJson); !ok {
+		t.Fatalf("input schema should be JSON member")
+	}
+}
+
+func TestMapConverseStop(t *testing.T) {
+	if mapConverseStop(brtypes.StopReasonEndTurn, 1) != provider.StopToolUse {
+		t.Fatal("tool calls -> tool_use")
+	}
+	if mapConverseStop(brtypes.StopReasonEndTurn, 0) != provider.StopEndTurn {
+		t.Fatal("end_turn")
+	}
+	if mapConverseStop(brtypes.StopReasonMaxTokens, 0) != provider.StopMaxTokens {
+		t.Fatal("max_tokens")
+	}
+}
 
 func TestBedrockRegistered(t *testing.T) {
 	names := provider.Names()

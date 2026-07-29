@@ -31,6 +31,11 @@ var providers = map[string]Provider{
 	// Claude subscription via the local `claude` CLI — no API key. Distinct from
 	// the API-key "anthropic" provider above.
 	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Local: true, Models: []string{"opus", "sonnet", "haiku"}},
+	// Claude on Amazon Bedrock (credentials/region from the AWS default chain).
+	// Model ids are region inference-profile ids; edit for your region.
+	// Claude uses the anthropic-over-bedrock path; other ids use the Converse API.
+	// Model ids are region inference-profile ids; edit for your region.
+	"bedrock": {ID: "bedrock", Name: "Amazon Bedrock", Impl: "bedrock", Models: []string{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", "us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.amazon.nova-pro-v1:0", "us.amazon.nova-lite-v1:0", "us.meta.llama3-3-70b-instruct-v1:0", "mistral.mistral-large-2407-v1:0"}},
 	"gemini":      {ID: "gemini", Name: "Google Gemini", Impl: "gemini", APIKeyEnv: "GEMINI_API_KEY", Models: []string{"gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"}},
 	"openai":      {ID: "openai", Name: "OpenAI", Impl: "openai", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY", Models: []string{"gpt-5", "gpt-5-mini", "o4-mini"}},
 
