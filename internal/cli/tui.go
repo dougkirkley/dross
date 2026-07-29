@@ -219,7 +219,7 @@ func newTUICmd() *cobra.Command {
 						})
 					})
 			}
-			prog = tea.NewProgram(mdl, tea.WithAltScreen())
+			prog = tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
 			_, err = prog.Run()
 			return err
 		},

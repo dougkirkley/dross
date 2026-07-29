@@ -264,6 +264,7 @@ type Model struct {
 	toolRecs     []toolRec
 	toolViewOpen bool
 	toolSel      int
+	toolLineOf   map[int]int // feed line index → toolRecs index (for click-to-expand)
 }
 
 // toolRec is a full tool call (untruncated command + output) for /tools.
@@ -533,7 +534,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.shellOrder, m.shells = nil, nil
-		m.toolRecs = nil
+		m.toolRecs, m.toolLineOf = nil, nil
 		m.vp.SetContent("")
 		if m.reset != nil {
 			m.reset() // drop conversation memory too
@@ -970,6 +971,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bashCmd = ""
 			cmds = append(cmds, m.startRun(next), m.sp.Tick, m.pump())
 		}
+	case tea.MouseMsg:
+		// Click a tool line in the feed to expand its full command + output.
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
+			!m.toolViewOpen && !m.modelPickerOpen && !m.pickerOpen && m.pendingAsk == nil {
+			line := m.vp.YOffset + msg.Y - 1 // -1 for the header row
+			if rec, ok := m.toolLineOf[line]; ok && rec >= 0 && rec < len(m.toolRecs) {
+				m.toolViewOpen, m.toolSel = true, rec
+				return m, nil
+			}
+		}
+		// Otherwise let the viewport handle wheel scrolling.
+		var vc tea.Cmd
+		m.vp, vc = m.vp.Update(msg)
+		return m, vc
 	case shimmerMsg:
 		m.shimmer++
 		return m, shimmerTick()
@@ -1878,6 +1893,12 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.toolRecs = append(m.toolRecs, toolRec{name: name, args: toolArgLine(name, args)})
 		}
 		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
+		if !worker {
+			if m.toolLineOf == nil {
+				m.toolLineOf = map[int]int{}
+			}
+			m.toolLineOf[len(m.lines)-1] = len(m.toolRecs) - 1 // this line → its rec
+		}
 	case "tool-result":
 		if !worker {
 			m.bashCmd = ""
