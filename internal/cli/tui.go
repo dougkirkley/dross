@@ -27,7 +27,7 @@ func newTUICmd() *cobra.Command {
 		shimmer                                            int
 		subagents, subagentFocus, shells, bang             bool
 		models, slash, usage, toolsv, provs, skillsv       bool
-		pluginv                                            bool
+		pluginv, themev                                    bool
 		logo, width, height                                int
 		once, theme                                        string
 		workdir, model, provName                           string
@@ -70,6 +70,8 @@ func newTUICmd() *cobra.Command {
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoToolsView(width, height))
 				case skillsv:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoSkillsView(width, height))
+				case themev:
+					fmt.Fprint(cmd.OutOrStdout(), tui.DemoThemeView(width, height))
 				case pluginv:
 					fmt.Fprint(cmd.OutOrStdout(), tui.DemoPluginView(width, height, logo))
 				case subagentFocus:
@@ -437,6 +439,7 @@ func newTUICmd() *cobra.Command {
 	f.BoolVar(&usage, "usage", false, "with --render, show the /usage output")
 	f.BoolVar(&toolsv, "tools", false, "with --render, show the /tools viewer")
 	f.BoolVar(&skillsv, "skills-view", false, "with --render, show the /skills modal")
+	f.BoolVar(&themev, "theme-view", false, "with --render, show the /theme picker")
 	f.BoolVar(&pluginv, "plugin-view", false, "with --render, show the /plugin browser (--logo picks the tab)")
 	f.BoolVar(&provs, "providers", false, "with --render, show the provider picker")
 	f.BoolVar(&subagentFocus, "subagent-focus", false, "with --render, show a selected subagent's detail")

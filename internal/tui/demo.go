@@ -124,6 +124,15 @@ func DemoPluginView(width, height, tab int) string {
 	return m.View()
 }
 
+// DemoThemeView renders the /theme picker (each row in its own colors).
+func DemoThemeView(width, height int) string {
+	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.themeViewOpen, m.themeSel = true, 8 // dracula, for the preview
+	return m.View()
+}
+
 // DemoSkillsView renders the /skills modal for screenshots.
 func DemoSkillsView(width, height int) string {
 	m := New("ergon", "claude-opus-5", "anthropic", nil)

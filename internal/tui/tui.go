@@ -253,6 +253,10 @@ type Model struct {
 	pluginViewOpen bool
 	pluginTab      int // 0 installed, 1 marketplaces, 2 browse
 	pluginSel      int
+
+	themeViewOpen bool
+	themeSel      int
+	themeOrig     int // theme active when the picker opened (restored on cancel)
 	welcomeStyle   int // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
 	cost           float64
 	turns          int
@@ -827,21 +831,21 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 	case "/theme":
 		m.input.Reset()
 		args := strings.Fields(text)[1:]
-		var name string
-		if len(args) > 0 {
+		if len(args) > 0 { // "/theme <name>" sets directly
 			if !SetTheme(args[0]) {
 				m.append(errStyle.Render("unknown theme: " + args[0] + " · try: " + strings.Join(ThemeNames(), " ")))
 				return true, nil
 			}
-			name = args[0]
-		} else {
-			name = nextTheme() // bare /theme cycles
+			if m.onTheme != nil {
+				m.onTheme(args[0])
+			}
+			m.append(startGlyph.Render("▸ ") + metaStyle.Render("theme ") + crystalStyle.Render(args[0]))
+			return true, nil
 		}
-		if m.onTheme != nil {
-			m.onTheme(name)
-		}
-		m.append(startGlyph.Render("▸ ") + metaStyle.Render("theme ") + crystalStyle.Render(name) +
-			metaStyle.Render("  · "+strings.Join(ThemeNames(), " ")))
+		// Bare "/theme" opens the picker (live-previews as you move).
+		m.themeViewOpen = true
+		m.themeOrig = currentTheme
+		m.themeSel = currentTheme
 		return true, nil
 	case "/welcome":
 		m.input.Reset()
@@ -1090,6 +1094,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.skillOff[s.Name] = !m.skillOff[s.Name]
 					}
 				}
+			}
+			return m, nil
+		}
+		// Theme picker captures keys; moving the selection live-previews the theme.
+		if m.themeViewOpen {
+			switch msg.String() {
+			case "esc", "q":
+				applyTheme(m.themeOrig) // cancel: restore
+				m.themeViewOpen = false
+			case "enter":
+				applyTheme(m.themeSel)
+				if m.onTheme != nil {
+					m.onTheme(themes[m.themeSel].Name)
+				}
+				m.themeViewOpen = false
+			case "up", "k":
+				if m.themeSel > 0 {
+					m.themeSel--
+					applyTheme(m.themeSel)
+				}
+			case "down", "j":
+				if m.themeSel < len(themes)-1 {
+					m.themeSel++
+					applyTheme(m.themeSel)
+				}
+			case "g", "home":
+				m.themeSel = 0
+				applyTheme(m.themeSel)
+			case "G", "end":
+				m.themeSel = len(themes) - 1
+				applyTheme(m.themeSel)
 			}
 			return m, nil
 		}
@@ -1595,6 +1630,8 @@ func (m Model) View() string {
 		body = m.skillsBox(bodyH)
 	} else if m.pluginViewOpen {
 		body = m.pluginBox(bodyH)
+	} else if m.themeViewOpen {
+		body = m.themeBox(bodyH)
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
@@ -1681,6 +1718,40 @@ func welcomeIndex(name string) int {
 		}
 	}
 	return -1
+}
+
+// themeBox renders the /theme picker: each row is drawn in its own theme's
+// gradient (a swatch + the name), and the selected theme is applied live so the
+// whole UI previews it.
+func (m Model) themeBox(bodyH int) string {
+	boxW := 44
+	if maxW := m.width - 8; boxW > maxW {
+		boxW = maxW
+	}
+	if boxW < 28 {
+		boxW = 28
+	}
+	inner := boxW - 2
+	title := crystalStyle.Render("◈ ") + gradientText("theme", holoRamp)
+	rule := gradientText(strings.Repeat("─", inner), holoLoop)
+
+	var lines []string
+	for i, t := range themes {
+		swatch := gradientText("███████", t.ramp) // preview bar in this theme's colors
+		name := gradientText(t.Name, t.ramp)
+		caret := "  "
+		if i == m.themeSel {
+			caret = crystalStyle.Render("◈ ")
+			name += metaStyle.Render("  ◂")
+		}
+		lines = append(lines, caret+swatch+"  "+name)
+	}
+	foot := metaStyle.Render("↑/↓ preview · enter apply · esc cancel")
+	parts := append([]string{title, rule, ""}, lines...)
+	parts = append(parts, "", foot)
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).
+		Padding(0, 2).Width(boxW).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, box)
 }
 
 // welcomeCentered is the original splash: the big wordmark centered with a
