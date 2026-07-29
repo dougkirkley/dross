@@ -3,15 +3,66 @@ package agent
 import (
 	"context"
 	"fmt"
+	"html"
+	"io"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var (
+	reScriptStyle = regexp.MustCompile(`(?is)<(script|style|head|nav|footer)[^>]*>.*?</(script|style|head|nav|footer)>`)
+	reTag         = regexp.MustCompile(`(?s)<[^>]+>`)
+	reBlankLines  = regexp.MustCompile(`\n[ \t]*\n(\s*\n)+`)
+)
+
+// webFetch GETs a URL and returns its text (HTML reduced to readable text),
+// size-capped. Only http(s) is allowed.
+func webFetch(ctx context.Context, url string) (string, error) {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "", fmt.Errorf("url must start with http:// or https://")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "ergon/1.0 (+coding-agent)")
+	hc := &http.Client{Timeout: 20 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB cap
+	text := string(body)
+	if strings.Contains(resp.Header.Get("Content-Type"), "html") || strings.Contains(text, "<html") {
+		text = stripHTML(text)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fmt.Sprintf("[%d %s, no readable text]", resp.StatusCode, resp.Status), nil
+	}
+	if len(text) > 100_000 {
+		text = text[:100_000] + "\n…[truncated]"
+	}
+	return text, nil
+}
+
+// stripHTML reduces HTML to readable text: drops script/style/nav/etc, removes
+// tags, unescapes entities, and collapses excess blank lines.
+func stripHTML(s string) string {
+	s = reScriptStyle.ReplaceAllString(s, "\n")
+	s = reTag.ReplaceAllString(s, "")
+	s = html.UnescapeString(s)
+	s = reBlankLines.ReplaceAllString(s, "\n\n")
+	return s
+}
 
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)

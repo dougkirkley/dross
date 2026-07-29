@@ -157,6 +157,12 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			},
 			Required: []string{"command"},
 		},
+		{
+			Name:        "web_fetch",
+			Description: "Fetch an http(s) URL and return its text content (HTML is reduced to readable text). Use for documentation, references, or pages the user links.",
+			Properties:  map[string]any{"url": strProp("The absolute http(s) URL to fetch.")},
+			Required:    []string{"url"},
+		},
 	}
 	if hasWorker {
 		defs = append(defs, provider.ToolDef{

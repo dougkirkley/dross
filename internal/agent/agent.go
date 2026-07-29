@@ -884,6 +884,14 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(a.ws.monitor(in.Command,
 			in.Interval.durationOr(5*time.Second),
 			in.Timeout.durationOr(5*time.Minute)))
+	case "web_fetch":
+		var in struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return orErr(webFetch(ctx, in.URL))
 	case "delegate":
 		var in struct {
 			Task  string   `json:"task"`
