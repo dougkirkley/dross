@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dougkirkley/ergon/internal/catalog"
 	"github.com/dougkirkley/ergon/internal/config"
 	"github.com/dougkirkley/ergon/internal/provider"
 )
@@ -74,11 +75,11 @@ type leadState struct {
 	prov    provider.Provider
 }
 
-// providerImpl maps a user-facing provider kind to a registered provider name.
-// "ollama" is OpenAI-compatible, so it uses the openai backend with a base URL.
+// providerImpl maps a user-facing provider kind (which may be a catalog id like
+// "groq") to a registered backend name ("openai", "anthropic", …).
 func providerImpl(kind string) string {
-	if kind == "ollama" {
-		return "openai"
+	if c, ok := catalog.Get(kind); ok {
+		return c.Impl
 	}
 	return kind
 }
@@ -105,7 +106,7 @@ func saveLeadProvider(explicit string, st *leadState) error {
 		}
 		path = filepath.Join(dir, "ergon", "config.json")
 	}
-	f.Provider = providerImpl(st.name)
+	f.Provider = st.name // catalog id / kind; resolved to a backend via providerImpl on load
 	f.BaseURL = st.baseURL
 	f.APIKey = st.apiKey
 	f.Model = st.model

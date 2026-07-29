@@ -592,7 +592,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, func() tea.Msg {
 			g := list()
 			if len(g) == 0 {
-				return modelsMsg{err: fmt.Errorf("no provider configured — use: /model <ollama|openai|anthropic> [baseURL] [apiKey]")}
+				return modelsMsg{err: fmt.Errorf("no provider configured — /model <provider> (e.g. ollama, openai, anthropic, groq, openrouter, deepseek, xai, mistral, together, fireworks) auto-fills the URL + API key; or /model <kind> <baseURL> [key]")}
 			}
 			return modelsMsg{groups: g}
 		}

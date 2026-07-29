@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/ergon/internal/agent"
+	"github.com/dougkirkley/ergon/internal/catalog"
 	"github.com/dougkirkley/ergon/internal/provider"
 	"github.com/dougkirkley/ergon/internal/relay"
 	"github.com/dougkirkley/ergon/internal/tui"
@@ -167,14 +168,22 @@ func newTUICmd() *cobra.Command {
 					return []tui.ModelGroup{{Provider: st.name, Models: fetchModelIDs(st.name, st.baseURL, st.apiKey)}}
 				},
 				func(kind, base, key string) ([]tui.ModelGroup, error) {
-					if kind == "ollama" && base == "" {
-						base = "http://localhost:11434/v1"
+					// A known catalog provider fills in the base URL + API-key env.
+					impl := providerImpl(kind)
+					if c, ok := catalog.Get(kind); ok {
+						impl = c.Impl
+						if base == "" {
+							base = c.BaseURL
+						}
+						if key == "" && c.APIKeyEnv != "" {
+							key = os.Getenv(c.APIKeyEnv)
+						}
 					}
-					p, err := provider.New(providerImpl(kind), provider.Config{BaseURL: base, APIKey: key})
+					p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key})
 					if err != nil {
 						return nil, err
 					}
-					ids := fetchModelIDs(kind, base, key)
+					ids := fetchModelIDs(impl, base, key)
 					if len(ids) == 0 {
 						return nil, fmt.Errorf("no models from %s%s", kind, baseNote(base))
 					}
