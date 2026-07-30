@@ -72,9 +72,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     : ListView.builder(
                         controller: _scroll,
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                        itemCount: msgs.length + (running ? 1 : 0),
+                        // The orb trails the conversation: lively while Dross is
+                        // answering, calm (just blinking) once it's done.
+                        itemCount: msgs.length + 1,
                         itemBuilder: (_, i) {
-                          if (i >= msgs.length) return _spinner();
+                          if (i >= msgs.length) return _spinner(running);
                           return _message(msgs[i]);
                         },
                       ),
@@ -106,11 +108,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
-  Widget _spinner() => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
+  Widget _spinner(bool active) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: DrossSpinner(size: 30),
+          child: DrossSpinner(size: 30, active: active),
         ),
       );
 

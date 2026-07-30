@@ -114,12 +114,14 @@ class _DrossPainter extends CustomPainter {
   bool shouldRepaint(covariant _DrossPainter oldDelegate) => false;
 }
 
-/// A loading / running-task indicator: the Dross spirit as a floating orb whose
-/// single eye pulses, darts side to side, and blinks, wrapped in a soft violet
-/// glow. On-brand with [DrossLogo].
+/// A loading / running-task indicator: the Dross spirit as an orb. While
+/// [active] (working) it floats, pulses, darts, and occasionally scratches its
+/// unibrow; when inactive (idle / done answering) it settles — no floating or
+/// scratching, just the occasional blink. On-brand with [DrossLogo].
 class DrossSpinner extends StatefulWidget {
-  const DrossSpinner({super.key, this.size = 28});
+  const DrossSpinner({super.key, this.size = 28, this.active = true});
   final double size;
+  final bool active;
   @override
   State<DrossSpinner> createState() => _DrossSpinnerState();
 }
@@ -147,7 +149,7 @@ class _DrossSpinnerState extends State<DrossSpinner>
         child: AnimatedBuilder(
           animation: Listenable.merge([_c, _scratch]),
           builder: (_, __) => CustomPaint(
-            painter: _OrbPainter(_c.value, _scratch.value),
+            painter: _OrbPainter(_c.value, _scratch.value, widget.active),
           ),
         ),
       );
@@ -157,9 +159,10 @@ class _DrossSpinnerState extends State<DrossSpinner>
 /// eye that darts left/right, and a quick blink once per cycle. The `scratch`
 /// phase (its own slower loop) occasionally raises an arm to scratch the head.
 class _OrbPainter extends CustomPainter {
-  _OrbPainter(this.t, this.scratch);
+  _OrbPainter(this.t, this.scratch, this.active);
   final double t;
   final double scratch;
+  final bool active;
 
   static const _dark = Color(0xFF0C0A1F);
   static const _eyeWhite = Color(0xFFF3EEFF);
@@ -170,13 +173,14 @@ class _OrbPainter extends CustomPainter {
     final w = size.width, h = size.height;
     const tau = 2 * math.pi;
 
-    // Gentle vertical bob so the orb floats.
-    final bob = math.sin(tau * t) * h * 0.05;
+    // Gentle vertical bob so the orb floats — only while active.
+    final bob = active ? math.sin(tau * t) * h * 0.05 : 0.0;
     final bodyC = Offset(w * 0.5, h * 0.5 + bob);
     final bodyR = w * 0.34;
 
-    // Soft outer glow that pulses with the cycle.
-    final glow = 0.30 + 0.18 * (0.5 + 0.5 * math.sin(tau * t));
+    // Soft outer glow: pulses while active, steady when idle.
+    final glow =
+        active ? 0.30 + 0.18 * (0.5 + 0.5 * math.sin(tau * t)) : 0.26;
     canvas.drawCircle(
       bodyC,
       bodyR * 1.5,
@@ -206,11 +210,12 @@ class _OrbPainter extends CustomPainter {
       blink = math.sin(p * math.pi); // 0 -> 1 -> 0
     }
 
-    // Scratch: occasionally the right arm rises to scratch the unibrow while the
-    // face scrunches up with the effort (squint + furrowed brow). raise 0..1.
+    // Scratch: only while active. Occasionally the right arm rises to scratch
+    // the unibrow while the face scrunches up (squint + furrowed brow). When
+    // idle, Dross rests — no scratching. raise 0..1.
     double raise = 0, wig = 0;
     const s0 = 0.12, s1 = 0.42;
-    if (scratch >= s0 && scratch <= s1) {
+    if (active && scratch >= s0 && scratch <= s1) {
       final p = (scratch - s0) / (s1 - s0); // 0..1
       raise = math.sin(p * math.pi); // ease up, hold, ease down
       wig = math.sin(p * math.pi * 10) * raise; // fast scratching motion
@@ -229,9 +234,10 @@ class _OrbPainter extends CustomPainter {
       Paint()..color = _eyeWhite,
     );
 
-    // Pupil darts left/right; while scrunching it rolls up toward the itch.
+    // Pupil darts left/right while active (rolling up toward the itch when
+    // scrunching); when idle it stays centered — Dross just blinks.
     if (close < 0.6) {
-      final dart = math.sin(tau * t) * eyeR * 0.45;
+      final dart = active ? math.sin(tau * t) * eyeR * 0.45 : 0.0;
       canvas.drawCircle(
         Offset(eyeC.dx + dart, eyeC.dy - eyeR * 0.35 * raise),
         eyeR * 0.55 * (1 - close),
@@ -303,5 +309,5 @@ class _OrbPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _OrbPainter old) =>
-      old.t != t || old.scratch != scratch;
+      old.t != t || old.scratch != scratch || old.active != active;
 }
