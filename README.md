@@ -136,13 +136,16 @@ lists what's loaded. Installed plugins live under `~/.dross/`.
   `/mouse` (toggle mouse capture), `/clear`, `/init` (generate `AGENTS.md`),
   `/help`, `/login`, `/rc`.
   User-invocable skills also appear as `/<skill-name>`.
-- **Mouse is off by default** so your terminal keeps native text selection and
-  right-click copy. Scroll history with the keyboard (`pgup`/`pgdn`,
-  `ctrl+u`/`ctrl+d`). `/mouse` turns on capture (wheel scrolls the viewport +
-  click-to-expand tool output) at the cost of native drag-select.
-- **Copy** — `ctrl+y` copies the last reply to the clipboard; `/copy` copies the
-  whole transcript. Both use the OS clipboard (pbcopy/xclip/wl-copy) plus OSC 52,
-  so they work locally and over SSH.
+- **Select to copy.** dross captures the mouse and implements its own selection
+  (like Claude Code / Crush): drag to select text — releasing copies it to the
+  clipboard automatically. The wheel scrolls the transcript, and a plain click on
+  a tool line expands it. `/mouse` turns capture off to fall back to the
+  terminal's native selection.
+- **Copy** also via keys — `ctrl+y` copies the last reply, `/copy` the whole
+  transcript. All copies write the OS clipboard (pbcopy/xclip/wl-copy) plus
+  OSC 52, so they work locally and over SSH.
+- **Slash commands** work anytime, including mid-run (the autocomplete shows and
+  read-only commands dispatch while a run is in flight).
 - **Exit** takes two `ctrl+c` within a second (or `/exit`); a single `ctrl+c`
   while a run is in flight interrupts it. `esc` clears the input, it doesn't quit.
 - **Follow-ups** — after a run, recommended next prompts appear above the input;

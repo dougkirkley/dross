@@ -183,7 +183,7 @@ var slashCommands = []slashCmd{
 	{"/help", "show shortcuts"},
 	{"/theme", "switch color theme"},
 	{"/welcome", "switch empty-state layout"},
-	{"/mouse", "toggle mouse (off = select/copy text)"},
+	{"/mouse", "toggle mouse capture (drag-select+copy, wheel scroll)"},
 	{"/config", "edit the config file in $EDITOR"},
 	{"/skills", "list available skills"},
 	{"/plugin", "manage plugins + marketplaces"},
@@ -319,6 +319,13 @@ type Model struct {
 	suggestions []string  // recommended follow-up prompts after a run (tab to use)
 	sugSel      int       // highlighted suggestion
 
+	// Mouse text selection (drag to select, copies on release).
+	selecting bool  // a left-drag is in progress
+	selMoved  bool  // the drag actually moved (vs a plain click)
+	hasSel    bool  // a selection exists (highlighted)
+	selA      selPt // anchor (where the drag started)
+	selB      selPt // cursor (current end)
+
 	run  RunFunc
 	msgs chan tea.Msg
 
@@ -419,7 +426,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		logoVariant:  1, // gradient fade (default)
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
-		mouseOn:      false, // off by default: native selection + right-click copy
+		mouseOn:      true, // drag-to-select auto-copies; wheel scrolls
 		sessions:    []session{{}},
 	}
 }
@@ -1444,7 +1451,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Subagent tree navigation: while workers run, ↑/↓ move the selection
 		// (main + each worker) and enter opens/closes the selected worker's detail.
-		if m.running && len(m.workerOrder) > 0 {
+		// Only capture nav keys for the subagent tree when the input is empty —
+		// otherwise typing (and slash-command nav) while running gets stolen.
+		if m.running && len(m.workerOrder) > 0 && strings.TrimSpace(m.input.Value()) == "" {
 			switch msg.String() {
 			case "esc":
 				if m.workerFocus != "" {
@@ -1608,22 +1617,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.beginRun(next), m.sp.Tick, m.pump())
 		}
 	case tea.MouseMsg:
-		// Click a tool line in the feed to expand its full command + output.
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
-			!m.toolViewOpen && !m.modelPickerOpen && !m.pickerOpen && m.pendingAsk == nil {
-			line := m.vp.YOffset + msg.Y - 1 // -1 for the header row
-			if rec, ok := m.toolLineOf[line]; ok && rec >= 0 && rec < len(m.toolRecs) {
-				m.toolViewOpen, m.toolSel = true, rec
+		overBody := !m.toolViewOpen && !m.modelPickerOpen && !m.pickerOpen &&
+			!m.helpOpen && !m.skillsViewOpen && !m.pluginViewOpen && !m.themeViewOpen &&
+			m.pendingAsk == nil && m.workerFocus == ""
+		switch msg.Button {
+		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+			// Wheel scrolls the viewport; a scroll cancels any selection.
+			m.clearSelection()
+			var vc tea.Cmd
+			m.vp, vc = m.vp.Update(msg)
+			m.scrolledUp = !m.vp.AtBottom()
+			return m, vc
+		case tea.MouseButtonLeft:
+			if !overBody {
+				return m, nil
+			}
+			switch msg.Action {
+			case tea.MouseActionPress:
+				if pt, ok := m.mouseToContent(msg.X, msg.Y); ok {
+					m.selA, m.selB = pt, pt
+					m.selecting, m.selMoved, m.hasSel = true, false, false
+				}
+				return m, nil
+			case tea.MouseActionMotion:
+				if m.selecting {
+					if pt, ok := m.mouseToContent(msg.X, msg.Y); ok {
+						m.selB = pt
+						if pt != m.selA {
+							m.selMoved, m.hasSel = true, true
+						}
+					}
+				}
+				return m, nil
+			case tea.MouseActionRelease:
+				if m.selecting && m.selMoved && m.hasSel {
+					// A drag: copy the selection (auto-copy on release).
+					m.selecting = false
+					if txt := m.selectionText(); strings.TrimSpace(txt) != "" {
+						copyToClipboard(txt)
+					}
+					return m, nil
+				}
+				// A plain click (no drag): expand the clicked tool line, if any.
+				m.clearSelection()
+				line := m.vp.YOffset + msg.Y - 1
+				if rec, ok := m.toolLineOf[line]; ok && rec >= 0 && rec < len(m.toolRecs) {
+					m.toolViewOpen, m.toolSel = true, rec
+				}
 				return m, nil
 			}
 		}
-		// Otherwise let the viewport handle wheel scrolling. Track whether the
-		// user has scrolled off the bottom so the render stops auto-following (a
-		// wheel-up that didn't update this flag snapped straight back to bottom).
-		var vc tea.Cmd
-		m.vp, vc = m.vp.Update(msg)
-		m.scrolledUp = !m.vp.AtBottom()
-		return m, vc
+		return m, nil
 	case shimmerMsg:
 		m.shimmer++
 		return m, shimmerTick()
@@ -1723,7 +1767,7 @@ func (m Model) View() string {
 	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
 	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
-		content := strings.Join(m.lines, "\n")
+		content := m.transcriptContent()
 		if content != "" {
 			content += "\n"
 		}
@@ -1735,22 +1779,23 @@ func (m Model) View() string {
 	} else if m.running {
 		// While working, show the spinner + rotating phrase as a live line at the
 		// bottom of the conversation, the way Claude Code does.
-		content := strings.Join(m.lines, "\n")
+		content := m.transcriptContent()
 		work := m.bashBlock() + m.sp.View() + " " + gradientText(m.phrase()+"…", holoRamp) +
 			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
 		if content != "" {
 			content += "\n"
 		}
 		m.vp.SetContent(content + work)
-		if !m.scrolledUp {
+		// Don't yank to the bottom mid-selection (it would fight the drag).
+		if !m.scrolledUp && !m.hasSel {
 			m.vp.GotoBottom()
 		}
 		body = m.vp.View()
 	} else if len(m.lines) > 0 {
 		// Idle with a conversation: render the transcript, following the bottom
-		// unless the user has scrolled up (pgup/pgdn, ctrl+u/d).
-		m.vp.SetContent(strings.Join(m.lines, "\n"))
-		if !m.scrolledUp {
+		// unless the user has scrolled up or is selecting text.
+		m.vp.SetContent(m.transcriptContent())
+		if !m.scrolledUp && !m.hasSel {
 			m.vp.GotoBottom()
 		}
 		body = m.vp.View()
@@ -2679,33 +2724,33 @@ func (m Model) footer() string {
 	// Slash-command autocomplete: matching commands listed above the input; the
 	// first is the Tab target.
 	var suggest string
-	if !m.running {
-		if ms := m.matchSlash(); len(ms) > 0 {
-			sel := m.slashSel
-			if sel >= len(ms) {
-				sel = len(ms) - 1
-			}
-			var rows []string
-			for i, c := range ms {
-				cur, style := "  ", metaStyle
-				if i == sel {
-					cur, style = promptMark.Render("› "), agentText
-				}
-				rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
-			}
-			suggest = strings.Join(rows, "\n") + "\n"
-		} else if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) > 0 {
-			// Recommended follow-ups after a run: tab drops the highlighted one in.
-			rows := []string{metaStyle.Render("try next  (↑/↓ · tab to use)")}
-			for i, s := range m.suggestions {
-				cur, style := "  ", metaStyle
-				if i == m.sugSel {
-					cur, style = promptMark.Render("› "), agentText
-				}
-				rows = append(rows, cur+style.Render(s))
-			}
-			suggest = strings.Join(rows, "\n") + "\n"
+	// Slash autocomplete is available anytime — even mid-run (read-only commands
+	// dispatch while a run is in flight).
+	if ms := m.matchSlash(); len(ms) > 0 {
+		sel := m.slashSel
+		if sel >= len(ms) {
+			sel = len(ms) - 1
 		}
+		var rows []string
+		for i, c := range ms {
+			cur, style := "  ", metaStyle
+			if i == sel {
+				cur, style = promptMark.Render("› "), agentText
+			}
+			rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
+		}
+		suggest = strings.Join(rows, "\n") + "\n"
+	} else if !m.running && strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) > 0 {
+		// Recommended follow-ups after a run: tab drops the highlighted one in.
+		rows := []string{metaStyle.Render("try next  (↑/↓ · tab to use)")}
+		for i, s := range m.suggestions {
+			cur, style := "  ", metaStyle
+			if i == m.sugSel {
+				cur, style = promptMark.Render("› "), agentText
+			}
+			rows = append(rows, cur+style.Render(s))
+		}
+		suggest = strings.Join(rows, "\n") + "\n"
 	}
 	box = suggest + box
 	var mode string

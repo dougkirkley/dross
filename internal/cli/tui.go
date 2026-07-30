@@ -421,11 +421,11 @@ func newTUICmd() *cobra.Command {
 			// selection still works with the terminal's modifier (Shift-drag on
 			// most terminals, Option-drag in macOS Terminal/iTerm2); /mouse turns
 			// capture off for plain drag-select.
-			// No mouse capture by default: the terminal keeps native text
-			// selection and right-click copy. Scroll history with the keyboard
-			// (pgup/pgdn, ctrl+u/d) or ctrl+y // /copy to grab text; `/mouse`
-			// turns on capture (wheel scroll + click-to-expand) if you want it.
-			prog = tea.NewProgram(mdl, tea.WithAltScreen())
+			// Mouse cell-motion on: the wheel scrolls, and dross implements its own
+			// drag-to-select that auto-copies on release (like Claude Code / Crush),
+			// so selecting text copies it without a modifier. /mouse turns capture
+			// off to fall back to the terminal's native selection.
+			prog = tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
 			if _, err = prog.Run(); err != nil {
 				return err
 			}
