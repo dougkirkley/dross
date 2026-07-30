@@ -21,6 +21,18 @@ Working style:
 - Keep responses concise. Lead with the outcome.
 - Report completion only when the task is actually done. If something is blocked, say so plainly.`
 
+// chatBasePrompt documents the working style for a chat session: no filesystem,
+// shell, or codebase — just conversation, provided context, and the web.
+const chatBasePrompt = `You are a conversational assistant. You have no filesystem, no shell, and no access to the user's codebase — you cannot read, write, or edit files, run commands, or inspect a repository.
+
+You have one tool:
+- web_fetch(url): fetch a web page and return its readable text. Use it to look up current or factual information, and cite what you find.
+
+Working style:
+- Answer from this conversation, any context or files the user has provided, and the web.
+- Lead with the answer, then concise detail. Keep code and exact quotes verbatim.
+- Never claim to have done something you can't — touching files, running code, seeing a repo. If a task genuinely needs that, say so and suggest a Code session.`
+
 // delegateGuidance is appended to a lead agent's prompt when a worker model is
 // available. It is the cost lever: push bounded, self-contained work to the
 // cheaper model and keep expensive context small.
@@ -95,6 +107,18 @@ tools and env, but must never write outside the workspace.
   won't persist. $DROSS_WORKSPACE is the workspace root; $DROSS_TOOLS holds SDKs.`
 
 func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
+	if cfg.Chat {
+		// Chat sessions have no coding tools; use the conversational base and
+		// skip the delegate/publish/sandbox guidance entirely.
+		p := chatBasePrompt
+		if d := styleDirective(cfg.Style); d != "" {
+			p += "\n" + d
+		}
+		if cfg.Identity != "" {
+			p += "\n\n" + cfg.Identity
+		}
+		return p
+	}
 	p := basePrompt
 	if hasWorker {
 		p += delegateGuidance

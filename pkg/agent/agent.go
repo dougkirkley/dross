@@ -62,6 +62,10 @@ type Config struct {
 	// pod-hosted remote Code sessions; left off for local CLI and device-relay
 	// (remote-control) sessions, which use the user's real environment.
 	Sandbox bool
+	// Chat marks a conversational session with no filesystem/shell tools: the
+	// system prompt describes only web access and context, not the coding tools.
+	// Callers still restrict the actual toolset via WithAllowedTools.
+	Chat bool
 }
 
 // Event is emitted for each step of a run so callers can stream progress.

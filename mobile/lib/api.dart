@@ -49,11 +49,13 @@ class DrossClient {
     return list.map((e) => Session.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<Session> createSession({String? model, String? workerModel, String? style}) async {
+  Future<Session> createSession(
+      {String? model, String? workerModel, String? style, bool chat = false}) async {
     final body = jsonEncode({
       if (model != null) 'model': model,
       if (workerModel != null) 'worker_model': workerModel,
       if (style != null) 'style': style,
+      if (chat) 'chat': true,
     });
     final r = await _http.post(_uri('api/sessions'), headers: _headers, body: body);
     _check(r);

@@ -123,8 +123,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();
-    // Use the server's default model; the user can switch it in-session.
-    final Session? s = await state.createSession();
+    // Chat session: default model, and no file/shell tools server-side.
+    final Session? s = await state.createSession(chat: true);
     if (s != null && context.mounted) {
       state.attach(s);
       state.markView(s.id, AppMode.chat);

@@ -14,6 +14,7 @@ import (
 
 	"github.com/dougkirkley/dross/pkg/agent"
 	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/relay"
 )
 
@@ -35,6 +36,7 @@ type Session struct {
 	Provider    string `json:"provider"`
 	WorkerModel string `json:"worker_model,omitempty"`
 	Style       string `json:"style,omitempty"`
+	Chat        bool   `json:"chat,omitempty"` // chat session: no file/shell tools
 
 	mu        sync.Mutex
 	workdir   string
@@ -221,6 +223,7 @@ type CreateReq struct {
 	Model       string `json:"model"`
 	WorkerModel string `json:"worker_model"`
 	Style       string `json:"style"`
+	Chat        bool   `json:"chat"` // chat session: web/context only, no file or shell tools
 }
 
 func (m *Manager) create(req CreateReq) *Session {
@@ -244,6 +247,7 @@ func (m *Manager) create(req CreateReq) *Session {
 		Provider:    m.lead.Name(),
 		WorkerModel: req.WorkerModel,
 		Style:       req.Style,
+		Chat:        req.Chat,
 		workdir:     workdir,
 		repo:        m.repo,
 		updated:     time.Now(),
@@ -324,10 +328,16 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		s.title = truncate(oneLine(prompt), 60)
 	}
 	model := s.Model
+	chat := s.Chat
 	s.mu.Unlock()
 
 	opts := []agent.Option{agent.WithEventHook(func(e agent.Event) { s.emit(e.Kind, e.Data) })}
-	if m.worker != nil && s.WorkerModel != "" {
+	if chat {
+		// Chat sessions have no filesystem or shell: they answer from the prompt,
+		// provided context, and the web. Restrict to the web tools.
+		opts = append(opts, agent.WithAllowedTools([]string{"web_fetch", "web_search"}))
+	}
+	if !chat && m.worker != nil && s.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(m.worker, s.WorkerModel))
 	}
 	if m.publish != nil {
@@ -342,12 +352,19 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 			opts = append(opts, agent.WithCompactStats(m.compStats))
 		}
 	}
+	identity := config.DefaultIdentity
+	if chat {
+		identity = config.DefaultChatIdentity
+	}
 	ag, err := agent.New(agent.Config{
 		Name: "dross", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
+		Chat:     chat,
+		Identity: identity,
 		// Pod-hosted Code sessions are sandboxed: tool installs stay in the
-		// per-session workspace. Device (remote-control) sessions never reach
-		// here — they relay to the linked machine and use its real environment.
-		Sandbox: true,
+		// per-session workspace. Chat sessions have no shell, so no sandbox is
+		// needed. Device (remote-control) sessions never reach here — they relay
+		// to the linked machine and use its real environment.
+		Sandbox: !chat,
 	}, m.lead, opts...)
 	if err != nil {
 		return err

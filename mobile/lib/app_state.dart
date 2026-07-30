@@ -175,10 +175,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<Session?> createSession({String? model, String? workerModel}) async {
+  Future<Session?> createSession(
+      {String? model, String? workerModel, bool chat = false}) async {
     try {
-      final s =
-          await _client.createSession(model: model, workerModel: workerModel);
+      final s = await _client.createSession(
+          model: model, workerModel: workerModel, chat: chat);
       await refreshSessions();
       return s;
     } catch (e) {
