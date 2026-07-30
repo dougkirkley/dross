@@ -328,6 +328,13 @@ type Model struct {
 	copiedAt    time.Time // when the last copy happened (drives the "copied" toast)
 	suggestion string // a single contextual next-step (from the reply's [next] line); ghost placeholder, tab to use
 
+	// Collapsed tool-call group: consecutive tool calls render as one dim summary
+	// line ("Ran 3 shell commands, read 1 file"), expandable with ctrl+o.
+	groupLine     int // index in m.lines of the open group summary, or -1
+	groupFirstRec int // first toolRecs index in the group (expand/click target)
+	groupCounts   map[string]int
+	groupOrder    []string
+
 	// Mouse text selection (drag to select, copies on release).
 	selecting bool  // a left-drag is in progress
 	selMoved  bool  // the drag actually moved (vs a plain click)
@@ -436,6 +443,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
 		mouseOn:      true, // drag-to-select auto-copies; wheel scrolls
+		groupLine:    -1,   // no open tool-call group
 		sessions:    []session{{}},
 	}
 }
@@ -983,6 +991,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.shellOrder, m.shells = nil, nil
 		m.toolRecs, m.toolLineOf = nil, nil
+		m.closeToolGroup()
 		m.vp.SetContent("")
 		if m.reset != nil {
 			m.reset() // drop conversation memory too
@@ -1516,6 +1525,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(m.lastReply) != "" {
 				copyToClipboard(m.lastReply)
 				return m, m.noteCopied()
+			}
+			return m, nil
+		case "ctrl+o":
+			// Expand/collapse the full tool output (the collapsed "Ran N …" lines).
+			if len(m.toolRecs) > 0 {
+				m.toolViewOpen = !m.toolViewOpen
+				if m.toolViewOpen && m.toolSel >= len(m.toolRecs) {
+					m.toolSel = 0
+				}
 			}
 			return m, nil
 		case "pgup":
@@ -2819,12 +2837,12 @@ func (m *Model) applyEvent(e agent.Event) {
 		indent = workerTag.Render("  ⋮ " + name + " ")
 		m.trackWorker(kind, name, e.Data)
 	}
-	// Space out top-level output: a blank line before each new block (a message,
-	// a tool call, a review, etc.) so the feed isn't crowded. Results and edits
-	// stay tucked under the tool call they belong to.
+	// A non-tool block (message, review, ask, …) ends any open tool group and gets
+	// a blank line before it. Tool calls collapse into one summary line instead.
 	if !worker {
 		switch kind {
-		case "text", "tool", "review", "answer", "ask", "checkpoint":
+		case "text", "review", "answer", "ask", "checkpoint", "error":
+			m.closeToolGroup()
 			m.turnGap()
 		}
 	}
@@ -2854,54 +2872,59 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
-		if !worker {
-			// Surface a foreground bash command live (the "Running N shell
-			// commands…" block); background bash is a shell, tracked separately.
-			if name == "bash" {
-				var a struct {
-					Command    string `json:"command"`
-					Background bool   `json:"background"`
-				}
-				if json.Unmarshal([]byte(args), &a) == nil && !a.Background {
-					m.bashCmd, m.bashStart = a.Command, time.Now()
-				}
-			} else {
-				m.bashCmd = ""
+		if worker {
+			// Worker tool calls stay in the subagent feed, indented.
+			m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
+			break
+		}
+		// Surface a foreground bash command live (the working line shows it);
+		// background bash is a shell, tracked separately.
+		if name == "bash" {
+			var a struct {
+				Command    string `json:"command"`
+				Background bool   `json:"background"`
 			}
-		}
-		if !worker {
-			m.toolRecs = append(m.toolRecs, toolRec{name: name, args: toolArgLine(name, args)})
-		}
-		m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
-		if !worker {
-			if m.toolLineOf == nil {
-				m.toolLineOf = map[int]int{}
+			if json.Unmarshal([]byte(args), &a) == nil && !a.Background {
+				m.bashCmd, m.bashStart = a.Command, time.Now()
 			}
-			m.toolLineOf[len(m.lines)-1] = len(m.toolRecs) - 1 // this line → its rec
-		}
-	case "tool-result":
-		if !worker {
+		} else {
 			m.bashCmd = ""
-			if n := len(m.toolRecs); n > 0 {
-				m.toolRecs[n-1].result = e.Data
-			}
 		}
-		m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
+		m.toolRecs = append(m.toolRecs, toolRec{name: name, args: toolArgLine(name, args)})
+		// Collapse consecutive tool calls into one dim summary line (expand with
+		// ctrl+o or a click), instead of a line per call + result.
+		if m.groupLine < 0 {
+			m.turnGap()
+			m.append("") // placeholder, filled by toolGroupSummary below
+			m.groupLine = len(m.lines) - 1
+			m.groupFirstRec = len(m.toolRecs) - 1
+			m.groupCounts = map[string]int{}
+			m.groupOrder = nil
+		}
+		if m.groupCounts[name] == 0 {
+			m.groupOrder = append(m.groupOrder, name)
+		}
+		m.groupCounts[name]++
+		m.lines[m.groupLine] = m.toolGroupSummary()
+		if m.toolLineOf == nil {
+			m.toolLineOf = map[int]int{}
+		}
+		m.toolLineOf[m.groupLine] = m.groupFirstRec
+	case "tool-result":
+		if worker {
+			m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
+			break
+		}
+		// Collapsed into the group summary; the full result is kept on the rec and
+		// shown when expanded (ctrl+o / click).
+		m.bashCmd = ""
+		if n := len(m.toolRecs); n > 0 {
+			m.toolRecs[n-1].result = e.Data
+		}
 	case "edit":
-		var ed struct {
-			File    string `json:"file"`
-			Added   int    `json:"added"`
-			Removed int    `json:"removed"`
-		}
-		if json.Unmarshal([]byte(e.Data), &ed) == nil {
-			base := ed.File
-			if i := strings.LastIndexByte(base, '/'); i >= 0 {
-				base = base[i+1:]
-			}
-			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
-				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
-				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
-		}
+		// The edit diff belongs to the write/edit tool call already counted in the
+		// group; suppress the separate line to keep the feed terse (details in the
+		// expanded view).
 	case "usage":
 		var u struct {
 			In  int64 `json:"in"`
@@ -2939,6 +2962,52 @@ func (m *Model) applyEvent(e agent.Event) {
 			}
 			m.append(indent + errStyle.Render(prefix+l))
 		}
+	}
+}
+
+// closeToolGroup ends the current collapsed tool-call group so the next tool
+// call starts a fresh summary line.
+func (m *Model) closeToolGroup() {
+	m.groupLine = -1
+	m.groupCounts = nil
+	m.groupOrder = nil
+}
+
+// toolGroupSummary renders the dim one-line summary of the open tool group, e.g.
+// "Ran 3 shell commands, read 1 file  · ctrl+o to expand".
+func (m Model) toolGroupSummary() string {
+	var parts []string
+	for _, name := range m.groupOrder {
+		parts = append(parts, toolPhrase(name, m.groupCounts[name]))
+	}
+	s := strings.Join(parts, ", ")
+	if s != "" {
+		s = strings.ToUpper(s[:1]) + s[1:]
+	}
+	return metaStyle.Render(s) + metaStyle.Render("  · ctrl+o to expand")
+}
+
+// toolPhrase describes n calls of a tool in Claude-style prose.
+func toolPhrase(name string, n int) string {
+	switch name {
+	case "bash":
+		return fmt.Sprintf("ran %d shell command%s", n, plural(n))
+	case "read":
+		return fmt.Sprintf("read %d file%s", n, plural(n))
+	case "grep":
+		return fmt.Sprintf("searched %d pattern%s", n, plural(n))
+	case "glob":
+		return fmt.Sprintf("globbed %d pattern%s", n, plural(n))
+	case "write":
+		return fmt.Sprintf("wrote %d file%s", n, plural(n))
+	case "edit":
+		return fmt.Sprintf("edited %d file%s", n, plural(n))
+	case "web_fetch":
+		return fmt.Sprintf("fetched %d URL%s", n, plural(n))
+	case "delegate":
+		return fmt.Sprintf("delegated %d task%s", n, plural(n))
+	default:
+		return fmt.Sprintf("%d %s call%s", n, name, plural(n))
 	}
 }
 

@@ -38,6 +38,7 @@ type Provider struct {
 type File struct {
 	Name           string            `json:"name,omitempty"`            // app/wordmark name shown in the TUI
 	IdentityPrompt string            `json:"identity_prompt,omitempty"` // system-prompt addendum (persona/task framing)
+	MaxTurns       int               `json:"max_turns,omitempty"`       // agent tool-loop cap (0 = default 200)
 	Welcome        string            `json:"welcome,omitempty"`         // empty-state layout: clean|skills|columns|boxed|centered
 	Theme          string            `json:"theme,omitempty"`           // TUI color theme: crystal|ember|matrix|grape|mono
 	Colors         map[string]string `json:"colors,omitempty"`          // per-role hex overrides on top of the theme

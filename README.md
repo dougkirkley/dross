@@ -160,8 +160,9 @@ lists what's loaded. Installed plugins live under `~/.dross/`.
 - **Permission modes** (⇥ to cycle): `auto`, `manual` (ask before edits +
   commands), `accept edits` (auto edits, ask for commands), `plan` (read-only).
   Enforced in the agent loop.
-- **Tool output** — the feed shows a one-line preview; click a tool line, or run
-  `/tools`, to expand the full command and output.
+- **Tool output** — consecutive tool calls collapse into one dim summary line
+  ("Ran 3 shell commands, read 1 file"); press **`ctrl+o`** (or click it, or run
+  `/tools`) to expand the full commands and output.
 - **Conversation memory** across prompts; `/clear` resets it.
 - **`←`** opens the session switcher; **`?`** shows shortcuts.
 
@@ -225,6 +226,8 @@ on macOS). `/model` writes your provider/model choice here.
 - **gradient** — override the holographic gradient stops, e.g.
   `["#5CE1E6","#6E9BF0","#E06CE6"]`. (Font and size are controlled by your
   terminal, not dross.)
+- **max_turns** — runaway guard: max tool-loop iterations per run (default 200).
+  Raise it for very large builds; set a negative value to disable the cap.
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `grep`, `glob`, `monitor`, `shell_output`, `web_fetch`,

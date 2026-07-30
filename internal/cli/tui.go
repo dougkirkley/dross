@@ -214,7 +214,7 @@ func newTUICmd() *cobra.Command {
 						}
 						opts = append(opts, agent.WithPermissionRules(rules))
 					}
-					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity},
+					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity, MaxTurns: res.File.MaxTurns},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err

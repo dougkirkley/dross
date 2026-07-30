@@ -55,6 +55,7 @@ type Config struct {
 	Model     string // lead provider model id (required)
 	Workdir   string // root the file/bash tools are confined to (required)
 	MaxTokens int    // per-turn output cap; 0 = provider default
+	MaxTurns  int    // tool-loop iterations before giving up; 0 = default (defaultMaxTurns)
 	Style     Style  // output verbosity; default StyleNormal
 }
 
@@ -468,7 +469,24 @@ func (r Result) Cost() float64 {
 	return total
 }
 
-const maxTurns = 40
+// defaultMaxTurns is the tool-loop cap when Config.MaxTurns is unset. It's only
+// a runaway guard (stops an agent stuck in a loop from burning tokens forever);
+// generous enough for large multi-file builds. Override via Config.MaxTurns /
+// the config's max_turns; a negative value disables the cap entirely.
+const defaultMaxTurns = 200
+
+// maxTurns resolves the effective loop cap: >0 uses it, <0 is unlimited, 0 the
+// default.
+func (a *Agent) maxTurns() int {
+	switch {
+	case a.cfg.MaxTurns > 0:
+		return a.cfg.MaxTurns
+	case a.cfg.MaxTurns < 0:
+		return int(^uint(0) >> 1) // max int — effectively unlimited
+	default:
+		return defaultMaxTurns
+	}
+}
 
 // Run drives the agent to completion on prompt.
 func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
@@ -495,7 +513,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	}
 
 	done := false
-	for res.Turns < maxTurns && !done {
+	limit := a.maxTurns()
+	for res.Turns < limit && !done {
 		resp, err := sess.Send(ctx, in)
 		if err != nil {
 			return res, a.friendlyErr(err)
@@ -536,7 +555,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		in = provider.Input{ToolResults: results}
 	}
 	if !done {
-		return res, fmt.Errorf("agent %q: hit turn limit (%d)", a.cfg.Name, maxTurns)
+		return res, fmt.Errorf("agent %q: hit turn limit (%d) — raise it with max_turns in config", a.cfg.Name, limit)
 	}
 
 	// Code-review skill: a separate model reviews the diffs this run produced.

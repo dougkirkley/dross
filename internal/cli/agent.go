@@ -115,7 +115,7 @@ func newAgentCmd() *cobra.Command {
 			opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
 
 			ag, err := agent.New(agent.Config{
-				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style),
+				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style), MaxTurns: pc.File.MaxTurns,
 			}, prov, opts...)
 			if err != nil {
 				return err
