@@ -374,13 +374,15 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	go func() {
 		res, err := ag.Run(ctx, prompt)
 		if err != nil {
-			s.emit("error", err.Error())
+			// Set status before emitting so a client that re-fetches on the event
+			// sees the final state, not a stale "running".
 			s.setStatus("error")
+			s.emit("error", err.Error())
 			return
 		}
 		s.addCost(res.Cost())
-		s.emit("done", fmt.Sprintf("$%.4f · %d turns", res.Cost(), res.Turns))
 		s.setStatus("idle")
+		s.emit("done", fmt.Sprintf("$%.4f · %d turns", res.Cost(), res.Turns))
 	}()
 	return nil
 }
