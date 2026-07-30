@@ -130,6 +130,16 @@ func buildSystem(base string, tools []provider.ToolDef) string {
 var (
 	funcRE  = regexp.MustCompile(`(?s)<function=([^>\s]+)\s*>(.*?)</function>`)
 	paramRE = regexp.MustCompile(`(?s)<parameter=([^>\s]+)\s*>(.*?)</parameter>`)
+
+	// The driven model (esp. opus) often emits its NATIVE tool XML —
+	// <invoke name="read"><parameter name="path">… — instead of the
+	// <function=read><parameter=path>… form the prompt asks for. Normalize the
+	// attribute form to the "=name" form so paramRE/funcRE capture the args;
+	// otherwise values (e.g. a file path) arrive empty and tool calls corrupt.
+	invokeOpenRE = regexp.MustCompile(`<invoke\s+name="([^"]+)"\s*>`)
+	invokeCloseRE = regexp.MustCompile(`</invoke>`)
+	funcNameRE   = regexp.MustCompile(`<function\s+name="([^"]+)"\s*>`)
+	paramNameRE  = regexp.MustCompile(`<parameter\s+name="([^"]+)"\s*>`)
 	// resultBlockRE removes echoed result blocks (the model sometimes parrots the
 	// <tool_result>/<function_results> wrappers it was handed).
 	resultBlockRE = regexp.MustCompile(`(?s)<(tool_result|tool_error|function_results|function_calls)\b[^>]*>.*?</(tool_result|tool_error|function_results|function_calls)>`)
@@ -159,7 +169,18 @@ func normalizeToolName(name string) string {
 
 // parseCalls extracts XML tool calls from the model's text and returns them plus
 // the text with those blocks removed.
+// normalizeProtocol rewrites the model's native tool XML (invoke/name=" ") into
+// the <function=…>/<parameter=…> form the parser expects.
+func normalizeProtocol(s string) string {
+	s = invokeOpenRE.ReplaceAllString(s, "<function=$1>")
+	s = invokeCloseRE.ReplaceAllString(s, "</function>")
+	s = funcNameRE.ReplaceAllString(s, "<function=$1>")
+	s = paramNameRE.ReplaceAllString(s, "<parameter=$1>")
+	return s
+}
+
 func parseCalls(s string) ([]provider.ToolCall, string) {
+	s = normalizeProtocol(s)
 	if !strings.Contains(s, "<function=") {
 		return nil, stripProtocol(s)
 	}

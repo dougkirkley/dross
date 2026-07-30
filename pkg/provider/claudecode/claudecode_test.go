@@ -52,3 +52,21 @@ func TestStripProtocolDropsSystemReminder(t *testing.T) {
 		t.Fatalf("want %q, got %q", "Done.", got)
 	}
 }
+
+func TestParseCallsNativeInvokeFormat(t *testing.T) {
+	// Opus-style native tool XML (attribute form + <invoke>) must parse.
+	s := `I'll read it.
+<invoke name="read">
+<parameter name="path">go.mod</parameter>
+</invoke>`
+	calls, _ := parseCalls(s)
+	if len(calls) != 1 {
+		t.Fatalf("want 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "read" {
+		t.Fatalf("name = %q", calls[0].Name)
+	}
+	if !strings.Contains(string(calls[0].Input), `"path":"go.mod"`) {
+		t.Fatalf("path arg dropped: %s", calls[0].Input)
+	}
+}
