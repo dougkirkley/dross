@@ -78,7 +78,17 @@ var drossMascotRaw string
 // the common left indent, and trims trailing spaces — so embedded ASCII art
 // left-aligns cleanly.
 func dedentLines(raw string) []string {
-	lines := strings.Split(strings.Trim(raw, "\n"), "\n")
+	lines := strings.Split(raw, "\n")
+	// Drop leading/trailing blank (whitespace-only) lines so the art hugs the
+	// top — a plain newline-trim leaves space-only padding rows behind.
+	start, end := 0, len(lines)
+	for start < end && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	lines = lines[start:end]
 	minIndent := 1 << 30
 	for _, l := range lines {
 		if strings.TrimSpace(l) == "" {

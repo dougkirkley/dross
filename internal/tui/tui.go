@@ -1770,7 +1770,9 @@ func (m Model) welcomeCentered(bodyH int) string {
 func (m Model) wLogo() string {
 	logo := renderLogoAt(m.logoVariant, float64(m.shimmer)*0.03)
 	if m.version != "" {
-		logo += "  " + metaStyle.Render(m.version)
+		// Sit the version beside the wordmark (vertically centered), not tacked
+		// onto the bottom line.
+		logo = lipgloss.JoinHorizontal(lipgloss.Center, logo, "  "+metaStyle.Render(m.version))
 	}
 	return logo
 }
