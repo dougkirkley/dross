@@ -179,6 +179,9 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 		}
 		return catalogModels("gemini")
 	}
+	if provName == "gemini-cli" {
+		return catalogModels("gemini-cli")
+	}
 	if provName == "vertex" {
 		return catalogModels("vertex")
 	}
