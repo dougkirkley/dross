@@ -21,6 +21,33 @@ var holoLoop = []string{"#E9D5FF", "#C084FC", "#A855F7", "#8B5CF6", "#E06CE6", "
 // bottom, that gives the block wordmark its purple sheen.
 var purpleRamp = []string{"#D8B4FE", "#C084FC", "#A855F7", "#8B5CF6", "#7C3AED"}
 
+// drossMascot is the little Dross spirit — a round blob with big eyes — drawn
+// above the wordmark. Every row is the same width so it stays aligned.
+var drossMascot = []string{
+	"  .---.  ",
+	" / o o \\ ",
+	" \\  u  / ",
+	"  |   |  ",
+	"  '---'  ",
+}
+
+// mascotColored renders the Dross mascot in the purple gradient (animated with
+// phase when driven, static top-to-bottom otherwise).
+func mascotColored(phase float64) string {
+	n := len(drossMascot)
+	out := make([]string, n)
+	for i, l := range drossMascot {
+		var c string
+		if phase >= 0 {
+			c = rampColorCyclic(holoLoop, phase+0.1*float64(i))
+		} else {
+			c = rampColor(purpleRamp, float64(i)/float64(n-1))
+		}
+		out[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(l)
+	}
+	return strings.Join(out, "\n")
+}
+
 // rampColorCyclic samples stops cyclically at u (wrapped to [0,1)), interpolating
 // from the last stop back to the first for a seamless loop.
 func rampColorCyclic(stops []string, u float64) string {
@@ -180,7 +207,7 @@ func renderLogoAt(variant int, phase float64) string {
 			}
 			rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
 		}
-		return strings.Join(rows, "\n")
+		return lipgloss.JoinVertical(lipgloss.Center, mascotColored(phase), strings.Join(rows, "\n"))
 	case 2:
 		body := logoStyle.Render(strings.Join(rows, "\n"))
 		return lipgloss.NewStyle().
@@ -204,7 +231,7 @@ func renderLogoAt(variant int, phase float64) string {
 			}
 			rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
 		}
-		return strings.Join(rows, "\n")
+		return lipgloss.JoinVertical(lipgloss.Center, mascotColored(phase), strings.Join(rows, "\n"))
 	}
 }
 

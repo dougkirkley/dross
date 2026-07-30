@@ -497,22 +497,24 @@ func (m *Model) removeSession(i int) {
 // DefaultPhrases are the nerdy status lines shown while the agent works, in the
 // spirit of Claude Code's rotating spinner words. Configurable via the config
 // file (see SetPhrases).
+// DefaultPhrases are in the voice of Dross — the dramatic, brilliant spirit
+// companion the project is named for.
 var DefaultPhrases = []string{
-	"Compiling",
-	"Reticulating splines",
-	"Traversing the AST",
-	"Warming the cache",
-	"Garbage collecting",
-	"Resolving dependencies",
-	"Grepping the haystack",
-	"Rebasing reality",
-	"Memoizing subproblems",
-	"Balancing the tree",
-	"Defragmenting thoughts",
-	"Chasing pointers",
-	"Untangling callbacks",
-	"Spawning goroutines",
-	"Optimizing the hot path",
+	"Running the simulations",
+	"Consulting my vast intellect",
+	"Being brilliant, obviously",
+	"Calculating the odds",
+	"Devising a cunning plan",
+	"Simulating ten thousand outcomes",
+	"Predicting your next move",
+	"Cross-referencing the archives",
+	"Composing a suitably epic reply",
+	"Rehearsing the dramatic reveal",
+	"Weighing every possibility",
+	"Applying spirit-speed cognition",
+	"Narrating for effect",
+	"Sharpening the pattern",
+	"Preparing to impress you",
 }
 
 // modeLabels are the permission modes cycled with shift+tab (display state in
