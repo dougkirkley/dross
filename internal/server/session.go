@@ -183,6 +183,7 @@ type Manager struct {
 	models    []string               // allowed models to offer clients
 	repo      string                 // owner/repo (or dir) label shown on session cards
 	hub       *deviceHub             // linked devices (session relay)
+	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -190,6 +191,9 @@ type Manager struct {
 
 // SetModels sets the allowed model list surfaced at /api/models.
 func (m *Manager) SetModels(models []string) { m.models = models }
+
+// SetMCP configures the MCP servers whose tools pod-hosted code sessions gain.
+func (m *Manager) SetMCP(specs []agent.MCPServerSpec) { m.mcp = specs }
 
 // SetRepo sets the workspace label (e.g. "owner/repo") shown on session cards.
 func (m *Manager) SetRepo(repo string) { m.repo = repo }
@@ -340,6 +344,11 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	if !chat && m.worker != nil && s.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(m.worker, s.WorkerModel))
 	}
+	if !chat && len(m.mcp) > 0 {
+		// Code sessions gain the configured MCP servers' tools. Chat sessions are
+		// restricted to web tools, so MCP tools would be blocked anyway.
+		opts = append(opts, agent.WithMCPServers(m.mcp))
+	}
 	if m.publish != nil {
 		opts = append(opts, agent.WithPublish(m.publish))
 	}
@@ -372,6 +381,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 
 	s.emit("prompt", prompt)
 	go func() {
+		defer ag.Close() // release MCP connections when the turn ends
 		res, err := ag.Run(ctx, prompt)
 		if err != nil {
 			// Set status before emitting so a client that re-fetches on the event

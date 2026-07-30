@@ -78,6 +78,19 @@ type File struct {
 	Tools      []string              `json:"tools,omitempty"`
 	Permission map[string]Permission `json:"permission,omitempty"`
 	Plugins    []PluginTool          `json:"plugins,omitempty"`
+	MCP        []MCPServer           `json:"mcp,omitempty"` // MCP servers whose tools the agent gains
+}
+
+// MCPServer configures an MCP server to connect to. Kept agent-free here to
+// avoid an import cycle; callers convert it to agent.MCPServerSpec.
+type MCPServer struct {
+	Name      string            `json:"name"`
+	Transport string            `json:"transport,omitempty"` // "http" (default) or "stdio"
+	URL       string            `json:"url,omitempty"`       // http transport
+	Headers   map[string]string `json:"headers,omitempty"`   // http transport (auth)
+	Command   string            `json:"command,omitempty"`   // stdio transport
+	Args      []string          `json:"args,omitempty"`      // stdio transport
+	Env       map[string]string `json:"env,omitempty"`       // stdio transport
 }
 
 // Permission is one tool's rule: a blanket decision (JSON string) or a map of

@@ -209,6 +209,9 @@ func newTUICmd() *cobra.Command {
 						}
 						opts = append(opts, agent.WithPluginTools(specs))
 					}
+					if len(res.File.MCP) > 0 {
+						opts = append(opts, agent.WithMCPServers(mcpSpecs(res.File.MCP)))
+					}
 					if len(res.File.Permission) > 0 {
 						rules := make(map[string]agent.PermRuleSpec, len(res.File.Permission))
 						for tool, p := range res.File.Permission {

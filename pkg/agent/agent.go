@@ -407,6 +407,7 @@ type Agent struct {
 	plugins      map[string]PluginSpec // external command tools
 	skills       []SkillSpec           // model-invocable skills (progressive disclosure)
 	extraTools   map[string]extraTool  // host-registered tools (WithTool)
+	mcpConns     []*mcpConn            // live MCP client connections (WithMCPServers)
 	conv         bool                  // keep the session across Run calls
 	sess         provider.Session      // persisted session when conv is set
 	resume       string
@@ -441,6 +442,10 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 
 // Name returns the agent's configured name.
 func (a *Agent) Name() string { return a.cfg.Name }
+
+// Close releases resources held by the agent (MCP server connections). Safe to
+// call once a run is complete; a no-op when nothing needs cleanup.
+func (a *Agent) Close() { a.closeMCP() }
 
 // Result summarizes a completed run, with usage tracked per model so cost is
 // correct across the lead/worker split.

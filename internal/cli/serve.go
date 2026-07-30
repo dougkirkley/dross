@@ -13,6 +13,8 @@ import (
 
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/pkg/agent"
 	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/server"
 	"github.com/dougkirkley/dross/internal/storage"
@@ -111,6 +113,7 @@ func newServeCmd() *cobra.Command {
 				}
 			}
 			mgr.SetModels(res.File.Models)
+			mgr.SetMCP(mcpSpecs(res.File.MCP))
 			mgr.SetRepo(repoLabel(workdir))
 			srv := server.New(storage.NewSessionStore(sp), mgr, authr, arts)
 
@@ -175,4 +178,21 @@ func repoLabel(workdir string) string {
 		abs = workdir
 	}
 	return filepath.Base(abs)
+}
+
+// mcpSpecs converts configured MCP servers to agent specs.
+func mcpSpecs(in []config.MCPServer) []agent.MCPServerSpec {
+	out := make([]agent.MCPServerSpec, 0, len(in))
+	for _, s := range in {
+		out = append(out, agent.MCPServerSpec{
+			Name:      s.Name,
+			Transport: s.Transport,
+			URL:       s.URL,
+			Headers:   s.Headers,
+			Command:   s.Command,
+			Args:      s.Args,
+			Env:       s.Env,
+		})
+	}
+	return out
 }
