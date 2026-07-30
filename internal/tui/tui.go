@@ -1912,10 +1912,12 @@ func (m Model) themeBox(bodyH int) string {
 // shimmering tagline beneath it.
 func (m Model) welcomeCentered(bodyH int) string {
 	phase := float64(m.shimmer) * 0.03
-	art := drossArtColored(phase)
+	// The compact mascot (not the full-size art, which dwarfs the screen) over the
+	// block wordmark and tagline.
+	mascot := mascotColored(phase)
 	word := blockWordmark(phase)
 	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
-	block := lipgloss.JoinVertical(lipgloss.Center, art, "", word, "", tagline)
+	block := lipgloss.JoinVertical(lipgloss.Center, mascot, "", word, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
 
