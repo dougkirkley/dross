@@ -6,7 +6,8 @@ work; the agent routes each unit of work to the cheapest model that can do it
 correctly, and reports what it cost. Drivable from a terminal (Charm TUI), a
 phone, or an HTTP API.
 
-Written in Go. MIT licensed. `dross` is Greek for *work*.
+Written in Go. MIT licensed. Named for Dross, the spirit-of-pure-intellect
+companion from the *Cradle* series.
 
 ## Why
 
@@ -60,7 +61,8 @@ dross --resume <id>           # resume a prior TUI session (id printed on exit)
 dross agent  [flags] <prompt> # run the agent once against a workspace
 dross serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
 dross rc     --server <url>   # link this machine so a phone can drive it
-dross login  --server <url>   # SSO sign-in for a server
+dross login                   # OAuth sign-in for the claude-sub provider (config [oauth])
+dross login  gemini           # Google browser login for Vertex Gemini (no API key)
 dross brief  [name]           # print a saved handoff brief, or list sessions
 ```
 
@@ -76,7 +78,7 @@ OpenAI-compatible and share one backend, selected by base URL.
 | **Anthropic** (native) | `ANTHROPIC_API_KEY`; `/model anthropic` |
 | **Google Gemini** (native, function calling) | `GEMINI_API_KEY`; `/model gemini` (gemini-3-pro, 2.5-pro/flash, …) |
 | **Amazon Bedrock** (Claude + Llama/Nova/Mistral/… via Converse) | AWS default credential chain; `/model bedrock` (region inference-profile ids) |
-| **Google Vertex AI** (Gemini, native) | GCP ADC auth + `VERTEX_PROJECT`/`VERTEX_REGION`; `/model vertex` |
+| **Google Vertex AI** (Gemini, native) | `dross login gemini` (browser OAuth, no API key) or GCP ADC; set `GOOGLE_CLOUD_PROJECT` (+ `GOOGLE_CLOUD_LOCATION`, `global` for gemini-3-pro); `/model vertex` |
 | **Azure OpenAI** | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY`; `/model azure` (model = deployment name) |
 | **Claude subscription** (`claude-code`) | drives the local `claude` CLI — no API key; `/model claude-code` |
 
@@ -134,9 +136,11 @@ lists what's loaded. Installed plugins live under `~/.dross/`.
   `/mouse` (toggle mouse capture), `/clear`, `/init` (generate `AGENTS.md`),
   `/help`, `/login`, `/rc`.
   User-invocable skills also appear as `/<skill-name>`.
-- **Mouse** is off by default so your terminal's text selection / copy-paste
-  works; `/mouse` turns on click-to-expand tool output (and scroll-wheel
-  viewport scrolling) at the cost of native selection.
+- **Mouse** is on by default so the scroll wheel scrolls the transcript (and
+  click-to-expand tool output works). Text selection still works with your
+  terminal's modifier — Shift-drag on most terminals, Option-drag in macOS
+  Terminal/iTerm2; `/mouse` turns capture off for plain drag-select. `pgup` /
+  `ctrl+u` / `ctrl+d` also scroll.
 - The model can also edit `dross`'s own config on request via a built-in
   `config` tool (e.g. "set my worker to qwen3-coder").
 - **`!cmd`** — run a shell command directly (gold prompt border).
@@ -190,13 +194,16 @@ on macOS). `/model` writes your provider/model choice here.
     }
   ],
 
-  "phrases": ["Channeling the Force", "Consulting the Jedi Council"]
+  "phrases": ["Running the simulations", "Being brilliant, obviously"]
 }
 ```
 
 - **name** — the wordmark/branding shown in the TUI.
 - **identity_prompt** — a system-prompt addendum (persona/task framing) prepended
-  to any `AGENTS.md`/`CLAUDE.md` context.
+  to any `AGENTS.md`/`CLAUDE.md` context. Defaults to the **Dross persona**: the
+  *Cradle* spirit-of-intellect companion, speaking as a bound Presence with terse
+  bracketed status markers (`[Analyzing]`, `[Recommendation]`, `[Task complete]`,
+  …) — correctness always over theatrics. Set your own to override it.
 - **welcome** — empty-state layout: `clean` (default), `boxed`, or `centered`
   (the original big centered wordmark). Switch live with `/welcome [name]`
   (bare `/welcome` cycles).
@@ -218,7 +225,8 @@ on macOS). `/model` writes your provider/model choice here.
 - **plugins** — external command tools imported without recompiling: the model
   calls the tool, dross pipes the JSON args to the command's stdin and returns
   its stdout.
-- **phrases** — the rotating status lines shown while the agent works.
+- **phrases** — status lines shown while the agent works; one is chosen per run
+  and held (default: Dross-voiced quips).
 
 `AGENTS.md` / `CLAUDE.md` in the workspace are auto-loaded into the system prompt.
 
