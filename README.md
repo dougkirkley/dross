@@ -318,6 +318,18 @@ func main() {
 go test ./...
 ```
 
+Real-CLI integration tests for the `claude-code` provider are behind the
+`integration` build tag and gated by `DROSS_LIVE=1`, so they never run in normal
+`go test`. They drive your installed `claude` binary through the full agent loop
+(read / bash / write round-trips) and assert the tool I/O isn't corrupted:
+
+```bash
+DROSS_LIVE=1 go test -tags integration ./pkg/provider/claudecode/
+```
+
+They use the lowest alias that reliably drives tools (`sonnet`); override with
+`DROSS_LIVE_MODEL` (e.g. `opus`).
+
 ## License
 
 MIT.

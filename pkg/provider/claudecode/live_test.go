@@ -1,3 +1,5 @@
+//go:build integration
+
 package claudecode
 
 import (
@@ -20,7 +22,7 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := p.NewSession(provider.SessionConfig{Model: "sonnet"})
+	s := p.NewSession(provider.SessionConfig{Model: liveModel()})
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 

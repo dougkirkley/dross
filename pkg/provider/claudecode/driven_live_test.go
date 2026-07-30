@@ -1,3 +1,5 @@
+//go:build integration
+
 package claudecode
 
 import (
@@ -15,7 +17,7 @@ func TestDrivenLive(t *testing.T) {
 	}
 	p, _ := provider.New("claude-code", provider.Config{})
 	s := p.NewSession(provider.SessionConfig{
-		Model:  "sonnet",
+		Model:  liveModel(),
 		System: "You are dross, a coding agent.",
 		Tools: []provider.ToolDef{{
 			Name:        "read",
