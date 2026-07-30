@@ -2993,11 +2993,15 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 		// Headline (the model's one-line summary) sits next to the name; the rest
 		// of the body is left-aligned underneath, not hang-indented under the label.
-		width := m.width - 4
-		lines := wrap(data, width)
-		m.append(indent + agentLabel.Render(m.agentName) + "  " + proseStyle.Render(lines[0]))
+		// Markdown is rendered to styled terminal output via glamour.
+		width := m.width - 4 - len([]rune(indent))
+		lines := renderMarkdown(data, width)
+		if len(lines) == 0 {
+			lines = []string{""}
+		}
+		m.append(indent + agentLabel.Render(m.agentName) + "  " + lines[0])
 		for _, l := range lines[1:] {
-			m.append(indent + proseStyle.Render(l))
+			m.append(indent + l)
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")

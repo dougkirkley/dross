@@ -58,7 +58,7 @@ func DemoView(width, height int) string {
 		{Kind: "answer", Data: "--json"},
 		{Kind: "tool", Data: `bash {"command":"go build ./... && go test ./..."}`},
 		{Kind: "tool-result", Data: "ok  github.com/dougkirkley/dross  0.4s"},
-		{Kind: "text", Data: "Done. --json flag wired; boilerplate delegated to the local model. Build and tests pass."},
+		{Kind: "text", Data: "Done. `--json` flag wired; build and tests pass.\n\n## Changes\n\n- Added `Output` struct in `internal/cli/output.go` with JSON tags\n- Wired `--json` in `main.go` (**defaults to false**)\n\n```go\nif *jsonOut {\n    out.Render(os.Stdout)\n}\n```"},
 		{Kind: "usage", Data: `{"in":18420,"out":1240}`},
 		{Kind: "review", Data: "LGTM — the flag defaults to false and Render() handles the empty case."},
 		{Kind: "checkpoint", Data: "saved handoff brief"},
