@@ -156,8 +156,17 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// no-transform stops intermediaries (Cloudflare) from compressing — which
+	// would buffer the whole body; X-Accel-Buffering disables nginx-family proxy
+	// buffering. Without these the stream only flushes when the run ends.
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// A comment padding sent up front forces byte-count-based proxy buffers to
+	// flush immediately, so events start streaming from the first one.
+	fmt.Fprint(w, ":"+strings.Repeat(" ", 2048)+"\n\n")
+	flusher.Flush()
 
 	after := lastSeq(r)
 
