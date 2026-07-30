@@ -58,6 +58,7 @@ func init() {
 		// Converse client for non-Claude models (Llama, Nova, Mistral, …).
 		if awsCfg, err := awscfg.LoadDefaultConfig(ctx, loadOpts()...); err == nil {
 			p.brc = bedrockruntime.NewFromConfig(awsCfg)
+			p.region = awsCfg.Region
 		}
 		return p, nil
 	})
@@ -68,6 +69,7 @@ func init() {
 type prov struct {
 	claude provider.Provider
 	brc    *bedrockruntime.Client
+	region string
 }
 
 func (p *prov) Name() string { return "bedrock" }
@@ -76,5 +78,5 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 	if isAnthropicModel(cfg.Model) || p.brc == nil {
 		return p.claude.NewSession(cfg)
 	}
-	return newConverseSession(p.brc, cfg)
+	return newConverseSession(p.brc, p.region, cfg)
 }

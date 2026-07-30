@@ -28,18 +28,52 @@ const converseMaxTokens = 8192
 type converseSession struct {
 	brc      *bedrockruntime.Client
 	model    string
+	region   string
 	system   []brtypes.SystemContentBlock
 	toolCfg  *brtypes.ToolConfiguration
 	maxTok   int32
 	messages []brtypes.Message
 }
 
-func newConverseSession(brc *bedrockruntime.Client, cfg provider.SessionConfig) provider.Session {
+// geoPrefix maps an AWS region to the cross-region inference-profile prefix.
+func geoPrefix(region string) string {
+	switch {
+	case strings.HasPrefix(region, "us-"):
+		return "us"
+	case strings.HasPrefix(region, "eu-"):
+		return "eu"
+	case strings.HasPrefix(region, "ap-"):
+		return "apac"
+	default:
+		return ""
+	}
+}
+
+// fixModelRegion rewrites a us./eu./apac. inference-profile prefix to match the
+// client's region, so selecting "us.amazon.nova-pro-v1:0" while in eu-west-1
+// becomes "eu.amazon.nova-pro-v1:0" instead of failing as an invalid id.
+func fixModelRegion(model, region string) string {
+	geo := geoPrefix(region)
+	if geo == "" {
+		return model
+	}
+	for _, p := range []string{"us.", "eu.", "apac."} {
+		if strings.HasPrefix(model, p) {
+			if p != geo+"." {
+				return geo + "." + strings.TrimPrefix(model, p)
+			}
+			return model
+		}
+	}
+	return model
+}
+
+func newConverseSession(brc *bedrockruntime.Client, region string, cfg provider.SessionConfig) provider.Session {
 	maxTok := int32(cfg.MaxTokens)
 	if maxTok <= 0 {
 		maxTok = converseMaxTokens
 	}
-	s := &converseSession{brc: brc, model: cfg.Model, maxTok: maxTok}
+	s := &converseSession{brc: brc, region: region, model: fixModelRegion(cfg.Model, region), maxTok: maxTok}
 	if strings.TrimSpace(cfg.System) != "" {
 		s.system = []brtypes.SystemContentBlock{&brtypes.SystemContentBlockMemberText{Value: cfg.System}}
 	}
@@ -86,7 +120,11 @@ func (s *converseSession) Send(ctx context.Context, in provider.Input) (*provide
 		// in this AWS region / account — a us.* inference profile needs a us-*
 		// region and the model enabled in Bedrock ("Model access").
 		if strings.Contains(err.Error(), "model identifier is invalid") {
-			return nil, fmt.Errorf("bedrock converse: model %q is not available in your region/account — check AWS_REGION matches the profile prefix (us./eu./apac.) and enable the model under Bedrock → Model access: %w", s.model, err)
+			region := s.region
+			if region == "" {
+				region = "unset"
+			}
+			return nil, fmt.Errorf("bedrock converse: model %q not available in region %s — enable it under Bedrock → Model access in that region, or run `aws bedrock list-inference-profiles` to see valid ids: %w", s.model, region, err)
 		}
 		return nil, fmt.Errorf("bedrock converse: %w", err)
 	}

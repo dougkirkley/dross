@@ -75,3 +75,18 @@ func TestBedrockNewReturnsNamedProvider(t *testing.T) {
 		t.Fatalf("Name() = %q, want bedrock", p.Name())
 	}
 }
+
+func TestFixModelRegion(t *testing.T) {
+	cases := []struct{ model, region, want string }{
+		{"us.amazon.nova-pro-v1:0", "eu-west-1", "eu.amazon.nova-pro-v1:0"},
+		{"us.amazon.nova-pro-v1:0", "us-east-1", "us.amazon.nova-pro-v1:0"},
+		{"us.amazon.nova-pro-v1:0", "ap-southeast-2", "apac.amazon.nova-pro-v1:0"},
+		{"amazon.nova-pro-v1:0", "eu-west-1", "amazon.nova-pro-v1:0"}, // no prefix, unchanged
+		{"us.amazon.nova-pro-v1:0", "", "us.amazon.nova-pro-v1:0"},    // unknown region, unchanged
+	}
+	for _, c := range cases {
+		if got := fixModelRegion(c.model, c.region); got != c.want {
+			t.Errorf("fixModelRegion(%q,%q) = %q, want %q", c.model, c.region, got, c.want)
+		}
+	}
+}
