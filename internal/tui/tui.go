@@ -445,14 +445,14 @@ func New(agentName, model, provider string, run RunFunc) Model {
 	ti.Focus()
 
 	sp := spinner.New()
-	// A spinning dross: the crystal cycles hollow → faceted → filled →
-	// faceted, as if catching light while it turns. These diamond glyphs render
-	// widely (unlike braille/quadrant, which box out in many fonts).
+	// Dross as a one-eyed spirit orb: the eye pulses, darts side to side, then
+	// blinks. These circle glyphs render widely (unlike braille/quadrant, which
+	// box out in many fonts).
 	sp.Spinner = spinner.Spinner{
-		Frames: []string{"◇", "◈", "◆", "◈"},
+		Frames: []string{"◉", "⊙", "◉", "◑", "◉", "◐", "◉", "⊝"},
 		FPS:    time.Second / 5,
 	}
-	sp.Style = lipgloss.NewStyle().Foreground(holoCyan)
+	sp.Style = lipgloss.NewStyle().Foreground(holoViol)
 
 	bar := progress.New(progress.WithGradient("#2B6C8F", "#8FC7E8"), progress.WithoutPercentage())
 

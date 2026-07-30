@@ -114,8 +114,9 @@ class _DrossPainter extends CustomPainter {
   bool shouldRepaint(covariant _DrossPainter oldDelegate) => false;
 }
 
-/// A small continuously-spinning cube for loading / running-task indicators,
-/// in the Dross purple palette.
+/// A loading / running-task indicator: the Dross spirit as a floating orb whose
+/// single eye pulses, darts side to side, and blinks, wrapped in a soft violet
+/// glow. On-brand with [DrossLogo].
 class DrossSpinner extends StatefulWidget {
   const DrossSpinner({super.key, this.size = 28});
   final double size;
@@ -125,9 +126,9 @@ class DrossSpinner extends StatefulWidget {
 
 class _DrossSpinnerState extends State<DrossSpinner>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 3))
-        ..repeat();
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600))
+    ..repeat();
   @override
   void dispose() {
     _c.dispose();
@@ -141,97 +142,94 @@ class _DrossSpinnerState extends State<DrossSpinner>
         child: AnimatedBuilder(
           animation: _c,
           builder: (_, __) => CustomPaint(
-            painter: _CubePainter(spin: _c.value * 2 * math.pi),
+            painter: _OrbPainter(_c.value),
           ),
         ),
       );
 }
 
-class _V3 {
-  const _V3(this.x, this.y, this.z);
-  final double x, y, z;
-}
+/// Paints the Dross orb for a loop phase t in [0,1): a bob, a pulsing glow, an
+/// eye that darts left/right, and a quick blink once per cycle.
+class _OrbPainter extends CustomPainter {
+  _OrbPainter(this.t);
+  final double t;
 
-class _CubePainter extends CustomPainter {
-  _CubePainter({required this.spin});
-  final double spin;
-
-  static const double _h = 0.5;
-  static const double _tilt = 0.5;
-
-  static const _frame = Color(0xFF8B5CF6);
-  static const _frameHi = Color(0xFFC084FC);
-  static const _glass = Color(0xFF7C3AED);
-  static const _glassHi = Color(0xFFD8B4FE);
-
-  static const _corners = <_V3>[
-    _V3(-_h, -_h, -_h), _V3(_h, -_h, -_h), _V3(_h, _h, -_h), _V3(-_h, _h, -_h),
-    _V3(-_h, -_h, _h), _V3(_h, -_h, _h), _V3(_h, _h, _h), _V3(-_h, _h, _h),
-  ];
-
-  static const _faces = <(List<int>, _V3)>[
-    ([4, 5, 6, 7], _V3(0, 0, 1)),
-    ([1, 0, 3, 2], _V3(0, 0, -1)),
-    ([0, 4, 7, 3], _V3(-1, 0, 0)),
-    ([5, 1, 2, 6], _V3(1, 0, 0)),
-    ([0, 1, 5, 4], _V3(0, -1, 0)),
-    ([3, 7, 6, 2], _V3(0, 1, 0)),
-  ];
-
-  _V3 _rotate(_V3 p) {
-    final x1 = p.x * math.cos(spin) + p.z * math.sin(spin);
-    final z1 = -p.x * math.sin(spin) + p.z * math.cos(spin);
-    final y2 = p.y * math.cos(_tilt) - z1 * math.sin(_tilt);
-    final z2 = p.y * math.sin(_tilt) + z1 * math.cos(_tilt);
-    return _V3(x1, y2, z2);
-  }
-
-  Offset _project(_V3 p, Offset c, double scale) {
-    const focal = 3.2;
-    final s = focal / (focal - p.z);
-    return Offset(c.dx + p.x * s * scale, c.dy + p.y * s * scale);
-  }
+  static const _dark = Color(0xFF0C0A1F);
+  static const _eyeWhite = Color(0xFFF3EEFF);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final scale = size.width * 0.42;
+    final w = size.width, h = size.height;
+    const tau = 2 * math.pi;
 
-    final built = <(double depth, List<Offset> pts, _V3 nrot)>[];
-    for (final (idx, n) in _faces) {
-      final pts = <Offset>[];
-      var depth = 0.0;
-      for (final i in idx) {
-        final r = _rotate(_corners[i]);
-        depth += r.z;
-        pts.add(_project(r, c, scale));
-      }
-      depth /= idx.length;
-      built.add((depth, pts, _rotate(_V3(n.x, n.y, n.z))));
-    }
-    built.sort((a, b) => a.$1.compareTo(b.$1));
+    // Gentle vertical bob so the orb floats.
+    final bob = math.sin(tau * t) * h * 0.05;
+    final bodyC = Offset(w * 0.5, h * 0.5 + bob);
+    final bodyR = w * 0.34;
 
-    final w = size.width;
-    for (final (_, pts, nrot) in built) {
-      final facing = (0.5 + 0.5 * nrot.z).clamp(0.0, 1.0);
-      final face = Path()..addPolygon(pts, true);
-      canvas.drawPath(
-        face,
-        Paint()
-          ..color =
-              Color.lerp(_glass, _glassHi, facing)!.withValues(alpha: 0.40),
-      );
-      canvas.drawPath(
-        face,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeJoin = StrokeJoin.round
-          ..strokeWidth = w * 0.024
-          ..color = Color.lerp(_frame, _frameHi, facing)!,
+    // Soft outer glow that pulses with the cycle.
+    final glow = 0.30 + 0.18 * (0.5 + 0.5 * math.sin(tau * t));
+    canvas.drawCircle(
+      bodyC,
+      bodyR * 1.5,
+      Paint()
+        ..color = const Color(0xFF8B5CF6).withValues(alpha: glow)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.10),
+    );
+
+    // Body: violet blob, top-lit.
+    canvas.drawCircle(
+      bodyC,
+      bodyR,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFC4A5FF), Color(0xFF7C3AED)],
+        ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR)),
+    );
+
+    // Blink: a short window near the end of each cycle where the lid closes.
+    // blink in [0,1]: 0 open, 1 fully shut.
+    double blink = 0;
+    const blinkStart = 0.82, blinkEnd = 0.94;
+    if (t >= blinkStart && t <= blinkEnd) {
+      final p = (t - blinkStart) / (blinkEnd - blinkStart); // 0..1
+      blink = math.sin(p * math.pi); // 0 -> 1 -> 0
+    }
+
+    final eyeC = Offset(w * 0.5, bodyC.dy);
+    final eyeR = w * 0.16;
+    final eyeH = eyeR * (1 - 0.9 * blink); // squash vertically on blink
+
+    // Eyeball (an oval so it can squash shut).
+    canvas.drawOval(
+      Rect.fromCenter(center: eyeC, width: eyeR * 2, height: eyeH * 2),
+      Paint()..color = _eyeWhite,
+    );
+
+    // Pupil darts left/right; hidden while blinking.
+    if (blink < 0.6) {
+      final dart = math.sin(tau * t) * eyeR * 0.45;
+      canvas.drawCircle(
+        Offset(eyeC.dx + dart, eyeC.dy),
+        eyeR * 0.55 * (1 - blink),
+        Paint()..color = _dark,
       );
     }
+
+    // Heavy half-lid brow for the unimpressed Dross look.
+    canvas.drawLine(
+      Offset(eyeC.dx - eyeR * 1.05, eyeC.dy - eyeR * 0.7),
+      Offset(eyeC.dx + eyeR * 1.15, eyeC.dy - eyeR * 0.95),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.075
+        ..strokeCap = StrokeCap.round
+        ..color = _dark,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _CubePainter old) => old.spin != spin;
+  bool shouldRepaint(covariant _OrbPainter old) => old.t != t;
 }
