@@ -60,6 +60,10 @@ class AppState extends ChangeNotifier {
   List<Session> sessions = [];
   bool loadingSessions = false;
 
+  /// True once the first session fetch has completed, so the lists show a
+  /// loading screen (not the empty state) until sessions are actually available.
+  bool sessionsLoaded = false;
+
   /// Ids whose server-side delete is in flight. A concurrent refreshSessions
   /// must not re-add these, or a just-deleted session flickers back until the
   /// DELETE lands.
@@ -166,6 +170,7 @@ class AppState extends ChangeNotifier {
       error = e.toString();
     } finally {
       loadingSessions = false;
+      sessionsLoaded = true; // first fetch done; screens can leave the spinner
       notifyListeners();
     }
   }

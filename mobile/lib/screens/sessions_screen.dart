@@ -99,23 +99,31 @@ class _SessionsScreenState extends State<SessionsScreen> {
             if (s.loadingSessions) const DrossSpinner(size: 18),
           ]),
           const SizedBox(height: 10),
-          if (s.error != null && list.isEmpty)
-            _card(
-                child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Error: ${s.error}',
-                  style: const TextStyle(color: T.danger)),
-            )),
-          if (list.isEmpty && s.error == null)
+          if (!s.sessionsLoaded)
             _card(
                 child: const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('No sessions yet. Tap New session.',
-                  style: TextStyle(color: T.textDim)),
-            )),
-          for (final sess in list) ...[
-            _sessionCard(context, sess),
-            const SizedBox(height: 14),
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: DrossSpinner(size: 32)),
+            ))
+          else ...[
+            if (s.error != null && list.isEmpty)
+              _card(
+                  child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Error: ${s.error}',
+                    style: const TextStyle(color: T.danger)),
+              )),
+            if (list.isEmpty && s.error == null)
+              _card(
+                  child: const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('No sessions yet. Tap New session.',
+                    style: TextStyle(color: T.textDim)),
+              )),
+            for (final sess in list) ...[
+              _sessionCard(context, sess),
+              const SizedBox(height: 14),
+            ],
           ],
         ],
       );

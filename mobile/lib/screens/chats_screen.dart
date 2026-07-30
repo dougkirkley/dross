@@ -47,7 +47,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
               ),
             ),
             Expanded(
-              child: chats.isEmpty
+              child: !s.sessionsLoaded
+                  ? const Center(child: DrossSpinner(size: 40))
+                  : chats.isEmpty
                   ? _empty()
                   : RefreshIndicator(
                       color: T.accent,
