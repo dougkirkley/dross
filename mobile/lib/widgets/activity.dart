@@ -7,11 +7,29 @@ import '../theme.dart';
 
 /// One step within an activity block: a tool call or a file edit.
 class ActStep {
-  ActStep({required this.icon, required this.label, this.color = T.text, this.edit});
+  ActStep(
+      {required this.icon,
+      required this.label,
+      this.color = T.text,
+      this.edit,
+      this.detail,
+      this.output});
   final IconData icon;
   final String label;
   final Color color;
   final EditInfo? edit;
+
+  /// The tool's full input (command, path, task) shown in the drill-in.
+  final String? detail;
+
+  /// The tool's result content, filled in when the tool-result event arrives.
+  String? output;
+
+  /// Whether tapping the row opens a detail view (edits use their own diff view).
+  bool get hasDetail =>
+      edit == null &&
+      ((output != null && output!.trim().isNotEmpty) ||
+          (detail != null && detail!.isNotEmpty));
 }
 
 /// A run of consecutive tool/edit events between assistant messages, shown
@@ -87,6 +105,10 @@ List<Object> buildTimeline(List<Event> events) {
   // Map background-shell ids to their command, so a shell:exit can name it.
   final shellCmd = {for (final s in buildShells(events)) s.id: s.command};
 
+  // The tool step still awaiting its result, so the following tool-result event
+  // can be attached to it for the drill-in view.
+  ActStep? awaiting;
+
   for (final e in events) {
     // Background shells live in the tasks sheet; only surface a line when one
     // finishes, so the conversation shows "Ran a shell command".
@@ -96,7 +118,8 @@ List<Object> buildTimeline(List<Event> events) {
         final cmd = shellCmd[id] ?? '';
         (cur ??= Activity()).steps.add(ActStep(
             icon: Icons.terminal,
-            label: cmd.isEmpty ? 'Ran a shell command' : 'Ran  ${_trim(cmd)}'));
+            label: cmd.isEmpty ? 'Ran a shell command' : 'Ran  ${_trim(cmd)}',
+            detail: cmd.isEmpty ? null : cmd));
       }
       continue;
     }
@@ -114,7 +137,12 @@ List<Object> buildTimeline(List<Event> events) {
       case 'tool':
         final step = _toolStep(e.data);
         if (step != null) (cur ??= Activity()).steps.add(step);
+        awaiting = step; // null for write/edit, so their result isn't attached
       case 'tool-result':
+        if (awaiting != null) {
+          awaiting.output = e.data;
+          awaiting = null;
+        }
       case 'usage': // token counter, not an activity step
       case 'answer':
         break; // not shown as a step
@@ -190,27 +218,36 @@ ActStep? _toolStep(String data) {
     case 'edit':
       return null; // represented by the richer "edit" event
     case 'read':
+      final path = _argPath(arg);
       return ActStep(
-          icon: Icons.description_outlined, label: 'Read ${_argPath(arg)}');
+          icon: Icons.description_outlined,
+          label: 'Read $path',
+          detail: path);
     case 'bash':
       final cmd = _argField(arg, 'command');
       return ActStep(
           icon: Icons.terminal,
-          label: cmd.isEmpty ? 'Ran a command' : 'Ran  ${_trim(cmd)}');
+          label: cmd.isEmpty ? 'Ran a command' : 'Ran  ${_trim(cmd)}',
+          detail: cmd.isEmpty ? null : cmd);
     case 'delegate':
       final task = _argField(arg, 'task');
       return ActStep(
           icon: Icons.call_split,
           label: task.isEmpty
               ? 'Delegated to worker'
-              : 'Delegated  ${_trim(task)}');
+              : 'Delegated  ${_trim(task)}',
+          detail: task.isEmpty ? null : task);
     case 'publish':
       return ActStep(icon: Icons.link, label: 'Published an artifact');
     case 'web_search':
     case 'web-search':
-      return ActStep(icon: Icons.search, label: 'Searched the web');
+      return ActStep(
+          icon: Icons.search,
+          label: 'Searched the web',
+          detail: _argField(arg, 'query'));
     default:
-      return ActStep(icon: Icons.build_outlined, label: 'Used $name');
+      return ActStep(
+          icon: Icons.build_outlined, label: 'Used $name', detail: arg);
   }
 }
 
@@ -320,11 +357,15 @@ void _showSteps(BuildContext context, Activity a) {
 
 Widget _stepRow(BuildContext context, ActStep s) {
   final edit = s.edit;
+  final tappable = edit != null || s.hasDetail;
   return InkWell(
-    onTap: edit == null
+    onTap: !tappable
         ? null
-        : () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => EditDiffView(edit))),
+        : () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    edit != null ? EditDiffView(edit) : ToolDetailView(s))),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
@@ -338,12 +379,87 @@ Widget _stepRow(BuildContext context, ActStep s) {
             Text('-${edit.removed}',
                 style: const TextStyle(color: T.danger, fontSize: 13)),
             const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, size: 18, color: T.textFaint),
           ],
+          if (tappable)
+            const Icon(Icons.chevron_right, size: 18, color: T.textFaint),
         ],
       ),
     ),
   );
+}
+
+/// Drill-in for a single tool step: its input (command/path/query) and the
+/// captured output, both monospace and scrollable. Reads show the file content;
+/// commands show stdout/stderr.
+class ToolDetailView extends StatelessWidget {
+  const ToolDetailView(this.step, {super.key});
+  final ActStep step;
+
+  @override
+  Widget build(BuildContext context) {
+    final out = (step.output ?? '').trimRight();
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FlatHeader(
+              title: _title(step.label),
+              leading: CircleIconButton(
+                  icon: Icons.close, onTap: () => Navigator.pop(context)),
+            ),
+            if (step.detail != null && step.detail!.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Text('Input', style: T.meta),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: T.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: T.border),
+                  ),
+                  child: Text(step.detail!,
+                      style: T.mono.copyWith(color: T.text)),
+                ),
+              ),
+            ],
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Text('Output', style: T.meta),
+            ),
+            Expanded(
+              child: out.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: Text('[no output]', style: T.metaFaint),
+                    )
+                  : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                        child: Text(out,
+                            style: T.mono.copyWith(color: T.text, height: 1.4)),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _title(String label) {
+    if (label.startsWith('Read')) return 'Read';
+    if (label.startsWith('Ran')) return 'Command';
+    if (label.startsWith('Delegated')) return 'Delegate';
+    if (label.startsWith('Searched')) return 'Web search';
+    return label;
+  }
 }
 
 /// Full diff view for one edit: file path + the unified diff with green/red
