@@ -3,12 +3,14 @@ package agent
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,9 @@ var (
 	reScriptStyle = regexp.MustCompile(`(?is)<(script|style|head|nav|footer)[^>]*>.*?</(script|style|head|nav|footer)>`)
 	reTag         = regexp.MustCompile(`(?s)<[^>]+>`)
 	reBlankLines  = regexp.MustCompile(`\n[ \t]*\n(\s*\n)+`)
+	// DuckDuckGo HTML result rows: a result link (title+href) and its snippet.
+	reResultLink    = regexp.MustCompile(`(?is)<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>`)
+	reResultSnippet = regexp.MustCompile(`(?is)class="result__snippet"[^>]*>(.*?)</a>`)
 )
 
 // webFetch GETs a URL and returns its text (HTML reduced to readable text),
@@ -56,6 +61,142 @@ func webFetch(ctx context.Context, url string) (string, error) {
 		text = text[:100_000] + "\n…[truncated]"
 	}
 	return text, nil
+}
+
+// searchLimit is how many results web_search returns.
+const searchLimit = 8
+
+// webSearch returns a ranked list of results (title / url / snippet) so the
+// model can then web_fetch the ones it wants. Provider-agnostic. Prefers the
+// Brave Search API when BRAVE_API_KEY (or DROSS_SEARCH_KEY) is set — reliable,
+// JSON — and falls back to a keyless DuckDuckGo scrape otherwise.
+func webSearch(ctx context.Context, query string) (string, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", fmt.Errorf("query is empty")
+	}
+	if key := searchKey(); key != "" {
+		if out, err := braveSearch(ctx, query, key); err == nil {
+			return out, nil
+		}
+		// fall through to DDG on Brave error
+	}
+	return ddgSearch(ctx, query)
+}
+
+func searchKey() string {
+	if k := os.Getenv("BRAVE_API_KEY"); k != "" {
+		return k
+	}
+	return os.Getenv("DROSS_SEARCH_KEY")
+}
+
+// braveSearch queries the Brave Search API and formats the web results.
+func braveSearch(ctx context.Context, query, key string) (string, error) {
+	endpoint := "https://api.search.brave.com/res/v1/web/search?count=" +
+		strconv.Itoa(searchLimit) + "&q=" + url.QueryEscape(query)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Subscription-Token", key)
+	hc := &http.Client{Timeout: 20 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("brave search: HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Web struct {
+			Results []struct {
+				Title       string `json:"title"`
+				URL         string `json:"url"`
+				Description string `json:"description"`
+			} `json:"results"`
+		} `json:"web"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&payload); err != nil {
+		return "", err
+	}
+	if len(payload.Web.Results) == 0 {
+		return fmt.Sprintf("[no results for %q]", query), nil
+	}
+	var b strings.Builder
+	for i, r := range payload.Web.Results {
+		if i >= searchLimit {
+			break
+		}
+		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, strings.TrimSpace(stripHTML(r.Title)), r.URL)
+		if s := strings.TrimSpace(stripHTML(r.Description)); s != "" {
+			fmt.Fprintf(&b, "   %s\n", s)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// ddgSearch is the keyless fallback: DuckDuckGo's HTML endpoint, scraped.
+func ddgSearch(ctx context.Context, query string) (string, error) {
+	endpoint := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	// A browser-like UA; DuckDuckGo returns an empty page to unknown agents.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36")
+	hc := &http.Client{Timeout: 20 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2 MB cap
+	page := string(body)
+
+	links := reResultLink.FindAllStringSubmatch(page, -1)
+	snips := reResultSnippet.FindAllStringSubmatch(page, -1)
+	if len(links) == 0 {
+		return fmt.Sprintf("[no results for %q]", query), nil
+	}
+	const maxResults = 8
+	var b strings.Builder
+	for i, m := range links {
+		if i >= maxResults {
+			break
+		}
+		title := strings.TrimSpace(stripHTML(m[2]))
+		link := ddgResolve(m[1])
+		snippet := ""
+		if i < len(snips) {
+			snippet = strings.TrimSpace(stripHTML(snips[i][1]))
+		}
+		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, title, link)
+		if snippet != "" {
+			fmt.Fprintf(&b, "   %s\n", snippet)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// ddgResolve turns a DuckDuckGo result href into the real destination URL. DDG
+// wraps links as //duckduckgo.com/l/?uddg=<encoded-target>; unwrap when present.
+func ddgResolve(href string) string {
+	if strings.HasPrefix(href, "//") {
+		href = "https:" + href
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+	if t := u.Query().Get("uddg"); t != "" {
+		if dec, err := url.QueryUnescape(t); err == nil {
+			return dec
+		}
+	}
+	return href
 }
 
 // stripHTML reduces HTML to readable text: drops script/style/nav/etc, removes

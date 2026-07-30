@@ -200,8 +200,14 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Required: []string{"command"},
 		},
 		{
+			Name:        "web_search",
+			Description: "Search the web and get a ranked list of results (title, URL, snippet). Use to find current information or the right page, then web_fetch a result to read it.",
+			Properties:  map[string]any{"query": strProp("The search query.")},
+			Required:    []string{"query"},
+		},
+		{
 			Name:        "web_fetch",
-			Description: "Fetch an http(s) URL and return its text content (HTML is reduced to readable text). Use for documentation, references, or pages the user links.",
+			Description: "Fetch an http(s) URL and return its text content (HTML is reduced to readable text). Use for documentation, references, or pages the user links, or a result from web_search.",
 			Properties:  map[string]any{"url": strProp("The absolute http(s) URL to fetch.")},
 			Required:    []string{"url"},
 		},

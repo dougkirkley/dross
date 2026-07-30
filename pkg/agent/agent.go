@@ -1062,6 +1062,14 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(a.ws.monitor(in.Command,
 			in.Interval.durationOr(5*time.Second),
 			in.Timeout.durationOr(5*time.Minute)))
+	case "web_search":
+		var in struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return orErr(webSearch(ctx, in.Query))
 	case "web_fetch":
 		var in struct {
 			URL string `json:"url"`
