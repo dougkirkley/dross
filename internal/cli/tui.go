@@ -417,11 +417,11 @@ func newTUICmd() *cobra.Command {
 			// Mouse capture is OFF by default so the terminal's own text
 			// selection / copy-paste works; /mouse toggles it on for
 			// click-to-expand tool output.
-			// Mouse cell-motion on: the wheel scrolls the transcript. Text
-			// selection still works with the terminal's modifier (Shift-drag on
-			// most terminals, Option-drag in macOS Terminal/iTerm2); /mouse turns
-			// capture off for plain drag-select.
-			prog = tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
+			// No alt-screen, no mouse capture: the transcript is printed into the
+			// terminal's normal buffer (see Model.Update → tea.Println), so native
+			// scrollback (wheel) AND text selection / copy both work with no
+			// modifier. Only the input + status stay pinned at the bottom.
+			prog = tea.NewProgram(mdl)
 			if _, err = prog.Run(); err != nil {
 				return err
 			}

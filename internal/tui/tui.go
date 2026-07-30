@@ -311,7 +311,8 @@ type Model struct {
 	pickOrder  []int // session indices in switcher display order
 	helpOpen   bool  // shortcuts overlay open
 
-	lines []string // rendered log lines
+	lines   []string // rendered log lines (history; also emitted to scrollback)
+	toPrint []string // lines appended this Update, flushed to scrollback via tea.Println
 
 	run  RunFunc
 	msgs chan tea.Msg
@@ -1056,7 +1057,24 @@ func (m Model) phrase() string {
 
 func (m Model) Init() tea.Cmd { return tea.Batch(textinput.Blink, shimmerTick()) }
 
+// Update wraps updateInner and flushes any transcript lines appended this cycle
+// to the terminal scrollback (above the pinned input) via tea.Println, so the
+// terminal owns scroll + text selection.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.updateInner(msg)
+	mm, ok := model.(Model)
+	if !ok {
+		return model, cmd
+	}
+	if len(mm.toPrint) > 0 {
+		block := strings.Join(mm.toPrint, "\n")
+		mm.toPrint = nil
+		return mm, tea.Batch(tea.Println(block), cmd)
+	}
+	return mm, cmd
+}
+
+func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -1612,83 +1630,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// View renders only the pinned bottom region: the transcript lives in the
+// terminal's own scrollback (printed via tea.Println in Update), so the terminal
+// owns scrolling and text selection. Modals replace the bottom region while
+// open; otherwise it's the welcome splash (fresh), the live working line (while
+// running), and the input + status bar.
 func (m Model) View() string {
 	if m.width == 0 {
 		return "loading…"
 	}
-	// Footer height is dynamic: the live subagent tree renders under the prompt
-	// while workers run, so size the body viewport around the actual footer.
-	footer := m.footer()
-	bodyH := m.height - 1 - lipgloss.Height(footer) // header is 1 line
-	if bodyH < 1 {
-		bodyH = 1
+	bodyH := m.height - 2
+	if bodyH < 4 {
+		bodyH = 4
 	}
-	m.vp.Height = bodyH
-	body := m.vp.View()
-	if m.workerFocus != "" {
-		m.vp.SetContent(m.renderWorkerFocus())
-		m.vp.GotoBottom()
-		body = m.vp.View()
-	} else if m.helpOpen {
-		m.vp.SetContent(renderHelp())
-		m.vp.GotoBottom()
-		body = m.vp.View()
-	} else if m.skillsViewOpen {
-		body = m.skillsBox(bodyH)
-	} else if m.pluginViewOpen {
-		body = m.pluginBox(bodyH)
-	} else if m.themeViewOpen {
-		body = m.themeBox(bodyH)
-	} else if m.pickerOpen {
-		m.vp.SetContent(m.renderSessions())
-		m.vp.GotoBottom()
-		body = m.vp.View()
-	} else if m.toolViewOpen {
-		m.vp.SetContent(m.renderToolView())
-		m.vp.GotoTop()
-		body = m.vp.View()
-	} else if m.modelPickerOpen {
-		body = m.modelBox(bodyH)
-	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
-		body = m.welcome()
-	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
-		content := strings.Join(m.lines, "\n")
-		if content != "" {
-			content += "\n"
-		}
-		m.vp.SetContent(content + m.renderPicker())
-		if !m.scrolledUp {
-			m.vp.GotoBottom()
-		}
-		body = m.vp.View()
-	} else if m.running {
-		// While working, show the spinner + rotating phrase as a live line at the
-		// bottom of the conversation, the way Claude Code does.
-		content := strings.Join(m.lines, "\n")
+	switch {
+	case m.workerFocus != "":
+		return m.renderWorkerFocus()
+	case m.helpOpen:
+		return renderHelp()
+	case m.skillsViewOpen:
+		return m.skillsBox(bodyH)
+	case m.pluginViewOpen:
+		return m.pluginBox(bodyH)
+	case m.themeViewOpen:
+		return m.themeBox(bodyH)
+	case m.pickerOpen:
+		return m.renderSessions()
+	case m.toolViewOpen:
+		return m.renderToolView()
+	case m.modelPickerOpen:
+		return m.modelBox(bodyH)
+	case m.pendingAsk != nil && !m.pendingAsk.freeText:
+		return m.renderPicker()
+	}
+
+	var b strings.Builder
+	// Fresh session: show the welcome splash above the input (ephemeral; it
+	// clears once the conversation starts and the transcript scrolls in above).
+	if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
+		b.WriteString(m.welcome())
+		b.WriteString("\n")
+	}
+	// Live working line while a run is in flight (updates each tick).
+	if m.running {
 		work := m.bashBlock() + m.sp.View() + " " + gradientText(m.phrase()+"…", holoRamp) +
 			metaStyle.Render("  "+m.runStats()) + m.queueStrip()
-		if content != "" {
-			content += "\n"
-		}
-		m.vp.SetContent(content + work)
-		if !m.scrolledUp {
-			m.vp.GotoBottom()
-		}
-		body = m.vp.View()
-	} else if len(m.lines) > 0 {
-		// Idle with a conversation: render the transcript, following the bottom
-		// unless the user has scrolled up (pgup/pgdn, ctrl+u/d).
-		m.vp.SetContent(strings.Join(m.lines, "\n"))
-		if !m.scrolledUp {
-			m.vp.GotoBottom()
-		}
-		body = m.vp.View()
+		b.WriteString(work)
+		b.WriteString("\n")
 	}
-	return strings.Join([]string{
-		m.header(),
-		body,
-		footer,
-	}, "\n")
+	b.WriteString(m.footer())
+	return b.String()
 }
 
 // welcome is the empty-state splash. Layout variants (SetWelcomeStyle):
@@ -1697,9 +1688,8 @@ func (m Model) View() string {
 //	1 boxed    — identity inside a rounded panel
 //	2 centered — the original big centered wordmark + tagline
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 4 // header + footer
 	if m.welcomeStyle == 2 {
-		return m.welcomeCentered(bodyH)
+		return m.welcomeCentered(m.height - 2)
 	}
 	var rows []string
 	if m.welcomeStyle == 1 { // boxed
@@ -1710,7 +1700,9 @@ func (m Model) welcome() string {
 		rows = []string{m.wLogo(), "", m.wDir(), "", m.wModel(), "", m.wTagline()}
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return lipgloss.NewStyle().Width(m.width).Height(bodyH).Padding(1, 2).Render(content)
+	// Compact (no full-height pad): the splash sits above the pinned input in the
+	// inline layout and clears once the conversation starts.
+	return lipgloss.NewStyle().Width(m.width).Padding(1, 2).Render(content)
 }
 
 // welcomeNames are the selectable empty-state layouts, index-aligned with
@@ -2820,8 +2812,10 @@ func (m *Model) turnGap() {
 
 func (m *Model) append(line string) {
 	m.lines = append(m.lines, line)
-	m.vp.SetContent(strings.Join(m.lines, "\n"))
-	m.vp.GotoBottom()
+	// Buffer for the scrollback flush at the end of Update; the terminal owns
+	// the transcript now (native scroll + selection), so we don't paint it in
+	// View — we print it above the pinned input via tea.Println.
+	m.toPrint = append(m.toPrint, line)
 }
 
 func (m *Model) layout() {
