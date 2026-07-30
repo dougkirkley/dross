@@ -1,6 +1,7 @@
 package tui
 
 import (
+	_ "embed"
 	"fmt"
 	"math"
 	"strconv"
@@ -8,6 +9,68 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// drossArtRaw is the detailed Dross character (a shaded one-eyed spirit with
+// tendrils), drawn with a . : - = + * # % @ ramp. Colored purple at render.
+//
+//go:embed dross_art.txt
+var drossArtRaw string
+
+// drossArtColored dedents the embedded art and colors it with the purple
+// gradient (animated with phase when driven, static top-to-bottom otherwise).
+func drossArtColored(phase float64) string {
+	lines := strings.Split(strings.Trim(drossArtRaw, "\n"), "\n")
+	minIndent := 1 << 30
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if n := len(l) - len(strings.TrimLeft(l, " ")); n < minIndent {
+			minIndent = n
+		}
+	}
+	if minIndent == 1<<30 {
+		minIndent = 0
+	}
+	n := len(lines)
+	out := make([]string, n)
+	for i, l := range lines {
+		if len(l) >= minIndent {
+			l = l[minIndent:]
+		}
+		l = strings.TrimRight(l, " ")
+		var c string
+		if phase >= 0 {
+			c = rampColorCyclic(holoLoop, phase+0.03*float64(i))
+		} else {
+			c = rampColor(purpleRamp, float64(i)/float64(n-1))
+		}
+		out[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render(l)
+	}
+	return strings.Join(out, "\n")
+}
+
+// blockWordmark renders just the DROSS block letters in the purple gradient (no
+// mascot), for the centered splash where the detailed art is the character.
+func blockWordmark(phase float64) string {
+	if !hasGlyphs(logoWord) {
+		if phase >= 0 {
+			return gradientTextAt(logoWord, holoLoop, phase)
+		}
+		return gradientText(logoWord, holoRamp)
+	}
+	rows := bigLogoRows(logoWord)
+	for i := range rows {
+		var c string
+		if phase >= 0 {
+			c = rampColorCyclic(holoLoop, phase+0.12*float64(i))
+		} else {
+			c = rampColor(purpleRamp, float64(i)/float64(len(rows)-1))
+		}
+		rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
+	}
+	return strings.Join(rows, "\n")
+}
 
 // holoRamp is Dross's signature purple gradient (light lilac → deep violet →
 // fuchsia) that gives the wordmark its shimmer.
@@ -21,14 +84,15 @@ var holoLoop = []string{"#E9D5FF", "#C084FC", "#A855F7", "#8B5CF6", "#E06CE6", "
 // bottom, that gives the block wordmark its purple sheen.
 var purpleRamp = []string{"#D8B4FE", "#C084FC", "#A855F7", "#8B5CF6", "#7C3AED"}
 
-// drossMascot is the little Dross spirit — a round blob with big eyes — drawn
-// above the wordmark. Every row is the same width so it stays aligned.
+// drossMascot is the little Dross spirit — a round one-eyed blob (heavy brow,
+// small mouth) with two wavy tendril legs. Kept to 5 rows so it sits beside the
+// block wordmark; every row is the same width so it stays aligned.
 var drossMascot = []string{
-	"  .---.  ",
-	" / o o \\ ",
-	" \\  u  / ",
-	"  |   |  ",
-	"  '---'  ",
+	" .---. ",
+	"|=== | ",
+	"|(o) | ",
+	" \\   / ",
+	" )/ \\( ",
 }
 
 // mascotColored renders the Dross mascot in the purple gradient (animated with
@@ -207,7 +271,7 @@ func renderLogoAt(variant int, phase float64) string {
 			}
 			rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
 		}
-		return lipgloss.JoinVertical(lipgloss.Center, mascotColored(phase), strings.Join(rows, "\n"))
+		return lipgloss.JoinHorizontal(lipgloss.Center, lipgloss.NewStyle().MarginRight(2).Render(mascotColored(phase)), strings.Join(rows, "\n"))
 	case 2:
 		body := logoStyle.Render(strings.Join(rows, "\n"))
 		return lipgloss.NewStyle().
@@ -231,7 +295,7 @@ func renderLogoAt(variant int, phase float64) string {
 			}
 			rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
 		}
-		return lipgloss.JoinVertical(lipgloss.Center, mascotColored(phase), strings.Join(rows, "\n"))
+		return lipgloss.JoinHorizontal(lipgloss.Center, lipgloss.NewStyle().MarginRight(2).Render(mascotColored(phase)), strings.Join(rows, "\n"))
 	}
 }
 

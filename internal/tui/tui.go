@@ -407,8 +407,9 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		usageBar:    bar,
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
-		logoVariant: 1, // gradient fade (default)
-		phrases:     DefaultPhrases,
+		logoVariant:  1, // gradient fade (default)
+		welcomeStyle: 2, // centered Dross splash (default)
+		phrases:      DefaultPhrases,
 		sessions:    []session{{}},
 	}
 }
@@ -1759,9 +1760,10 @@ func (m Model) themeBox(bodyH int) string {
 // shimmering tagline beneath it.
 func (m Model) welcomeCentered(bodyH int) string {
 	phase := float64(m.shimmer) * 0.03
-	logo := renderLogoAt(m.logoVariant, phase)
+	art := drossArtColored(phase)
+	word := blockWordmark(phase)
 	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
-	block := lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline)
+	block := lipgloss.JoinVertical(lipgloss.Center, art, "", word, "", tagline)
 	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
 }
 

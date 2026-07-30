@@ -13,13 +13,14 @@ const Map<String, List<String>> _glyphs = {
   'S': [' ████', '█    ', ' ███ ', '    █', '████ '],
 };
 
-/// The little Dross spirit — a round blob with big eyes — shown above the
-/// wordmark. Same art as the TUI mascot; every row is the same width.
-const String _mascot = '  .---.  \n'
-    ' / o o \\ \n'
-    ' \\  u  / \n'
-    '  |   |  \n'
-    "  '---'  ";
+/// The little Dross spirit — a round one-eyed blob (heavy brow, small mouth)
+/// with two tendril legs — shown beside the wordmark. Same art as the TUI
+/// mascot; every row is the same width.
+const String _mascot = ' .---. \n'
+    '|=== | \n'
+    '|(o) | \n'
+    ' \\   / \n'
+    ' )/ \\( ';
 
 /// Assembles [word] into 5 rows of block glyphs (two spaces between letters).
 List<String> _blockRows(String word) {
@@ -69,12 +70,13 @@ class DrossLogo extends StatelessWidget {
     final art = ShaderMask(
       shaderCallback: (rect) => _purpleGradient.createShader(rect),
       blendMode: BlendMode.srcIn,
-      child: Column(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // The Dross spirit, sized a touch larger per cell than the wordmark.
-          Text(_mascot, style: mono.copyWith(fontSize: cell * 1.3, height: 1.05)),
-          SizedBox(height: size * 0.12),
+          // The little one-eyed Dross spirit, directly left of the wordmark.
+          Text(_mascot, style: mono.copyWith(fontSize: cell, height: 1.05)),
+          SizedBox(width: size * 0.10),
           Text(
             rows.join('\n'),
             style: mono.copyWith(fontSize: cell, letterSpacing: -0.5),
