@@ -37,9 +37,6 @@ var providers = map[string]Provider{
 	// Model ids are region inference-profile ids; edit for your region.
 	"bedrock": {ID: "bedrock", Name: "Amazon Bedrock", Impl: "bedrock", Models: []string{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", "us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.amazon.nova-pro-v1:0", "us.amazon.nova-lite-v1:0", "us.meta.llama3-3-70b-instruct-v1:0", "mistral.mistral-large-2407-v1:0"}},
 	"gemini":      {ID: "gemini", Name: "Google Gemini", Impl: "gemini", APIKeyEnv: "GEMINI_API_KEY", Models: []string{"gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"}},
-	// Reuses the Gemini CLI's OAuth login (~/.gemini/oauth_creds.json) — no API
-	// key; run `gemini` and sign in first.
-	"gemini-cli": {ID: "gemini-cli", Name: "Gemini CLI (OAuth login)", Impl: "gemini-cli", Models: []string{"gemini-3-pro", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"}},
 	// Gemini on Vertex AI (GCP ADC auth; set VERTEX_PROJECT + VERTEX_REGION).
 	"vertex": {ID: "vertex", Name: "Google Vertex AI", Impl: "vertex", Models: []string{"gemini-3-pro", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"}},
 	"openai":      {ID: "openai", Name: "OpenAI", Impl: "openai", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY", Models: []string{"gpt-5", "gpt-5-mini", "o4-mini"}},

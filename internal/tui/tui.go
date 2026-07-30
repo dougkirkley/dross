@@ -275,7 +275,8 @@ type Model struct {
 	logoVariant int
 
 	phrases   []string // whimsical status phrases shown while running
-	phraseIdx int
+	phraseIdx int      // phrase for the current run (chosen once per run)
+	phraseSeq int      // advances each run so consecutive runs pick different phrases
 	tick      int
 
 	queue      []string           // messages typed while a run is in flight; drained on done
@@ -412,6 +413,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		logoVariant:  1, // gradient fade (default)
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
+		mouseOn:      true, // wheel scrolls; /mouse toggles off for plain select
 		sessions:    []session{{}},
 	}
 }
@@ -825,7 +827,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + name)
 		m.running = true
 		m.runStart = time.Now()
-		m.tick, m.phraseIdx = 0, 0
+		m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.workerSel, m.workerFocus = 0, ""
 		m.shellOrder, m.shells = nil, nil
@@ -945,7 +947,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  /init")
 		m.running = true
 		m.runStart = time.Now()
-		m.tick, m.phraseIdx = 0, 0
+		m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.workerSel, m.workerFocus = 0, ""
 		m.shellOrder, m.shells = nil, nil
@@ -1493,7 +1495,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.Reset()
 				m.running = true
 				m.runStart = time.Now()
-				m.tick, m.phraseIdx = 0, 0
+				m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
 				m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 				m.workerSel, m.workerFocus = 0, ""
 				m.shellOrder, m.shells = nil, nil
@@ -1527,7 +1529,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + next)
 			m.running = true
 			m.runStart = time.Now()
-			m.tick, m.phraseIdx = 0, 0
+			m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
 			m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 			m.workerSel, m.workerFocus = 0, ""
 			m.shellOrder, m.shells = nil, nil
@@ -1544,9 +1546,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Otherwise let the viewport handle wheel scrolling.
+		// Otherwise let the viewport handle wheel scrolling. Track whether the
+		// user has scrolled off the bottom so the render stops auto-following (a
+		// wheel-up that didn't update this flag snapped straight back to bottom).
 		var vc tea.Cmd
 		m.vp, vc = m.vp.Update(msg)
+		m.scrolledUp = !m.vp.AtBottom()
 		return m, vc
 	case shimmerMsg:
 		m.shimmer++
@@ -1596,12 +1601,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var c tea.Cmd
 			m.sp, c = m.sp.Update(msg)
 			cmds = append(cmds, c)
-			// Advance the status phrase ~every 2.5s (ticks ~10/s), so it reads
-			// like a rotating thought rather than a strobe.
+			// Spinner animation only; the phrase is chosen once per run (see run
+			// start) and held for the whole loading time, not rotated.
 			m.tick++
-			if m.tick%25 == 0 {
-				m.phraseIdx++
-			}
 		}
 	}
 	var c tea.Cmd
@@ -2652,7 +2654,9 @@ func (m Model) footer() string {
 			out += tree
 		}
 	}
-	return out
+	// A blank line above the input bar so the prompt isn't flush against the
+	// last transcript line.
+	return "\n" + out
 }
 
 func (m *Model) applyEvent(e agent.Event) {
