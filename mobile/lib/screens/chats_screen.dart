@@ -6,7 +6,6 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
-import '../widgets/new_session_sheet.dart';
 import '../widgets/prose.dart' show relTimeLong;
 import 'chat_screen.dart';
 
@@ -122,10 +121,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();
-    final choice = await showNewSessionSheet(context);
-    if (choice == null || !context.mounted) return;
-    final Session? s = await state.createSession(
-        model: choice.model, workerModel: choice.worker);
+    // Use the server's default model; the user can switch it in-session.
+    final Session? s = await state.createSession();
     if (s != null && context.mounted) {
       state.attach(s);
       state.markView(s.id, AppMode.chat);
