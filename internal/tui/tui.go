@@ -104,6 +104,7 @@ func rebuildStyles() {
 	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
 	violStyle = lipgloss.NewStyle().Foreground(holoViol)
 	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).Padding(0, 1)
+	mdCached = nil // markdown renderer bakes in the palette; rebuild on theme change
 }
 
 // RunFunc executes one prompt under a permission mode, streaming events via emit.

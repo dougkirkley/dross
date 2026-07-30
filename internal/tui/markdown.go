@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 )
 
@@ -45,6 +46,23 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	cfg.Document.Margin = &zero
 	cfg.Document.BlockPrefix = ""
 	cfg.Document.BlockSuffix = ""
+	// Recolor the accent-bearing elements from the live palette so markdown
+	// follows the active theme instead of glamour's fixed dark colors.
+	acc := string(accent)
+	accHi := string(accentHi)
+	body := string(prose)
+	cfg.Code.Color = &accHi // inline code (was glamour's red/salmon)
+	cfg.Code.BackgroundColor = nil
+	cfg.Link.Color = &accHi
+	cfg.LinkText.Color = &acc
+	cfg.Text.Color = &body
+	cfg.Paragraph.Color = &body
+	for _, h := range []*ansi.StyleBlock{
+		&cfg.Heading, &cfg.H1, &cfg.H2, &cfg.H3, &cfg.H4, &cfg.H5, &cfg.H6,
+	} {
+		h.Color = &acc
+		h.BackgroundColor = nil
+	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(cfg),
 		glamour.WithWordWrap(width),
