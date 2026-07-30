@@ -326,6 +326,8 @@ type Model struct {
 	lastReply   string    // raw text of the last assistant reply (for ctrl+y copy)
 	lastCtrlC   time.Time // for double-ctrl+c-to-exit
 	copiedAt    time.Time // when the last copy happened (drives the "copied" toast)
+	history     []string  // submitted prompts, for up/down recall
+	histIdx     int       // cursor into history (== len(history) means "current draft")
 	suggestion string // a single contextual next-step (from the reply's [next] line); ghost placeholder, tab to use
 
 	// Collapsed tool-call group: consecutive tool calls render as one dim summary
@@ -1456,6 +1458,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, cmd
 					}
 				}
+				m.history = append(m.history, m.input.Value()) // recall with up/down
+				m.histIdx = len(m.history)
 				m.queue = append(m.queue, m.input.Value())
 				m.input.Reset()
 				return m, nil
@@ -1560,6 +1564,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.backgrounder()
 			}
 			return m, nil
+		case "up":
+			// Recall previous prompts (slash/worker/picker nav already returned above).
+			if len(m.history) > 0 {
+				if m.histIdx > 0 {
+					m.histIdx--
+				}
+				m.input.SetValue(m.history[m.histIdx])
+				m.input.CursorEnd()
+			}
+			return m, nil
+		case "down":
+			if len(m.history) > 0 {
+				if m.histIdx < len(m.history) {
+					m.histIdx++
+				}
+				if m.histIdx >= len(m.history) {
+					m.input.SetValue("")
+				} else {
+					m.input.SetValue(m.history[m.histIdx])
+					m.input.CursorEnd()
+				}
+			}
+			return m, nil
 		case "shift+tab":
 			m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
 			return m, nil
@@ -1577,6 +1604,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scrolledUp = false // a new prompt jumps back to following output
 				m.suggestion = ""
 				prompt := m.input.Value()
+				m.history = append(m.history, prompt) // recall with up/down
+				m.histIdx = len(m.history)
 				// "!cmd" runs a shell command directly instead of prompting the
 				// agent, like Claude Code's bash escape.
 				if bang := strings.TrimSpace(prompt); strings.HasPrefix(bang, "!") {
