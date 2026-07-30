@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -56,6 +57,9 @@ func newRCCmd() *cobra.Command {
 			}
 			if server == "" {
 				return fmt.Errorf("no server set: pass --server https://your-dross-host (or set DROSS_SERVER)")
+			}
+			if u, perr := url.Parse(server); perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fmt.Errorf("invalid server address %q: use a full URL like https://your-dross-host", server)
 			}
 
 			// Authenticate as the SSO user (stored session, or sign in now).
