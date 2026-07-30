@@ -359,7 +359,7 @@ type Model struct {
 	// models; onModel switches the model used for subsequent runs.
 	modelList       func() []ModelGroup
 	modelSetup      func(kind, baseURL, apiKey string) ([]ModelGroup, error)
-	onModel         func(provider, model string)
+	onModel         func(provider, model string) error
 	modelGroups     []ModelGroup
 	modelFlat       []string // selectable ids, in display order
 	modelFlatProv   []string // provider id parallel to modelFlat
@@ -707,7 +707,7 @@ func (m *Model) SetProviders(groups []ModelGroup) { m.catalogGroups = groups }
 func (m *Model) SetModelPicker(
 	list func() []ModelGroup,
 	setup func(kind, baseURL, apiKey string) ([]ModelGroup, error),
-	onPick func(provider, model string),
+	onPick func(provider, model string) error,
 ) {
 	m.modelList = list
 	m.modelSetup = setup
@@ -1237,10 +1237,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.append(startGlyph.Render("▸ ") + metaStyle.Render("worker set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 					} else { // lead slot
-						m.model, m.provider = id, prov
+						// Configure the provider first; only commit the model if it
+						// succeeds, so a failed switch (e.g. missing key) doesn't leave
+						// the old provider running a mismatched model.
 						if m.onModel != nil {
-							m.onModel(prov, id) // configures the provider if it changed
+							if err := m.onModel(prov, id); err != nil {
+								m.append(errStyle.Render("✗ " + err.Error()))
+								m.modelPickerOpen = false
+								return
+							}
 						}
+						m.model, m.provider = id, prov
 						m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
 					}
 				}

@@ -320,7 +320,7 @@ func newTUICmd() *cobra.Command {
 					_ = saveLeadProvider(cfgPath, st)
 					return []tui.ModelGroup{{Provider: kind, Models: ids}}, nil
 				},
-				func(prov, model string) {
+				func(prov, model string) error {
 					// Configure the provider if the pick switched away from the
 					// current one (base URL + key from the catalog / env).
 					if prov != "" && (prov != st.name || st.prov == nil) {
@@ -334,15 +334,16 @@ func newTUICmd() *cobra.Command {
 						}
 						p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key})
 						if err != nil {
-							// Don't half-apply: leaving st.model set with a nil
-							// provider makes every run report "no model configured".
-							// Keep the previous working model/provider instead.
-							return
+							// Surface the failure (e.g. missing GEMINI_API_KEY) so the
+							// pick is rejected instead of silently leaving the old
+							// provider running a mismatched model.
+							return err
 						}
 						st.name, st.baseURL, st.apiKey, st.prov = prov, base, key, p
 					}
 					st.model = model
 					_ = saveLeadProvider(cfgPath, st)
+					return nil
 				},
 			)
 			// Worker slot of the /model picker (the cheaper delegate model).
