@@ -82,6 +82,12 @@ func (s *converseSession) Send(ctx context.Context, in provider.Input) (*provide
 		InferenceConfig: &brtypes.InferenceConfiguration{MaxTokens: aws.Int32(s.maxTok)},
 	})
 	if err != nil {
+		// "invalid model identifier" almost always means the id isn't available
+		// in this AWS region / account — a us.* inference profile needs a us-*
+		// region and the model enabled in Bedrock ("Model access").
+		if strings.Contains(err.Error(), "model identifier is invalid") {
+			return nil, fmt.Errorf("bedrock converse: model %q is not available in your region/account — check AWS_REGION matches the profile prefix (us./eu./apac.) and enable the model under Bedrock → Model access: %w", s.model, err)
+		}
 		return nil, fmt.Errorf("bedrock converse: %w", err)
 	}
 

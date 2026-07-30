@@ -1600,7 +1600,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if errors.Is(msg.err, context.Canceled) {
 				m.append(metaStyle.Render("⊘ interrupted"))
 			} else {
-				m.append(errStyle.Render("error: " + msg.err.Error()))
+				for _, l := range wrap("error: "+msg.err.Error(), m.width-2) {
+					m.append(errStyle.Render(l))
+				}
 			}
 		} else if msg.res != nil {
 			m.cost = msg.res.Cost()
@@ -2929,7 +2931,14 @@ func (m *Model) applyEvent(e agent.Event) {
 	case "checkpoint":
 		m.append(indent + checkStyle.Render("✓ "+e.Data))
 	case "error":
-		m.append(indent + errStyle.Render("✗ "+truncate(e.Data, 80)))
+		// Wrap the full error (don't truncate) so it's readable and selectable.
+		for i, l := range wrap(e.Data, m.width-4) {
+			prefix := "  "
+			if i == 0 {
+				prefix = "✗ "
+			}
+			m.append(indent + errStyle.Render(prefix+l))
+		}
 	}
 }
 
