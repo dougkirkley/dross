@@ -60,6 +60,8 @@ var (
 	workerTag    lipgloss.Style
 	checkStyle   lipgloss.Style
 	errStyle     lipgloss.Style
+	diffAddStyle lipgloss.Style
+	diffDelStyle lipgloss.Style
 	startGlyph   lipgloss.Style
 	doneGlyph    lipgloss.Style
 	promptMark   lipgloss.Style
@@ -92,6 +94,9 @@ func rebuildStyles() {
 	workerTag = lipgloss.NewStyle().Foreground(worker)
 	checkStyle = lipgloss.NewStyle().Foreground(accentHi)
 	errStyle = lipgloss.NewStyle().Foreground(bad)
+	// git-diff colors: added lines green, removed lines red.
+	diffAddStyle = lipgloss.NewStyle().Foreground(ok)
+	diffDelStyle = lipgloss.NewStyle().Foreground(bad)
 	startGlyph = lipgloss.NewStyle().Foreground(accent)
 	doneGlyph = lipgloss.NewStyle().Foreground(ok)
 	promptMark = lipgloss.NewStyle().Foreground(accent).Bold(true)
@@ -3065,15 +3070,15 @@ func (m *Model) applyEvent(e agent.Event) {
 				base = base[i+1:]
 			}
 			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
-				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
-				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
+				diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
+				diffDelStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
 			for _, l := range diffLines(ed.Diff, 200) {
 				var st lipgloss.Style
 				switch {
 				case strings.HasPrefix(l, "+ "):
-					st = checkStyle
+					st = diffAddStyle
 				case strings.HasPrefix(l, "- "):
-					st = errStyle
+					st = diffDelStyle
 				case l == diffGap:
 					st = metaStyle
 				default:
