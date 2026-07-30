@@ -2778,13 +2778,36 @@ func (m Model) footer() string {
 		if sel >= len(ms) {
 			sel = len(ms) - 1
 		}
+		// Small scrolling window around the selection (the full list can be long
+		// with skills), each row truncated to the terminal width.
+		const maxRows = 8
+		start := 0
+		if sel >= maxRows {
+			start = sel - maxRows + 1
+		}
+		end := start + maxRows
+		if end > len(ms) {
+			end = len(ms)
+		}
 		var rows []string
-		for i, c := range ms {
+		for i := start; i < end; i++ {
+			c := ms[i]
 			cur, style := "  ", metaStyle
 			if i == sel {
 				cur, style = promptMark.Render("› "), agentText
 			}
-			rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
+			// Truncate the (plain) description so the styled line fits the width.
+			descW := m.width - 2 - 2 - len([]rune(c.name)) - 2
+			desc := c.desc
+			if descW > 1 {
+				desc = truncate(desc, descW)
+			} else {
+				desc = ""
+			}
+			rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+desc))
+		}
+		if start > 0 || end < len(ms) {
+			rows = append(rows, metaStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(ms))))
 		}
 		suggest = strings.Join(rows, "\n") + "\n"
 	}
