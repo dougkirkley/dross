@@ -105,8 +105,8 @@ class _DrossPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..color = _dark;
     final m = Path()
-      ..moveTo(w * 0.42, h * 0.49)
-      ..quadraticBezierTo(w * 0.49, h * 0.535, w * 0.58, h * 0.49);
+      ..moveTo(w * 0.45, h * 0.56)
+      ..quadraticBezierTo(w * 0.52, h * 0.605, w * 0.61, h * 0.56);
     canvas.drawPath(m, mouth);
   }
 
