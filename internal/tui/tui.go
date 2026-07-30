@@ -2871,7 +2871,7 @@ func (m *Model) applyEvent(e agent.Event) {
 	// a blank line before it. Tool calls collapse into one summary line instead.
 	if !worker {
 		switch kind {
-		case "text", "review", "answer", "ask", "checkpoint", "error":
+		case "text", "review", "answer", "ask", "checkpoint", "error", "edit":
 			m.closeToolGroup()
 			m.turnGap()
 		}
@@ -2921,8 +2921,13 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.bashCmd = ""
 		}
 		m.toolRecs = append(m.toolRecs, toolRec{name: name, args: toolArgLine(name, args)})
-		// Collapse consecutive tool calls into one dim summary line (expand with
-		// ctrl+o or a click), instead of a line per call + result.
+		// write/edit are shown as their own line by the following "edit" event
+		// (path + diff), so users can see file changes; don't collapse them.
+		if name == "write" || name == "edit" {
+			break
+		}
+		// Collapse the noisy read-only/shell tools into one dim summary line
+		// (expand with ctrl+o or a click), instead of a line per call + result.
 		if m.groupLine < 0 {
 			m.turnGap()
 			m.append("") // placeholder, filled by toolGroupSummary below
@@ -2952,9 +2957,21 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.toolRecs[n-1].result = e.Data
 		}
 	case "edit":
-		// The edit diff belongs to the write/edit tool call already counted in the
-		// group; suppress the separate line to keep the feed terse (details in the
-		// expanded view).
+		// Show file changes so users can see what dross is doing: path + line delta.
+		var ed struct {
+			File    string `json:"file"`
+			Added   int    `json:"added"`
+			Removed int    `json:"removed"`
+		}
+		if json.Unmarshal([]byte(e.Data), &ed) == nil {
+			base := ed.File
+			if i := strings.LastIndexByte(base, '/'); i >= 0 {
+				base = base[i+1:]
+			}
+			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
+				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
+				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
+		}
 	case "usage":
 		var u struct {
 			In  int64 `json:"in"`
