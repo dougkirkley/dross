@@ -216,7 +216,7 @@ func DemoRunningView(width, height int) string {
 	for _, e := range []agent.Event{
 		{Kind: "text", Data: "Plan: add the flag, delegate the boilerplate, then wire and verify."},
 		{Kind: "tool", Data: `read {"path":"cmd/dross/main.go"}`},
-		{Kind: "edit", Data: `{"file":"internal/cli/output.go","added":38,"removed":0}`},
+		{Kind: "edit", Data: `{"file":"internal/cli/output.go","added":3,"removed":1,"diff":"  func writeJSON(w io.Writer, v any) error {\n  \tenc := json.NewEncoder(w)\n- \tenc.SetIndent(\"\", \"  \")\n+ \tif pretty {\n+ \t\tenc.SetIndent(\"\", \"  \")\n+ \t}\n  \treturn enc.Encode(v)\n  }"}`},
 		{Kind: "usage", Data: `{"in":12800,"out":640}`},
 	} {
 		m.applyEvent(e)

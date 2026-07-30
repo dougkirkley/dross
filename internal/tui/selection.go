@@ -24,6 +24,59 @@ func extractNext(s string) (clean, next string) {
 	return clean, next
 }
 
+// diffGap marks collapsed unchanged regions in a rendered diff.
+const diffGap = "  ⋮"
+
+// diffLines formats a "+ /- /  "-prefixed diff for display: it keeps changed
+// lines and up to 3 context lines around each, collapsing longer unchanged runs
+// to a "⋮" marker. Caps at maxLines total (with a trailing note) so a huge diff
+// doesn't flood the feed — the full version is available via ctrl+o / the tool
+// view.
+func diffLines(diff string, maxLines int) []string {
+	raw := strings.Split(strings.TrimRight(diff, "\n"), "\n")
+	if len(raw) == 1 && raw[0] == "" {
+		return nil
+	}
+	isChange := func(l string) bool {
+		return strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "- ")
+	}
+	const ctx = 3
+	keep := make([]bool, len(raw))
+	for i, l := range raw {
+		if !isChange(l) {
+			continue
+		}
+		lo, hi := i-ctx, i+ctx
+		if lo < 0 {
+			lo = 0
+		}
+		if hi >= len(raw) {
+			hi = len(raw) - 1
+		}
+		for j := lo; j <= hi; j++ {
+			keep[j] = true
+		}
+	}
+	var out []string
+	gap := false
+	for i, l := range raw {
+		if !keep[i] {
+			gap = true
+			continue
+		}
+		if gap {
+			out = append(out, diffGap)
+			gap = false
+		}
+		out = append(out, l)
+		if len(out) >= maxLines {
+			out = append(out, diffGap+" (diff truncated — ctrl+o for full)")
+			break
+		}
+	}
+	return out
+}
+
 // selPt is a point in the transcript: a line index into m.lines and a rune
 // column into that line's plain (ANSI-stripped) text.
 type selPt struct{ line, col int }

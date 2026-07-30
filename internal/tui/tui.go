@@ -2675,10 +2675,16 @@ func renderHelp() string {
 	rows := [][2]string{
 		{"enter", "send message"},
 		{"shift+tab", "cycle mode (auto/manual/accept-edits/plan)"},
+		{"↑ ↓", "prompt history · move in menus"},
+		{"tab", "accept suggestion / complete slash command"},
 		{"←", "session switcher"},
-		{"ctrl+c", "interrupt run · promote queued message"},
-		{"esc", "quit"},
-		{"↑ ↓ · 1-9", "move / pick in menus"},
+		{"ctrl+c", "interrupt run · twice to exit"},
+		{"esc", "clear input · close menus"},
+		{"ctrl+y", "copy last reply to clipboard"},
+		{"ctrl+o", "expand collapsed tool output"},
+		{"ctrl+b", "background the running shell command"},
+		{"! cmd", "run a shell command directly"},
+		{"@path", "attach a file to your prompt"},
 		{"space", "toggle option (multi-select questions)"},
 		{"?", "this help"},
 	}
@@ -3045,11 +3051,13 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.toolRecs[n-1].result = e.Data
 		}
 	case "edit":
-		// Show file changes so users can see what dross is doing: path + line delta.
+		// Show file changes with the actual diff (context collapsed), so users see
+		// exactly what dross changed.
 		var ed struct {
 			File    string `json:"file"`
 			Added   int    `json:"added"`
 			Removed int    `json:"removed"`
+			Diff    string `json:"diff"`
 		}
 		if json.Unmarshal([]byte(e.Data), &ed) == nil {
 			base := ed.File
@@ -3059,6 +3067,20 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
 				checkStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 				errStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
+			for _, l := range diffLines(ed.Diff, 200) {
+				var st lipgloss.Style
+				switch {
+				case strings.HasPrefix(l, "+ "):
+					st = checkStyle
+				case strings.HasPrefix(l, "- "):
+					st = errStyle
+				case l == diffGap:
+					st = metaStyle
+				default:
+					st = resultStyle
+				}
+				m.append(indent + "    " + st.Render(truncate(l, m.width-8)))
+			}
 		}
 	case "usage":
 		var u struct {
