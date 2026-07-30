@@ -57,27 +57,42 @@ class AppDrawer extends StatelessWidget {
                       itemBuilder: (_, i) {
                         final sess = s.sessions[i];
                         // Combined recents: chats and code in one flat list.
-                        // Each reopens in the view it was last used in.
+                        // Each reopens in the view it was last used in, with an
+                        // icon marking which kind it is.
+                        final view = s.viewOf(sess.id);
+                        final isChat = view == AppMode.chat;
                         return InkWell(
                           onTap: () {
                             final st = context.read<AppState>();
-                            final view = st.viewOf(sess.id);
                             st.attach(sess);
                             Navigator.pop(context); // close drawer
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => view == AppMode.chat
+                                    builder: (_) => isChat
                                         ? const ChatScreen()
                                         : const SessionScreen()));
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 20, vertical: 12),
-                            child: Text(sess.displayTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: T.body),
+                            child: Row(
+                              children: [
+                                Icon(
+                                    isChat
+                                        ? Icons.chat_bubble_outline
+                                        : Icons.code,
+                                    size: 16,
+                                    color: T.textDim),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(sess.displayTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

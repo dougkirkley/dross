@@ -77,7 +77,9 @@ class _SessionsScreenState extends State<SessionsScreen> {
     );
   }
 
-  Widget _body(BuildContext context, AppState s) => ListView(
+  Widget _body(BuildContext context, AppState s) {
+    final list = widget.chat ? s.chatSessions : s.codeSessions;
+    return ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
         children: [
           const Text('Devices', style: T.meta),
@@ -98,26 +100,27 @@ class _SessionsScreenState extends State<SessionsScreen> {
             if (s.loadingSessions) const DrossSpinner(size: 18),
           ]),
           const SizedBox(height: 10),
-          if (s.error != null && s.sessions.isEmpty)
+          if (s.error != null && list.isEmpty)
             _card(
                 child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text('Error: ${s.error}',
                   style: const TextStyle(color: T.danger)),
             )),
-          if (s.sessions.isEmpty && s.error == null)
+          if (list.isEmpty && s.error == null)
             _card(
                 child: const Padding(
               padding: EdgeInsets.all(20),
               child: Text('No sessions yet. Tap New session.',
                   style: TextStyle(color: T.textDim)),
             )),
-          for (final sess in s.sessions) ...[
+          for (final sess in list) ...[
             _sessionCard(context, sess),
             const SizedBox(height: 14),
           ],
         ],
       );
+  }
 
   Widget _sessionCard(BuildContext context, Session sess) => Dismissible(
         key: ValueKey(sess.id),

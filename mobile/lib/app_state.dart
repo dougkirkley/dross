@@ -40,6 +40,13 @@ class AppState extends ChangeNotifier {
   AppMode viewOf(String id) =>
       _chatViews.contains(id) ? AppMode.chat : AppMode.code;
 
+  /// Sessions last opened as chats, and everything else (code). The two tabs
+  /// filter on these so a chat and a code session are distinct surfaces.
+  List<Session> get chatSessions =>
+      sessions.where((x) => viewOf(x.id) == AppMode.chat).toList();
+  List<Session> get codeSessions =>
+      sessions.where((x) => viewOf(x.id) == AppMode.code).toList();
+
   /// Records (and persists) which view a session was opened in.
   Future<void> markView(String id, AppMode m) async {
     final changed =
@@ -52,6 +59,11 @@ class AppState extends ChangeNotifier {
 
   List<Session> sessions = [];
   bool loadingSessions = false;
+
+  /// Ids whose server-side delete is in flight. A concurrent refreshSessions
+  /// must not re-add these, or a just-deleted session flickers back until the
+  /// DELETE lands.
+  final Set<String> _deleting = {};
   Session? current;
   final List<Event> events = [];
 
@@ -146,7 +158,10 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      sessions = await _client.listSessions();
+      final fetched = await _client.listSessions();
+      // Drop any session whose delete is still in flight so it doesn't flicker
+      // back into the list mid-delete.
+      sessions = fetched.where((x) => !_deleting.contains(x.id)).toList();
     } catch (e) {
       error = e.toString();
     } finally {
@@ -169,6 +184,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteSession(Session s) async {
+    _deleting.add(s.id);
     sessions.removeWhere((x) => x.id == s.id);
     if (current?.id == s.id) {
       await _sub?.cancel();
@@ -179,10 +195,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       await _client.deleteSession(s.id);
+      await markView(s.id, AppMode.code); // forget any chat-view record
     } catch (e) {
       error = e.toString();
-      notifyListeners();
+      // Server still has it (or we're offline): re-sync so the UI reflects
+      // reality instead of silently dropping a session that wasn't deleted.
+      _deleting.remove(s.id);
+      await refreshSessions();
+      return;
     }
+    _deleting.remove(s.id);
   }
 
   /// Models the server offers, for the code-session model picker.

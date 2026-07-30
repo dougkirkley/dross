@@ -33,7 +33,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
-    final chats = s.sessions;
+    final chats = s.chatSessions;
     return Scaffold(
       drawer: const AppDrawer(),
       body: SafeArea(
