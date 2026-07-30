@@ -1,73 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../theme.dart';
 
-/// ProseText renders lightweight markdown (fenced code blocks, inline `code`,
-/// and **bold**) as serif prose — used for assistant text in sessions.
+/// ProseText renders assistant markdown — headers, bold/italic, inline `code`,
+/// fenced code blocks, lists, blockquotes, and links — themed to match the app,
+/// mirroring the TUI's markdown rendering.
 class ProseText extends StatelessWidget {
   const ProseText(this.text, {super.key});
   final String text;
 
   @override
   Widget build(BuildContext context) {
-    final blocks = <Widget>[];
-    final parts = text.split('```');
-    for (var i = 0; i < parts.length; i++) {
-      final chunk = parts[i];
-      if (chunk.isEmpty) continue;
-      if (i.isOdd) {
-        // fenced code block; drop an optional language line
-        var code = chunk;
-        final nl = code.indexOf('\n');
-        if (nl != -1 && !code.substring(0, nl).contains(' ')) {
-          code = code.substring(nl + 1);
+    return MarkdownBody(
+      data: text,
+      // The chat wraps content in a SelectionArea, which handles selection.
+      selectable: false,
+      onTapLink: (label, href, title) async {
+        if (href == null) return;
+        final uri = Uri.tryParse(href);
+        if (uri != null) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
         }
-        blocks.add(Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: T.bg,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: T.border),
-          ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Text(code.trimRight(),
-                style: T.mono.copyWith(color: T.text, height: 1.4)),
-          ),
-        ));
-      } else {
-        blocks.add(RichText(text: _inline(chunk)));
-      }
-    }
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.start, children: blocks);
-  }
-
-  /// Builds spans for inline `code` and **bold** within serif prose.
-  TextSpan _inline(String s) {
-    final spans = <TextSpan>[];
-    final re = RegExp(r'`([^`]+)`|\*\*([^*]+)\*\*');
-    var last = 0;
-    for (final m in re.allMatches(s)) {
-      if (m.start > last) {
-        spans.add(TextSpan(text: s.substring(last, m.start), style: T.prose));
-      }
-      if (m.group(1) != null) {
-        spans.add(TextSpan(
-            text: m.group(1),
-            style: T.mono.copyWith(
-                color: T.text, backgroundColor: T.surfaceAlt, fontSize: 15)));
-      } else {
-        spans.add(TextSpan(text: m.group(2), style: T.proseBold));
-      }
-      last = m.end;
-    }
-    if (last < s.length) {
-      spans.add(TextSpan(text: s.substring(last), style: T.prose));
-    }
-    return TextSpan(children: spans);
+      },
+      styleSheet: MarkdownStyleSheet(
+        p: T.prose,
+        strong: T.proseBold,
+        em: T.prose.copyWith(fontStyle: FontStyle.italic),
+        a: T.prose
+            .copyWith(color: T.accent, decoration: TextDecoration.underline),
+        listBullet: T.prose,
+        code: T.mono.copyWith(
+            color: T.accentHi, backgroundColor: T.surfaceAlt, fontSize: 14),
+        codeblockPadding: const EdgeInsets.all(12),
+        codeblockDecoration: BoxDecoration(
+          color: T.bg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: T.border),
+        ),
+        blockquoteDecoration: BoxDecoration(
+          color: T.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(left: BorderSide(color: T.accent, width: 3)),
+        ),
+        h1: T.proseBold.copyWith(fontSize: 22, color: T.text),
+        h2: T.proseBold.copyWith(fontSize: 19, color: T.text),
+        h3: T.proseBold.copyWith(fontSize: 17, color: T.accentHi),
+        h4: T.proseBold.copyWith(fontSize: 15, color: T.accentHi),
+      ),
+    );
   }
 }
 

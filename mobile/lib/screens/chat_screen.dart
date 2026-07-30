@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../util/file_pick.dart';
+import '../widgets/activity.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
@@ -76,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         // answering, calm (just blinking) once it's done.
                         itemCount: msgs.length + 1,
                         itemBuilder: (_, i) {
-                          if (i >= msgs.length) return _spinner(running);
+                          if (i >= msgs.length) return _spinner(running, s);
                           return _message(msgs[i]);
                         },
                       ),
@@ -108,11 +109,22 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
-  Widget _spinner(bool active) => Padding(
+  Widget _spinner(bool active, AppState s) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: DrossSpinner(size: 30, active: active),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DrossSpinner(size: 30, active: active),
+            if (active) ...[
+              const SizedBox(width: 10),
+              // "Working…" or a more specific label (Reading…, Running…) while
+              // Dross does work.
+              Flexible(
+                child: Text(currentActivityLabel(s.events),
+                    style: T.meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ],
         ),
       );
 
