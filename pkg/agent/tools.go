@@ -67,28 +67,82 @@ func webFetch(ctx context.Context, url string) (string, error) {
 const searchLimit = 8
 
 // webSearch returns a ranked list of results (title / url / snippet) so the
-// model can then web_fetch the ones it wants. Provider-agnostic. Prefers the
-// Brave Search API when BRAVE_API_KEY (or DROSS_SEARCH_KEY) is set — reliable,
-// JSON — and falls back to a keyless DuckDuckGo scrape otherwise.
+// model can then web_fetch the ones it wants. Provider-agnostic. Uses a real
+// search API when a key is set — Exa (EXA_API_KEY) or Brave (BRAVE_API_KEY /
+// DROSS_SEARCH_KEY), both free-tier, no card — and falls back to a keyless
+// DuckDuckGo scrape otherwise (flaky; DDG rate-limits automated requests).
 func webSearch(ctx context.Context, query string) (string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return "", fmt.Errorf("query is empty")
 	}
-	if key := searchKey(); key != "" {
+	if key := os.Getenv("EXA_API_KEY"); key != "" {
+		if out, err := exaSearch(ctx, query, key); err == nil {
+			return out, nil
+		}
+	}
+	if key := braveKey(); key != "" {
 		if out, err := braveSearch(ctx, query, key); err == nil {
 			return out, nil
 		}
-		// fall through to DDG on Brave error
 	}
 	return ddgSearch(ctx, query)
 }
 
-func searchKey() string {
+func braveKey() string {
 	if k := os.Getenv("BRAVE_API_KEY"); k != "" {
 		return k
 	}
 	return os.Getenv("DROSS_SEARCH_KEY")
+}
+
+// exaSearch queries the Exa Search API (built for LLMs; free key at
+// dashboard.exa.ai, no card) and formats results with highlight snippets.
+func exaSearch(ctx context.Context, query, key string) (string, error) {
+	reqBody, _ := json.Marshal(map[string]any{
+		"query":      query,
+		"numResults": searchLimit,
+		"contents":   map[string]any{"highlights": true},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.exa.ai/search", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", key)
+	hc := &http.Client{Timeout: 25 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("exa search: HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Results []struct {
+			Title      string   `json:"title"`
+			URL        string   `json:"url"`
+			Highlights []string `json:"highlights"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&payload); err != nil {
+		return "", err
+	}
+	if len(payload.Results) == 0 {
+		return fmt.Sprintf("[no results for %q]", query), nil
+	}
+	var b strings.Builder
+	for i, r := range payload.Results {
+		if i >= searchLimit {
+			break
+		}
+		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, strings.TrimSpace(r.Title), r.URL)
+		if s := strings.TrimSpace(strings.Join(r.Highlights, " … ")); s != "" {
+			fmt.Fprintf(&b, "   %s\n", s)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // braveSearch queries the Brave Search API and formats the web results.
