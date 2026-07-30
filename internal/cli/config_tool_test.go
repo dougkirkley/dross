@@ -29,8 +29,8 @@ func TestDecodeSetArgs(t *testing.T) {
 		t.Fatalf("patch form: %v %v", p, err)
 	}
 	// key + value form (what the model used).
-	p, err = decodeSetArgs(nil, "name", []byte(`"ergon"`))
-	if err != nil || p["name"] != "ergon" {
+	p, err = decodeSetArgs(nil, "name", []byte(`"dross"`))
+	if err != nil || p["name"] != "dross" {
 		t.Fatalf("key/value form: %v %v", p, err)
 	}
 	// key with no value errors.

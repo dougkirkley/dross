@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/dougkirkley/ergon/internal/storage"
+	"github.com/dougkirkley/dross/internal/storage"
 )
 
 func TestBriefRoundTrip(t *testing.T) {

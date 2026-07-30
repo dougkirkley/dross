@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func TestConvertToolsAndFinish(t *testing.T) {

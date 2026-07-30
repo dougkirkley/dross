@@ -4,7 +4,7 @@
 // Mistral, Cohere, …) uses Bedrock's unified Converse API. Import it for side
 // effects to register the "bedrock" provider:
 //
-//	import _ "github.com/dougkirkley/ergon/pkg/provider/bedrock"
+//	import _ "github.com/dougkirkley/dross/pkg/provider/bedrock"
 //
 // Credentials and region come from the standard AWS default chain
 // (AWS_REGION / AWS_DEFAULT_REGION, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY,
@@ -21,8 +21,8 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
-	"github.com/dougkirkley/ergon/pkg/provider/anthropic"
+	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider/anthropic"
 )
 
 func init() {

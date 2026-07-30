@@ -5,7 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 
 /// Settings hold only the server URL — every agent/provider/permission setting
-/// lives on the `ergon serve` instance. Also offers sign out.
+/// lives on the `dross serve` instance. Also offers sign out.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -65,7 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: const TextStyle(color: T.text),
             onSubmitted: (_) => _save(),
             decoration: InputDecoration(
-              hintText: 'https://ergon.example.com',
+              hintText: 'https://dross.example.com',
               hintStyle: const TextStyle(color: T.textFaint),
               filled: true,
               fillColor: T.inputBg,

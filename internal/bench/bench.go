@@ -1,10 +1,10 @@
 // Package bench is a comparative benchmark harness: it runs the same coding
-// tasks through ergon and through external agents (Claude Code, Codex) in
+// tasks through dross and through external agents (Claude Code, Codex) in
 // fresh isolated workspaces, and measures wall-clock time and task success —
-// with ergon additionally reporting its token cost (the differentiator).
+// with dross additionally reporting its token cost (the differentiator).
 //
 // Cross-tool metrics are the honest ones: did the task's check pass, and how
-// long did it take. Cost/token accounting is only available for ergon (the
+// long did it take. Cost/token accounting is only available for dross (the
 // external CLIs don't expose it), so it shows "-" for them.
 package bench
 

@@ -9,7 +9,7 @@ import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
 
-/// Conversational view of an `ergon serve` session — the same look as the old
+/// Conversational view of an `dross serve` session — the same look as the old
 /// direct-mode chat (greeting, serif assistant prose, dark right-aligned user
 /// bubbles, streaming spinner), but backed by the server. All model/provider
 /// config lives on the server; the only inline control is the model chip.
@@ -93,13 +93,13 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ErgonLogo(size: 84),
+              const DrossLogo(size: 84),
               const SizedBox(height: 20),
               Text('How can I help?',
                   style: T.prose.copyWith(fontSize: 24),
                   textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              Text('Ask ${sess?.model ?? 'Ergon'} anything.',
+              Text('Ask ${sess?.model ?? 'Dross'} anything.',
                   style: T.meta, textAlign: TextAlign.center),
             ],
           ),
@@ -110,7 +110,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: ErgonSpinner(size: 30),
+          child: DrossSpinner(size: 30),
         ),
       );
 
@@ -164,8 +164,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: T.body,
                         decoration: InputDecoration.collapsed(
                           hintText: (s.events.isNotEmpty)
-                              ? 'Reply to Ergon'
-                              : 'Chat with Ergon',
+                              ? 'Reply to Dross'
+                              : 'Chat with Dross',
                           hintStyle: const TextStyle(color: T.textDim),
                         ),
                         onSubmitted: (_) => _send(context),

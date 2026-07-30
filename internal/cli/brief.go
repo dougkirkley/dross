@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/internal/session"
-	"github.com/dougkirkley/ergon/internal/storage"
+	"github.com/dougkirkley/dross/internal/session"
+	"github.com/dougkirkley/dross/internal/storage"
 )
 
 func newBriefCmd() *cobra.Command {

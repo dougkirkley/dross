@@ -1,5 +1,5 @@
 // Package relay defines the wire protocol for device linking: a laptop dials
-// OUT to the ergon server over a WebSocket, registers as a device, and the
+// OUT to the dross server over a WebSocket, registers as a device, and the
 // server proxies the phone's session traffic to it. Frames are JSON, one per
 // WebSocket message.
 package relay

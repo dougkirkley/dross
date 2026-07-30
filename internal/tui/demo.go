@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 // jsonString returns s as a JSON-quoted string, for building demo tool args.
@@ -16,12 +16,12 @@ func jsonString(s string) string {
 // DemoWelcomeView renders the empty-state splash (big logo) for screenshots.
 // variant selects the logo style (see renderLogo).
 func DemoWelcomeView(width, height, variant int) string {
-	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m := New("dross", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
 	m.logoVariant = 1
 	m.welcomeStyle = variant // vary the empty-state layout for iterations
 	m.shimmer = demoShimmer  // phase for screenshots of the animated shimmer
-	m.SetMeta("v0.4.0", "/Users/doug/Projects/ergon")
+	m.SetMeta("v0.4.0", "/Users/doug/Projects/dross")
 	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b")
 	m.layout()
 	return m.View()
@@ -37,7 +37,7 @@ func SetDemoShimmer(n int) { demoShimmer = n }
 // DemoView renders a populated TUI at the given size for screenshots and manual
 // inspection — no live model required.
 func DemoView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 
@@ -45,19 +45,19 @@ func DemoView(width, height int) string {
 
 	events := []agent.Event{
 		{Kind: "text", Data: "Plan: add the flag, delegate the struct + marshalling to the worker, then wire and verify."},
-		{Kind: "tool", Data: `read {"path":"cmd/ergon/main.go"}`},
+		{Kind: "tool", Data: `read {"path":"cmd/dross/main.go"}`},
 		{Kind: "tool-result", Data: "1  package main ... (142 lines)"},
 		{Kind: "tool", Data: `delegate {"task":"In internal/cli/output.go add an Output struct with JSON tags and a Render(w) method..."}`},
 		{Kind: "worker:text", Data: "Added Output struct with json tags and Render()."},
 		{Kind: "worker:tool", Data: `write {"path":"internal/cli/output.go"}`},
 		{Kind: "worker:tool-result", Data: "wrote 38 lines to internal/cli/output.go"},
 		{Kind: "tool-result", Data: "worker: added Output struct; internal/cli/output.go compiles."},
-		{Kind: "tool", Data: `edit {"path":"cmd/ergon/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
-		{Kind: "edit", Data: `{"file":"cmd/ergon/main.go","added":6,"removed":1}`},
+		{Kind: "tool", Data: `edit {"path":"cmd/dross/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
+		{Kind: "edit", Data: `{"file":"cmd/dross/main.go","added":6,"removed":1}`},
 		{Kind: "ask", Data: "Name the flag --json or --output=json?"},
 		{Kind: "answer", Data: "--json"},
 		{Kind: "tool", Data: `bash {"command":"go build ./... && go test ./..."}`},
-		{Kind: "tool-result", Data: "ok  github.com/dougkirkley/ergon  0.4s"},
+		{Kind: "tool-result", Data: "ok  github.com/dougkirkley/dross  0.4s"},
 		{Kind: "text", Data: "Done. --json flag wired; boilerplate delegated to the local model. Build and tests pass."},
 		{Kind: "usage", Data: `{"in":18420,"out":1240}`},
 		{Kind: "review", Data: "LGTM — the flag defaults to false and Render() handles the empty case."},
@@ -74,7 +74,7 @@ func DemoView(width, height int) string {
 // DemoBangView renders the shell-escape state: a "!command" in the input, with
 // the gold border/mark/hint that mark shell mode.
 func DemoBangView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(promptMark.Render("! ") + youLabel.Render("bash") + "  git status -s")
@@ -86,7 +86,7 @@ func DemoBangView(width, height int) string {
 // DemoProvidersView renders the /model picker: providers as subtitles with their
 // models underneath.
 func DemoProvidersView(width, height int) string {
-	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
+	m := New("dross", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.provider = "ollama"
@@ -103,7 +103,7 @@ func DemoProvidersView(width, height int) string {
 
 // DemoModelsView renders the /model picker: served models grouped by provider.
 func DemoModelsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m := New("dross", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
 	m.SetWorker(func(string, string) {}, "ollama", "qwen3-coder:30b") // enable the Lead/Worker toggle
 	m.layout()
@@ -115,9 +115,9 @@ func DemoModelsView(width, height int) string {
 	return m.View()
 }
 
-// DemoPluginView renders the /plugin browser modal (reads live ~/.ergon state).
+// DemoPluginView renders the /plugin browser modal (reads live ~/.dross state).
 func DemoPluginView(width, height, tab int) string {
-	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m := New("dross", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.pluginViewOpen, m.pluginTab = true, tab
@@ -126,7 +126,7 @@ func DemoPluginView(width, height, tab int) string {
 
 // DemoThemeView renders the /theme picker (each row in its own colors).
 func DemoThemeView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m := New("dross", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.themeViewOpen, m.themeSel = true, 8 // dracula
@@ -136,7 +136,7 @@ func DemoThemeView(width, height int) string {
 
 // DemoSkillsView renders the /skills modal for screenshots.
 func DemoSkillsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic", nil)
+	m := New("dross", "claude-opus-5", "anthropic", nil)
 	m.width, m.height = width, height
 	m.skillOff = map[string]bool{"regression-lens": true}
 	m.SetSkillItems([]SkillItem{
@@ -161,13 +161,13 @@ func makeBody(n int) string {
 // DemoToolsView renders the /tools expandable viewer with one entry expanded to
 // its full command + output.
 func DemoToolsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "ollama", nil)
+	m := New("dross", "claude-opus-5", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.toolRecs = []toolRec{
-		{name: "read", args: "cmd/ergon/main.go", result: "1  package main\n2\n3  import \"github.com/dougkirkley/ergon/internal/cli\""},
+		{name: "read", args: "cmd/dross/main.go", result: "1  package main\n2\n3  import \"github.com/dougkirkley/dross/internal/cli\""},
 		{name: "bash", args: "go build ./... && go test ./...",
-			result: "ok  github.com/dougkirkley/ergon/pkg/agent  0.42s\nok  github.com/dougkirkley/ergon/internal/tui  0.19s\nok  github.com/dougkirkley/ergon/internal/cli  0.31s\nok  github.com/dougkirkley/ergon/internal/config  0.44s"},
+			result: "ok  github.com/dougkirkley/dross/pkg/agent  0.42s\nok  github.com/dougkirkley/dross/internal/tui  0.19s\nok  github.com/dougkirkley/dross/internal/cli  0.31s\nok  github.com/dougkirkley/dross/internal/config  0.44s"},
 		{name: "edit", args: "internal/cli/output.go", result: "replaced 1 occurrence"},
 	}
 	m.toolSel = 1
@@ -178,7 +178,7 @@ func DemoToolsView(width, height int) string {
 // DemoUsageView renders the /usage output: a context-fill bar per session and
 // model, for the provider in use.
 func DemoUsageView(width, height int) string {
-	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
+	m := New("dross", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	// Sessions across a few models (one with no known context max), plus the
@@ -198,7 +198,7 @@ func DemoUsageView(width, height int) string {
 // DemoSlashView renders slash-command autocomplete: matches listed above the
 // input as the user types "/".
 func DemoSlashView(width, height int) string {
-	m := New("ergon", "qwen3-coder:30b", "ollama", nil)
+	m := New("dross", "qwen3-coder:30b", "ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  wire up the login flow")
@@ -209,20 +209,20 @@ func DemoSlashView(width, height int) string {
 // DemoRunningView renders a mid-run frame — spinner, a rotating status phrase,
 // and the live token counter — for screenshots of the working state.
 func DemoRunningView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  add a --json flag to the CLI and delegate the boilerplate")
 	for _, e := range []agent.Event{
 		{Kind: "text", Data: "Plan: add the flag, delegate the boilerplate, then wire and verify."},
-		{Kind: "tool", Data: `read {"path":"cmd/ergon/main.go"}`},
+		{Kind: "tool", Data: `read {"path":"cmd/dross/main.go"}`},
 		{Kind: "edit", Data: `{"file":"internal/cli/output.go","added":38,"removed":0}`},
 		{Kind: "usage", Data: `{"in":12800,"out":640}`},
 	} {
 		m.applyEvent(e)
 	}
 	m.running = true
-	m.phraseIdx = 2 // "Decrypting the ergon"
+	m.phraseIdx = 2 // "Decrypting the dross"
 	m.tick = 40     // ~8s elapsed at 5 fps
 	m.cost = 0.0091
 	return m.View()
@@ -231,7 +231,7 @@ func DemoRunningView(width, height int) string {
 // DemoSubagentsView renders a mid-run frame with the live subagent tree, where
 // the lead has fanned several subtasks out to parallel workers.
 func DemoSubagentsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  migrate the three helm charts to the new values schema")
@@ -257,7 +257,7 @@ func DemoSubagentsView(width, height int) string {
 // DemoSubagentFocusView renders the detail overlay for a selected subagent —
 // what arrow-selecting a worker and pressing enter shows.
 func DemoSubagentFocusView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  migrate the three helm charts to the new values schema")
@@ -284,7 +284,7 @@ func DemoSubagentFocusView(width, height int) string {
 // DemoShellsView renders a mid-run frame with background shells: one still
 // running, one exited, plus the "· N shells" footer count.
 func DemoShellsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  reconcile flux and check the live selectors")
@@ -293,8 +293,8 @@ func DemoShellsView(width, height int) string {
 		"kubectl annotate kustomization -n flux-system $k reconcile.fluxcd.io/requestedAt=\"$(date -u +%Y-%m)\"; done"
 	for _, e := range []agent.Event{
 		{Kind: "text", Data: "Kicking a tail in the background, then reconciling flux."},
-		{Kind: "tool", Data: `bash {"command":"kubectl logs -f deploy/ergon-web -n media","background":true}`},
-		{Kind: "shell:start", Data: "sh_1\x1fkubectl logs -f deploy/ergon-web -n media"},
+		{Kind: "tool", Data: `bash {"command":"kubectl logs -f deploy/dross-web -n media","background":true}`},
+		{Kind: "shell:start", Data: "sh_1\x1fkubectl logs -f deploy/dross-web -n media"},
 		{Kind: "usage", Data: `{"in":18200,"out":859}`},
 		// A foreground bash currently executing (drives the "Running N shell
 		// commands…" block); no tool-result yet.
@@ -315,7 +315,7 @@ func DemoShellsView(width, height int) string {
 
 // DemoHelpView renders the shortcuts overlay for screenshots.
 func DemoHelpView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.helpOpen = true
@@ -324,7 +324,7 @@ func DemoHelpView(width, height int) string {
 
 // DemoSessionsView renders the session switcher overlay for screenshots.
 func DemoSessionsView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.sessions = []session{
@@ -345,7 +345,7 @@ func DemoSessionsView(width, height int) string {
 
 // DemoAskView renders the multi-question ask_user picker for screenshots.
 func DemoAskView(width, height int) string {
-	m := New("ergon", "claude-opus-5", "anthropic · ollama", nil)
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  review the branch before I merge")

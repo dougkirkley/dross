@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ergon-sessions-pvc
+  name: dross-sessions-pvc
 spec:
   accessModes:
     - ReadWriteOnce
@@ -12,7 +12,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ergon-uploads-pvc
+  name: dross-uploads-pvc
 spec:
   accessModes:
     - ReadWriteOnce

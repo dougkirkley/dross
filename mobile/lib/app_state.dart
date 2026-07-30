@@ -9,12 +9,12 @@ import 'api.dart';
 import 'models.dart';
 import 'util/file_pick.dart';
 
-/// The active sidebar tab. Both tabs are backed by the same `ergon serve`
+/// The active sidebar tab. Both tabs are backed by the same `dross serve`
 /// sessions; only the presentation differs (chat = conversational, code = full
 /// workspace UI).
 enum AppMode { chat, code }
 
-/// AppState is a thin client for `ergon serve`. All agent/provider config lives
+/// AppState is a thin client for `dross serve`. All agent/provider config lives
 /// on the server — the app only needs the server URL and a Google SSO session.
 /// The app has no local settings beyond the server URL.
 class AppState extends ChangeNotifier {
@@ -75,14 +75,14 @@ class AppState extends ChangeNotifier {
   /// (Cloudflare Access / cookie) covers it; on native we need an SSO token.
   bool get authed => !_signedOut && (kIsWeb || token.isNotEmpty);
 
-  ErgonClient get _client => ErgonClient(baseUrl: baseUrl, token: token);
+  DrossClient get _client => DrossClient(baseUrl: baseUrl, token: token);
 
   // --- load / server config -------------------------------------------
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     baseUrl = p.getString('baseUrl') ?? '';
-    // The web build is served by `ergon serve`; default to its own origin.
+    // The web build is served by `dross serve`; default to its own origin.
     if (baseUrl.isEmpty && kIsWeb) baseUrl = defaultWebServer();
     _chatViews.addAll(p.getStringList('chatViews') ?? const []);
     token = await _secure.read(key: 'remoteToken') ?? '';
@@ -124,7 +124,7 @@ class AppState extends ChangeNotifier {
     try {
       final result = await FlutterWebAuth2.authenticate(
         url: '$baseUrl/auth/login?mode=app',
-        callbackUrlScheme: 'ergon',
+        callbackUrlScheme: 'dross',
       );
       final session = Uri.parse(result).queryParameters['session'];
       if (session == null || session.isEmpty) return 'No session returned';
@@ -374,7 +374,7 @@ class AppState extends ChangeNotifier {
 }
 
 /// defaultWebServer returns the origin the web app was served from (its own
-/// `ergon serve`). Empty off web or for non-http origins.
+/// `dross serve`). Empty off web or for non-http origins.
 String defaultWebServer() {
   try {
     final u = Uri.base;

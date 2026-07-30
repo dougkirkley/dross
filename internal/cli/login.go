@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/internal/config"
-	"github.com/dougkirkley/ergon/internal/subauth"
+	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/internal/subauth"
 )
 
 func newLoginCmd() *cobra.Command {
@@ -16,7 +16,7 @@ func newLoginCmd() *cobra.Command {
 		Use:   "login",
 		Short: "Authenticate the claude-sub provider via your configured OAuth client",
 		Long: "Runs the OAuth (PKCE) login for the [oauth] client in your config and " +
-			"stores the token for the claude-sub provider. ergon ships no OAuth " +
+			"stores the token for the claude-sub provider. dross ships no OAuth " +
 			"client — you supply the client id, endpoints, and any beta header / " +
 			"system pin in the config's [oauth] block.",
 		Args: cobra.NoArgs,

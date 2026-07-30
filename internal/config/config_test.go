@@ -9,7 +9,7 @@ import (
 func TestLoadMissingReturnsEmpty(t *testing.T) {
 	// Isolate from any real user config so the search finds nothing.
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("ERGON_CONFIG", "")
+	t.Setenv("DROSS_CONFIG", "")
 	f, path, err := Load(filepath.Join(t.TempDir(), "nope.json"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -24,7 +24,7 @@ func TestLoadMissingReturnsEmpty(t *testing.T) {
 
 func TestLoadParsesWorker(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "ergon.json")
+	p := filepath.Join(dir, "dross.json")
 	os.WriteFile(p, []byte(`{
 	  "provider": "anthropic",
 	  "model": "claude-opus-5",
@@ -48,7 +48,7 @@ func TestLoadParsesWorker(t *testing.T) {
 }
 
 func TestLoadMalformedErrors(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "ergon.json")
+	p := filepath.Join(t.TempDir(), "dross.json")
 	os.WriteFile(p, []byte(`{not json`), 0o644)
 	if _, _, err := Load(p); err == nil {
 		t.Fatal("expected error on malformed json")

@@ -3,13 +3,13 @@ package server
 import (
 	"net/http"
 
-	"github.com/dougkirkley/ergon/internal/artifact"
-	"github.com/dougkirkley/ergon/internal/auth"
-	"github.com/dougkirkley/ergon/internal/storage"
-	"github.com/dougkirkley/ergon/internal/web"
+	"github.com/dougkirkley/dross/internal/artifact"
+	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/internal/web"
 )
 
-// Server is the HTTP surface for `ergon serve`: server-side sessions that
+// Server is the HTTP surface for `dross serve`: server-side sessions that
 // clients (TUI, web, phone) attach to over SSE. Runs continue whether or not a
 // client is connected — the remote-control property (see DESIGN.md).
 type Server struct {

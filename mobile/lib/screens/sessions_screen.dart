@@ -12,7 +12,7 @@ import 'chat_screen.dart';
 import 'session_screen.dart';
 import 'settings_screen.dart';
 
-/// Session list attached to `ergon serve`. The same server sessions back both
+/// Session list attached to `dross serve`. The same server sessions back both
 /// the Chat and Code tabs; `chat` only changes the header and which renderer a
 /// tapped session opens (conversational vs full workspace). All model/provider
 /// config lives on the server.
@@ -95,7 +95,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
           Row(children: [
             const Text('Sessions', style: T.meta),
             const Spacer(),
-            if (s.loadingSessions) const ErgonSpinner(size: 18),
+            if (s.loadingSessions) const DrossSpinner(size: 18),
           ]),
           const SizedBox(height: 10),
           if (s.error != null && s.sessions.isEmpty)
@@ -284,7 +284,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Connect to ergon serve', style: T.title),
+            const Text('Connect to dross serve', style: T.title),
             const SizedBox(height: 8),
             const Text('Remote mode attaches to your server for full, repo-backed sessions.',
                 style: T.meta, textAlign: TextAlign.center),

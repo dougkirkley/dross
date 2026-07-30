@@ -2,7 +2,7 @@
 
 Goal: support roughly the same breadth of model providers as **OpenCode** and
 **Crush** (both source their catalog from [Catwalk](https://github.com/charmbracelet/catwalk)
-/ [models.dev](https://models.dev) — ~75 providers). ergon already has a
+/ [models.dev](https://models.dev) — ~75 providers). dross already has a
 `provider.Provider` registry (`internal/provider`) with `anthropic`, `openai`
 (OpenAI-compatible, covers ollama/LM Studio/llama.cpp via `base_url`), `bedrock`,
 `claude-sub`, and `claude-code`. Most remaining providers are OpenAI-compatible,
@@ -50,6 +50,6 @@ right base URL (+ API key env). No new Go code.
 - The `openai` provider + `base_url` already unlocks the majority of providers
   today; Phase 1+2 is mostly data.
 - Keep the driver-style registry: each native backend registers in `init()` and
-  is enabled by blank import in `cmd/ergon/main.go`.
+  is enabled by blank import in `cmd/dross/main.go`.
 - Consider consuming Catwalk directly (it's MIT, community-maintained) rather
   than hand-maintaining the catalog.

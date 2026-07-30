@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Deploy Ergon to Kubernetes cluster
+# Deploy Dross to Kubernetes cluster
 
 echo "Building Docker image..."
-docker build -t ergon .
+docker build -t dross .
 
 echo "Pushing to registry (update with your registry)..."
-# docker push your-registry/ergon:latest
+# docker push your-registry/dross:latest
 
 echo "Deploying to Kubernetes..."
 kubectl apply -f deploy/k8s/pvcs.yaml

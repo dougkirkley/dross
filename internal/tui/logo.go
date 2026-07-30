@@ -9,13 +9,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// holoRamp is the holographic crystal gradient (cyan → blue → violet → magenta)
-// that gives the ergon its signature shimmer.
-var holoRamp = []string{"#5CE1E6", "#4FB8E8", "#6E9BF0", "#A78BFA", "#E06CE6"}
+// holoRamp is Dross's signature purple gradient (light lilac → deep violet →
+// fuchsia) that gives the wordmark its shimmer.
+var holoRamp = []string{"#E9D5FF", "#C084FC", "#A855F7", "#8B5CF6", "#E06CE6"}
 
-// holoLoop is a seamless cyclic palette (returns to cyan) for the animated
-// shimmer, so the flowing gradient has no hard seam.
-var holoLoop = []string{"#5CE1E6", "#4FB8E8", "#6E9BF0", "#A78BFA", "#E06CE6", "#A78BFA", "#6E9BF0", "#4FB8E8"}
+// holoLoop is a seamless cyclic purple palette (returns to lilac) for the
+// animated shimmer, so the flowing gradient has no hard seam.
+var holoLoop = []string{"#E9D5FF", "#C084FC", "#A855F7", "#8B5CF6", "#E06CE6", "#8B5CF6", "#A855F7", "#C084FC"}
+
+// purpleRamp is Dross's signature: a light-to-deep violet gradient, top to
+// bottom, that gives the block wordmark its purple sheen.
+var purpleRamp = []string{"#D8B4FE", "#C084FC", "#A855F7", "#8B5CF6", "#7C3AED"}
 
 // rampColorCyclic samples stops cyclically at u (wrapped to [0,1)), interpolating
 // from the last stop back to the first for a seamless loop.
@@ -102,6 +106,8 @@ var glyphs = map[rune][5]string{
 	'N': {"█   █", "██  █", "█ █ █", "█  ██", "█   █"},
 	'E': {"█████", "█    ", "████ ", "█    ", "█████"},
 	'G': {" ████", "█    ", "█  ██", "█   █", " ████"},
+	'D': {"████ ", "█   █", "█   █", "█   █", "████ "},
+	'S': {" ████", "█    ", " ███ ", "    █", "████ "},
 }
 
 // bigLogoRows renders word in the block font, one string per row.
@@ -131,7 +137,7 @@ func renderLogo(variant int) string { return renderLogoAt(variant, -1) }
 
 // logoWord is the wordmark rendered in the block font. Configurable so a fork or
 // rename shows its own name (see SetLogoWord).
-var logoWord = "ERGON"
+var logoWord = "DROSS"
 
 // SetLogoWord overrides the wordmark (uppercased). Empty keeps the default.
 func SetLogoWord(w string) {
@@ -187,7 +193,18 @@ func renderLogoAt(variant int, phase float64) string {
 		rule := lipgloss.NewStyle().Foreground(dim).Render(strings.Repeat("─", lipgloss.Width(wm)))
 		return lipgloss.JoinVertical(lipgloss.Center, wm, rule)
 	default:
-		return logoStyle.Render(strings.Join(rows, "\n"))
+		// Dross default: block letters in a light-to-deep purple vertical
+		// gradient (animates with phase when driven).
+		for i := range rows {
+			var c string
+			if phase >= 0 {
+				c = rampColorCyclic(purpleRamp, phase+0.12*float64(i))
+			} else {
+				c = rampColor(purpleRamp, float64(i)/float64(len(rows)-1))
+			}
+			rows[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true).Render(rows[i])
+		}
+		return strings.Join(rows, "\n")
 	}
 }
 

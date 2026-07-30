@@ -1,18 +1,18 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ergon-ingress
+  name: dross-ingress
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: ergon.local
+  - host: dross.local
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: ergon-service
+            name: dross-service
             port:
               number: 8080

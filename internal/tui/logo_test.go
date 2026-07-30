@@ -10,7 +10,7 @@ import (
 // TestBigLogoRows proves every glyph is 5 rows of equal width, so the assembled
 // logo can never drift out of alignment.
 func TestBigLogoRows(t *testing.T) {
-	rows := bigLogoRows("ERGON")
+	rows := bigLogoRows("DROSS")
 	if len(rows) != 5 {
 		t.Fatalf("rows = %d, want 5", len(rows))
 	}
@@ -22,7 +22,7 @@ func TestBigLogoRows(t *testing.T) {
 		}
 	}
 	// All glyphs present (no letters silently dropped).
-	for _, ch := range "ERGON" {
+	for _, ch := range "DROSS" {
 		if _, ok := glyphs[ch]; !ok {
 			t.Fatalf("missing glyph %q", ch)
 		}

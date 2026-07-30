@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
-	"github.com/dougkirkley/ergon/pkg/provider"
-	"github.com/dougkirkley/ergon/internal/relay"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/internal/relay"
 )
 
 // Event is one step of a session, with a per-session monotonic Seq so clients
@@ -343,7 +343,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		}
 	}
 	ag, err := agent.New(agent.Config{
-		Name: "ergon", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
+		Name: "dross", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
 	}, m.lead, opts...)
 	if err != nil {
 		return err

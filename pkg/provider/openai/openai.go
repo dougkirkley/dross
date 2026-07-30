@@ -3,7 +3,7 @@
 // compatible server — notably the homelab's ollama, reached by pointing
 // Config.BaseURL at its /v1 endpoint. Import for side effects to register:
 //
-//	import _ "github.com/dougkirkley/ergon/pkg/provider/openai"
+//	import _ "github.com/dougkirkley/dross/pkg/provider/openai"
 package openai
 
 import (
@@ -16,7 +16,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func init() {

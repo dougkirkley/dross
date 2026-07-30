@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/internal/plugins"
+	"github.com/dougkirkley/dross/internal/plugins"
 )
 
-// newPluginCmd builds `ergon plugin ...`: manage marketplaces and plugins,
+// newPluginCmd builds `dross plugin ...`: manage marketplaces and plugins,
 // Claude-Code-compatible (git-hosted marketplaces, plugin.json, SKILL.md).
 func newPluginCmd() *cobra.Command {
 	cmd := &cobra.Command{

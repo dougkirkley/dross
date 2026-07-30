@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dougkirkley/ergon/internal/auth"
+	"github.com/dougkirkley/dross/internal/auth"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

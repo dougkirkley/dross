@@ -9,18 +9,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dougkirkley/ergon/internal/config"
-	"github.com/dougkirkley/ergon/pkg/agent"
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // configToolDef describes the built-in `config` tool: it lets the model read or
-// edit ergon's own settings when the user asks (e.g. "set my worker to X").
+// edit dross's own settings when the user asks (e.g. "set my worker to X").
 func configToolDef() provider.ToolDef {
 	return provider.ToolDef{
 		Name: "config",
-		Description: "Read or edit ergon's own JSON config (provider, model, worker, reviewer, review, tools, permission, welcome, identity_prompt, name, phrases). " +
-			"op=get returns the current config; op=set merges the `patch` object into it (only provided top-level keys are overwritten) and saves. Use this when the user asks to change ergon's settings.",
+		Description: "Read or edit dross's own JSON config (provider, model, worker, reviewer, review, tools, permission, welcome, identity_prompt, name, phrases). " +
+			"op=get returns the current config; op=set merges the `patch` object into it (only provided top-level keys are overwritten) and saves. Use this when the user asks to change dross's settings.",
 		Properties: map[string]any{
 			"op":    map[string]any{"type": "string", "enum": []string{"get", "set", "schema"}, "description": "get current config, set, or schema (list keys)"},
 			"patch": map[string]any{"type": "object", "description": "op=set: a JSON object of top-level config keys to merge (preferred, e.g. {\"name\":\"x\"})"},
@@ -127,7 +127,7 @@ func decodePatch(raw json.RawMessage) (map[string]any, error) {
 
 // configSchemaHelp lists the editable config keys for op=schema.
 func configSchemaHelp() string {
-	return "ergon config keys (op=set with a patch object):\n" +
+	return "dross config keys (op=set with a patch object):\n" +
 		"  name, identity_prompt, welcome (clean|boxed|centered), theme (crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized),\n" +
 		"  colors {role:hex}, gradient [hex...], provider, model, base_url, api_key, style,\n" +
 		"  max_tokens, max_parallel, models [ids], worker {provider,model,base_url,api_key},\n" +
@@ -177,7 +177,7 @@ func newSessionID() string {
 
 func defaultConfigPath() string {
 	if dir, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(dir, "ergon", "config.json")
+		return filepath.Join(dir, "dross", "config.json")
 	}
-	return "ergon.json"
+	return "dross.json"
 }

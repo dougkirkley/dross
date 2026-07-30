@@ -1,4 +1,4 @@
-// Package tui is ergon's terminal client, built on Charm's Bubble Tea and Lip
+// Package tui is dross's terminal client, built on Charm's Bubble Tea and Lip
 // Gloss — the "Crush feel" without any Crush code. Dark black/gray base with a
 // Carolina-blue accent. It drives an agent in-process and streams its events
 // into a scrolling log.
@@ -21,7 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 // --- palette: dark black/gray + Carolina blue -----------------------------
@@ -387,7 +387,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 	ti.Focus()
 
 	sp := spinner.New()
-	// A spinning ergon: the crystal cycles hollow → faceted → filled →
+	// A spinning dross: the crystal cycles hollow → faceted → filled →
 	// faceted, as if catching light while it turns. These diamond glyphs render
 	// widely (unlike braille/quadrant, which box out in many fonts).
 	sp.Spinner = spinner.Spinner{
@@ -2252,7 +2252,7 @@ func (m Model) modelBox(bodyH int) string {
 	inner := boxW - 2 // Padding(0,1)
 
 	// Title row: a holographic "switch model" wordmark with a crystal Lead/Worker
-	// toggle on the right, over a gradient rule — the ergon look, not a hatch bar.
+	// toggle on the right, over a gradient rule — the dross look, not a hatch bar.
 	title := crystalStyle.Render("◈ ") + gradientText("switch model", holoRamp)
 	var toggle string
 	if m.onWorker != nil {
@@ -2418,7 +2418,7 @@ func (m Model) buildPickOrder() []int {
 	return append(append(work, await...), neu...)
 }
 
-// renderHelp draws the shortcuts overlay (ergon's own keybindings).
+// renderHelp draws the shortcuts overlay (dross's own keybindings).
 func renderHelp() string {
 	rows := [][2]string{
 		{"enter", "send message"},
@@ -2448,7 +2448,7 @@ func (m Model) renderSessions() string {
 		counts[m.statusOf(i)]++
 	}
 	var b strings.Builder
-	b.WriteString(agentLabel.Render("ergon sessions") + "  " +
+	b.WriteString(agentLabel.Render("dross sessions") + "  " +
 		metaStyle.Render(fmt.Sprintf("%d awaiting · %d working · %d new",
 			counts["awaiting"], counts["working"], counts["new"])) + "\n")
 	b.WriteString(metaStyle.Render("enter opens · n new · x remove · esc closes") + "\n")

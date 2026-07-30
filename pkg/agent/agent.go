@@ -34,7 +34,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // Style controls how verbose the agent's user-facing output is. Terser styles
@@ -213,7 +213,7 @@ type extraTool struct {
 
 // WithTool registers a host-defined tool (its schema and a Go handler). This is
 // how the embedding program adds first-class tools without a subprocess — e.g.
-// the CLI wires a `config` tool that edits ergon's own settings.
+// the CLI wires a `config` tool that edits dross's own settings.
 func WithTool(def provider.ToolDef, h ToolHandler) Option {
 	return func(a *Agent) {
 		if def.Name == "" || h == nil {

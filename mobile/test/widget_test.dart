@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:ergon/app_state.dart';
-import 'package:ergon/screens/server_setup_screen.dart';
+import 'package:dross/app_state.dart';
+import 'package:dross/screens/server_setup_screen.dart';
 
 void main() {
   testWidgets('first-run shows the server setup screen', (tester) async {

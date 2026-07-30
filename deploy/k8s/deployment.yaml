@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ergon
+  name: dross
   labels:
-    app: ergon
+    app: dross
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ergon
+      app: dross
   template:
     metadata:
       labels:
-        app: ergon
+        app: dross
     spec:
       containers:
-      - name: ergon
-        image: ergon:latest
+      - name: dross
+        image: dross:latest
         ports:
         - containerPort: 8080
         volumeMounts:
         - name: sessions
-          mountPath: /root/.config/ergon/sessions
+          mountPath: /root/.config/dross/sessions
         - name: uploads
           mountPath: /app/uploads
         resources:
@@ -34,7 +34,7 @@ spec:
       volumes:
       - name: sessions
         persistentVolumeClaim:
-          claimName: ergon-sessions-pvc
+          claimName: dross-sessions-pvc
       - name: uploads
         persistentVolumeClaim:
-          claimName: ergon-uploads-pvc
+          claimName: dross-uploads-pvc

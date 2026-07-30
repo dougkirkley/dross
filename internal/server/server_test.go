@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/artifact"
-	"github.com/dougkirkley/ergon/internal/auth"
-	"github.com/dougkirkley/ergon/pkg/provider"
-	"github.com/dougkirkley/ergon/internal/storage"
+	"github.com/dougkirkley/dross/internal/artifact"
+	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/internal/storage"
 )
 
 func testArts(t *testing.T) *artifact.Store {

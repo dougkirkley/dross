@@ -36,7 +36,7 @@ func webFetch(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "ergon/1.0 (+coding-agent)")
+	req.Header.Set("User-Agent", "dross/1.0 (+coding-agent)")
 	hc := &http.Client{Timeout: 20 * time.Second}
 	resp, err := hc.Do(req)
 	if err != nil {

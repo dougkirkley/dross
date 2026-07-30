@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 // TestBangShellEscape verifies "!cmd" runs a shell command instead of prompting
@@ -17,7 +17,7 @@ func TestBangShellEscape(t *testing.T) {
 		t.Fatal("agent must not run for a ! command")
 		return nil, nil
 	}
-	m := New("ergon", "m", "openai", run)
+	m := New("dross", "m", "openai", run)
 	m.width, m.height = 80, 24
 	m.layout()
 	m.input.SetValue("!echo bang_marker_42")

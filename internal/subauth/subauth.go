@@ -1,7 +1,7 @@
 // Package subauth is a generic OAuth 2.0 authorization-code + PKCE client used
-// by `ergon login` and the claude-sub provider. Everything — client id,
+// by `dross login` and the claude-sub provider. Everything — client id,
 // endpoints, scopes, extra headers — comes from the user's config (see
-// config.OAuthLogin). ergon ships no OAuth client and impersonates no vendor;
+// config.OAuthLogin). dross ships no OAuth client and impersonates no vendor;
 // the user supplies their own client/endpoints.
 package subauth
 
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/config"
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 // Pending is an in-progress login.
@@ -159,7 +159,7 @@ func tokenPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d := filepath.Join(dir, "ergon")
+	d := filepath.Join(dir, "dross")
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return "", err
 	}

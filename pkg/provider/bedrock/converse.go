@@ -11,7 +11,7 @@ import (
 	brdoc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // isAnthropicModel reports whether a Bedrock model id is a Claude model, which

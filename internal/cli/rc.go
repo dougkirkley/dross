@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
-	"github.com/dougkirkley/ergon/internal/relay"
+	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/internal/relay"
 )
 
-// newRCCmd is `ergon rc`: link this computer to a ergon server as a
+// newRCCmd is `dross rc`: link this computer to a dross server as a
 // device, so the phone app can drive sessions that run here. The laptop dials
 // OUT over a WebSocket (the phone never needs to reach it directly); the server
 // relays prompts and streams the agent's events back. The link authenticates as
@@ -24,7 +24,7 @@ func newRCCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "rc",
-		Short: "Link this computer to a ergon server so the phone can drive it",
+		Short: "Link this computer to a dross server so the phone can drive it",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			res, err := resolveProviders(cmd, provName, model)
@@ -69,7 +69,7 @@ func newRCCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&server, "server", "", "ergon server URL (e.g. https://ergon.example.com)")
+	f.StringVar(&server, "server", "", "dross server URL (e.g. https://dross.example.com)")
 	f.StringVar(&token, "token", "", "session token (default: SSO login)")
 	f.StringVar(&name, "name", "", "device name (default: hostname)")
 	f.StringVarP(&workdir, "workdir", "C", ".", "workspace root sessions run in")

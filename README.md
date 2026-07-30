@@ -1,4 +1,4 @@
-# ergon
+# dross
 
 A pluggable, cost-aware, multi-model coding agent. A frontier model plans and
 reasons; a cheaper model — down to a free local GPU model — does the bounded
@@ -6,7 +6,7 @@ work; the agent routes each unit of work to the cheapest model that can do it
 correctly, and reports what it cost. Drivable from a terminal (Charm TUI), a
 phone, or an HTTP API.
 
-Written in Go. MIT licensed. `ergon` is Greek for *work*.
+Written in Go. MIT licensed. `dross` is Greek for *work*.
 
 ## Why
 
@@ -24,22 +24,22 @@ Written in Go. MIT licensed. `ergon` is Greek for *work*.
 Requires Go 1.26+ (no cgo).
 
 ```bash
-go install github.com/dougkirkley/ergon/cmd/ergon@latest
+go install github.com/dougkirkley/dross/cmd/dross@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/dougkirkley/ergon
-cd ergon
-go build -o ergon ./cmd/ergon
+git clone https://github.com/dougkirkley/dross
+cd dross
+go build -o dross ./cmd/dross
 go test ./...
 ```
 
 ## Quick start
 
 ```bash
-ergon              # launches the interactive TUI (bare command = TUI)
+dross              # launches the interactive TUI (bare command = TUI)
 ```
 
 Then:
@@ -55,18 +55,18 @@ No default provider ships — you choose one via `/model` (persisted to config).
 ## Subcommands
 
 ```
-ergon                         # interactive TUI (default; bare command = TUI)
-ergon --resume <id>           # resume a prior TUI session (id printed on exit)
-ergon agent  [flags] <prompt> # run the agent once against a workspace
-ergon serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
-ergon rc     --server <url>   # link this machine so a phone can drive it
-ergon login  --server <url>   # SSO sign-in for a server
-ergon brief  [name]           # print a saved handoff brief, or list sessions
+dross                         # interactive TUI (default; bare command = TUI)
+dross --resume <id>           # resume a prior TUI session (id printed on exit)
+dross agent  [flags] <prompt> # run the agent once against a workspace
+dross serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
+dross rc     --server <url>   # link this machine so a phone can drive it
+dross login  --server <url>   # SSO sign-in for a server
+dross brief  [name]           # print a saved handoff brief, or list sessions
 ```
 
 ## Providers
 
-`ergon` speaks to any provider through a small backend registry. Most are
+`dross` speaks to any provider through a small backend registry. Most are
 OpenAI-compatible and share one backend, selected by base URL.
 
 | Kind | How |
@@ -91,19 +91,19 @@ reach full OpenCode/Crush provider breadth.
 ### claude-code (use your Claude subscription, no API key)
 
 The `claude-code` provider shells out to the installed Claude Code CLI in
-headless mode, using whatever auth it already has. In *driven* mode ergon
-disables Claude Code's own tools and drives its own loop, so ergon's tools,
-delegation, and permissions stay in control. `ERGON_CLAUDE_DANGEROUS=1`
+headless mode, using whatever auth it already has. In *driven* mode dross
+disables Claude Code's own tools and drives its own loop, so dross's tools,
+delegation, and permissions stay in control. `DROSS_CLAUDE_DANGEROUS=1`
 bypasses Claude Code's permission prompts for unattended runs.
 
 ## Skills & plugins
 
-`ergon` reads the same on-disk formats as Claude Code, so existing skills and
+`dross` reads the same on-disk formats as Claude Code, so existing skills and
 plugins work unchanged.
 
 - **Skills** are `SKILL.md` files with YAML frontmatter (`name`, `description`,
   `allowed-tools`, `disable-model-invocation`, `user-invocable`). Discovered from
-  `.ergon/skills/`, `.claude/skills/` (project), `~/.ergon/skills/`,
+  `.dross/skills/`, `.claude/skills/` (project), `~/.dross/skills/`,
   `~/.claude/skills/` (user), and installed plugins. The model loads a skill on
   demand via a `skill` tool (progressive disclosure — only the name +
   description stay in context until it's invoked); you can also run one directly
@@ -113,16 +113,16 @@ plugins work unchanged.
   `.claude-plugin/marketplace.json` index.
 
 ```bash
-ergon plugin marketplace add owner/repo      # or a git URL / local path
-ergon plugin install <name>[@marketplace]
-ergon plugin list
-ergon plugin skills                          # list discovered skills
-ergon plugin disable <name> | enable <name> | uninstall <name>
-ergon plugin marketplace list | remove <name>
+dross plugin marketplace add owner/repo      # or a git URL / local path
+dross plugin install <name>[@marketplace]
+dross plugin list
+dross plugin skills                          # list discovered skills
+dross plugin disable <name> | enable <name> | uninstall <name>
+dross plugin marketplace list | remove <name>
 ```
 
 The same operations are available in the TUI via `/plugin ...`, and `/skills`
-lists what's loaded. Installed plugins live under `~/.ergon/`.
+lists what's loaded. Installed plugins live under `~/.dross/`.
 
 ## TUI
 
@@ -137,7 +137,7 @@ lists what's loaded. Installed plugins live under `~/.ergon/`.
 - **Mouse** is off by default so your terminal's text selection / copy-paste
   works; `/mouse` turns on click-to-expand tool output (and scroll-wheel
   viewport scrolling) at the cost of native selection.
-- The model can also edit `ergon`'s own config on request via a built-in
+- The model can also edit `dross`'s own config on request via a built-in
   `config` tool (e.g. "set my worker to qwen3-coder").
 - **`!cmd`** — run a shell command directly (gold prompt border).
 - **`ctrl+b`** — while a foreground `bash` command is running, move it to the
@@ -154,14 +154,14 @@ lists what's loaded. Installed plugins live under `~/.ergon/`.
 
 ## Configuration
 
-Config is optional JSON, searched in order: `--config <path>`, `$ERGON_CONFIG`,
-`./ergon.json`, `~/.ergon/settings.json`, then the user config dir
-(`~/.config/ergon/config.json`, or `~/Library/Application Support/ergon/config.json`
+Config is optional JSON, searched in order: `--config <path>`, `$DROSS_CONFIG`,
+`./dross.json`, `~/.dross/settings.json`, then the user config dir
+(`~/.config/dross/config.json`, or `~/Library/Application Support/dross/config.json`
 on macOS). `/model` writes your provider/model choice here.
 
 ```json
 {
-  "name": "ergon",
+  "name": "dross",
   "identity_prompt": "You are a Go specialist. Prefer stdlib. Explain terse.",
   "welcome": "clean",
   "provider": "ollama",
@@ -202,13 +202,13 @@ on macOS). `/model` writes your provider/model choice here.
   (bare `/welcome` cycles).
 - **theme** — TUI color theme: `crystal` (default), `ember`, `matrix`, `grape`, `mono`, `tokyonight`,
   `catppuccin`, `gruvbox`, `dracula`, `nord`, `onedark`, `rose-pine`, `solarized`. Switch live with `/theme [name]` (bare `/theme` cycles); override
-  once with `ergon --theme <name>`.
+  once with `dross --theme <name>`.
 - **colors** — per-role hex overrides on top of the theme, e.g.
   `{"accent":"#4B9CD3","cyan":"#5CE1E6","viol":"#A78BFA","prose":"#FFFFFF"}`.
   Roles: `accent accentHi fg prose muted dim bad ok base panel gold worker cyan viol`.
 - **gradient** — override the holographic gradient stops, e.g.
   `["#5CE1E6","#6E9BF0","#E06CE6"]`. (Font and size are controlled by your
-  terminal, not ergon.)
+  terminal, not dross.)
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `grep`, `glob`, `monitor`, `shell_output`, `web_fetch`,
@@ -216,7 +216,7 @@ on macOS). `/model` writes your provider/model choice here.
 - **permission** — per-tool `allow`|`ask`|`deny`; for command tools a map of
   command glob → decision (opencode-style). Enforced regardless of the UI mode.
 - **plugins** — external command tools imported without recompiling: the model
-  calls the tool, ergon pipes the JSON args to the command's stdin and returns
+  calls the tool, dross pipes the JSON args to the command's stdin and returns
   its stdout.
 - **phrases** — the rotating status lines shown while the agent works.
 
@@ -231,17 +231,17 @@ runs several independent subtasks in parallel.
 
 ## serve — server, sessions, device relay
 
-`ergon serve` hosts the embedded web client plus a JSON/SSE API: multiple
-sessions, sandboxed per-session workspaces, and a device relay. `ergon rc
+`dross serve` hosts the embedded web client plus a JSON/SSE API: multiple
+sessions, sandboxed per-session workspaces, and a device relay. `dross rc
 --server <url>` links a computer so a phone app can drive sessions that run on
-it, authenticated as the SSO user (`ergon login`). Serve supports SSO via any
+it, authenticated as the SSO user (`dross login`). Serve supports SSO via any
 OIDC provider or Cloudflare Access, plus a static bearer token for programmatic
-clients. See `ergon serve --help`.
+clients. See `dross serve --help`.
 
 ## Layout
 
 ```
-cmd/ergon              # CLI entry
+cmd/dross              # CLI entry
 pkg/agent              # the tool loop, delegation, permissions, plugins (importable)
 pkg/provider           # backend registry (anthropic, openai, bedrock, claude-code, …) (importable)
 internal/catalog       # known providers (base URL, key env, models)
@@ -264,10 +264,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
-	"github.com/dougkirkley/ergon/pkg/provider"
-	_ "github.com/dougkirkley/ergon/pkg/provider/anthropic" // registers "anthropic"
-	_ "github.com/dougkirkley/ergon/pkg/provider/openai"    // registers "openai"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
+	_ "github.com/dougkirkley/dross/pkg/provider/anthropic" // registers "anthropic"
+	_ "github.com/dougkirkley/dross/pkg/provider/openai"    // registers "openai"
 )
 
 func main() {

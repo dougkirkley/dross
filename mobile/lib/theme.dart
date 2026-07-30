@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Ergon mobile design tokens. The layout language follows Claude's phone app
+/// Dross mobile design tokens. The layout language follows Claude's phone app
 /// — flat warm near-black surfaces, hairline borders, serif assistant prose,
-/// dark right-aligned user bubbles, pill controls — but keeps ergon's own
+/// dark right-aligned user bubbles, pill controls — but keeps dross's own
 /// Carolina-blue accent where Claude uses coral, for brand identity.
 class T {
   // Surfaces (warm near-black, no Material elevation).
@@ -22,7 +22,7 @@ class T {
   static const textDim = Color(0xFF9A9A93);
   static const textFaint = Color(0xFF6A6A64);
 
-  // Accent — ergon Carolina blue.
+  // Accent — dross Carolina blue.
   static const accent = Color(0xFF4B9CD3);
   static const accentHi = Color(0xFF8FC7E8);
 

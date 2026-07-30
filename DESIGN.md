@@ -1,15 +1,15 @@
-# ergon — design
+# dross — design
 
-Authoritative design. (Formerly *holocron*; renamed to **ergon** for an
+Authoritative design. (Formerly *holocron*; renamed to **dross** for an
 open-source release, including the deployment hostname
-`ergon.farmerjohnparmesan.com`.)
+`dross.farmerjohnparmesan.com`.)
 
 Supersedes `CRUSH_INTEGRATION.md` and `OPENCODE_DEPLOYMENT.md`, both of which are
 AI-generated and factually wrong (Crush does not "generate UI components
 programmatically"; `opencode/server:latest` is not a real image). Delete those
 two once this is reviewed.
 
-## What ergon is
+## What dross is
 
 A self-hosted coding agent whose one differentiator is **cost-aware
 multi-model orchestration**: an expensive model plans and reasons, cheaper
@@ -21,20 +21,20 @@ target.
 
 The thesis is not invented. This homelab already does it by hand: a global
 instruction to delegate narrow subtasks to the local model, an `ollama-delegate`
-MCP, and a tuned qwen3-coder:30b on the node2 GPU. ergon makes the router the
+MCP, and a tuned qwen3-coder:30b on the node2 GPU. dross makes the router the
 product.
 
 ## As-built layout
 
 ```
-cmd/ergon              # CLI entry (bare `ergon` = TUI; agent/serve/rc/login/... subcommands)
+cmd/dross              # CLI entry (bare `dross` = TUI; agent/serve/rc/login/... subcommands)
 pkg/agent              # the tool loop, delegation, permissions, plugins, conversation memory (importable)
 pkg/provider           # backend registry (anthropic, openai-compatible, bedrock, claude-sub, claude-code) (importable)
 internal/catalog       # known providers (id, base URL, key env, preview models)
 internal/tui           # Charm Bubble Tea terminal client (holographic-crystal theme)
 internal/server        # serve: sessions, SSE, device relay, SSO
 internal/relay         # device relay + SSO loopback login (shared by cli + tui)
-internal/config        # JSON config resolution (ergon.json, back-compat ergon paths)
+internal/config        # JSON config resolution (dross.json, back-compat dross paths)
 mobile/                # Flutter client (web build embedded into serve)
 ```
 
@@ -48,7 +48,7 @@ module) but consumers never reference. See the Embedding section in the README.
 The original skeleton (`internal/ai/provider.go` synchronous `SendMessage`,
 stub `claude`/`gemini`/`codex`/`antigravity` providers, Vue 3 frontend) has been
 replaced: the `Provider` interface is now streaming with tool calls and token
-accounting, ergon owns the agent loop itself, and the client is Flutter (with a
+accounting, dross owns the agent loop itself, and the client is Flutter (with a
 Bubble Tea TUI as the primary local client), not Vue.
 
 ## The cost stack (the whole point)
@@ -141,7 +141,7 @@ cost stack are the same objective from two angles.
 ## The router (the intelligence)
 
 Everything above is plumbing that exists in every agent; the router is what
-makes ergon ergon. Start with an explicit, inspectable policy — not a
+makes dross dross. Start with an explicit, inspectable policy — not a
 learned model — so every routing decision is debuggable.
 
 1. **Lead decomposes.** Given a task, the lead (Opus 5, `xhigh`) emits a plan of
@@ -182,9 +182,9 @@ Backends registered in `internal/provider`:
   Groq, DeepSeek, OpenRouter, …), selected by base URL. Includes an XML
   tool-call fallback for models (e.g. qwen3-coder) that emit tool calls as text.
 - `bedrock` — Anthropic on AWS Bedrock.
-- `claude-sub` — a Claude subscription via user-supplied OAuth (`ergon login`).
+- `claude-sub` — a Claude subscription via user-supplied OAuth (`dross login`).
 - `claude-code` — shells out to the installed `claude` CLI in *driven* mode:
-  ergon disables Claude Code's own tools and drives its own loop, so ergon's
+  dross disables Claude Code's own tools and drives its own loop, so dross's
   tools/delegation/permissions stay in control. No API key.
 
 `internal/catalog` lists ~17 known providers (id, base URL, key env, preview
@@ -210,7 +210,7 @@ Tools are an **allow-list** (`tools` config; empty = all). **Permissions** are
 per-tool `allow`/`ask`/`deny`, or for command tools a map of command glob →
 decision (opencode-style), enforced in the loop regardless of the UI mode.
 **Plugins** import external command tools without recompiling: the model calls
-the tool, ergon pipes the JSON args to the command's stdin and returns its
+the tool, dross pipes the JSON args to the command's stdin and returns its
 stdout.
 
 ## Permission modes (Claude Code parity)
@@ -231,7 +231,7 @@ push-notification path.
 ## Clients — the Crush feel without the fork
 
 Crush's look comes from Charm's **public, MIT-licensed** libraries; only Crush's
-agent logic is walled in `internal/`. So ergon gets the entire Crush aesthetic
+agent logic is walled in `internal/`. So dross gets the entire Crush aesthetic
 with zero fork by building a TUI on those libraries:
 
 - `github.com/charmbracelet/bubbletea` — TUI framework (Elm architecture)
@@ -240,7 +240,7 @@ with zero fork by building a TUI on those libraries:
 
 Three clients, one core, all over the same HTTP+SSE API:
 
-1. **Bubble Tea TUI** (`internal/tui`, launched by bare `ergon`) — the local
+1. **Bubble Tea TUI** (`internal/tui`, launched by bare `dross`) — the local
    client, with a holographic-crystal theme, grouped/searchable `/model` picker,
    `/usage`, `/tools`, `@file` mentions, `!cmd` shell escape, and slash-command
    autocomplete.
@@ -248,23 +248,23 @@ Three clients, one core, all over the same HTTP+SSE API:
    Android/iOS. Speaks the SSE + session API.
 3. Both are peers over the same server API; the server stays client-agnostic.
 
-## Remote control via `ergon serve` + device relay
+## Remote control via `dross serve` + device relay
 
 The phone app must drive sessions the way Claude Code's Remote Control does: fire
 a task, put the phone away, the run keeps going, reattach later to watch, steer,
 or approve. "Remote control" is a property of *where the session lives*, not of
 an outbound socket. A long-running server that owns the sessions delivers it
 directly, with clients connecting inbound — the `opencode serve` / `crush serve`
-model. ergon's server entrypoint is the **`serve` subcommand**, not a
+model. dross's server entrypoint is the **`serve` subcommand**, not a
 Claude-Code-style outbound dial-out.
 
 ```
-ergon serve --addr :8080        # holds sessions, serves HTTP+SSE + embedded web client
+dross serve --addr :8080        # holds sessions, serves HTTP+SSE + embedded web client
 ```
 
-On top of that, a **device relay** (`internal/relay`, `ergon rc` /
+On top of that, a **device relay** (`internal/relay`, `dross rc` /
 `/rc` in the TUI) links a computer to the server as the logged-in SSO user, so a
-phone can drive sessions that actually run on that machine. `ergon login`
+phone can drive sessions that actually run on that machine. `dross login`
 performs an SSO loopback sign-in; the device token is stored in the server's
 auth secret. Verified locally: phone-issued prompt ran `uname -s` on the Mac.
 
@@ -282,7 +282,7 @@ What makes it "remote control" is the session model:
   live stream and dedupes — a permission ask that fired while the phone was
   backgrounded is still waiting on reattach, not lost.
 
-Exposure: `ergon serve` stays behind Cloudflare Access + a bearer on the one
+Exposure: `dross serve` stays behind Cloudflare Access + a bearer on the one
 public hostname; inbound only.
 
 iOS specifics: background URLSession streams get suspended, so a long run won't
@@ -309,7 +309,7 @@ programmatic clients.
 
 Go binary image (`golang:1.26.5-alpine` base; `apk add bash git ca-certificates`
 so sandboxed sessions can run commands), built `--platform linux/amd64`, pushed
-to `registry.farmerjohnparmesan.com` (image `ergon-web`), base + overlay under
+to `registry.farmerjohnparmesan.com` (image `dross-web`), base + overlay under
 `kubernetes/` in the `k8s-homelab` repo. Flux GitOps reconciles it. Needs
 in-cluster reachability to ollama (a Service; `ollama.farmerjohnparmesan.com`),
 egress to 443 for Anthropic, and a PVC for session/artifact/device state. APNs

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func TestConvertTools(t *testing.T) {

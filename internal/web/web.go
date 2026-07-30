@@ -1,5 +1,5 @@
 // Package web serves the Flutter client (compiled to web) embedded into the
-// ergon binary, so `ergon serve` hosts the UI, the JSON/SSE API, and
+// dross binary, so `dross serve` hosts the UI, the JSON/SSE API, and
 // artifact links from one process — no separate static host.
 //
 // The build output is embedded from internal/web/dist. A committed placeholder

@@ -1,4 +1,4 @@
-# Builds the ergon binary with the Flutter web client embedded (go:embed of
+# Builds the dross binary with the Flutter web client embedded (go:embed of
 # internal/web/dist), so one process serves the UI + JSON/SSE API. Run
 # `flutter build web` (mobile/) before building this image — the prebuilt output
 # is copied into the embed dir so no Flutter SDK is needed here.
@@ -7,14 +7,14 @@ WORKDIR /app
 COPY . .
 # Replace the committed placeholder with the real web build, then compile.
 RUN rm -rf internal/web/dist && cp -r mobile/build/web internal/web/dist \
-    && CGO_ENABLED=0 GOOS=linux go build -o ergon ./cmd/ergon
+    && CGO_ENABLED=0 GOOS=linux go build -o dross ./cmd/dross
 
 FROM alpine:latest
 # Sandboxed Code sessions run shell commands via the bash tool, so the runtime
 # needs bash (alpine ships only /bin/sh) plus git and certs for real work.
 RUN apk add --no-cache bash git ca-certificates
 WORKDIR /app
-COPY --from=builder /app/ergon .
+COPY --from=builder /app/dross .
 EXPOSE 8080
 # serve binds all interfaces so the gateway can reach it; hosts UI + API.
-ENTRYPOINT ["./ergon", "serve", "--addr", ":8080"]
+ENTRYPOINT ["./dross", "serve", "--addr", ":8080"]

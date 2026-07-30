@@ -3,8 +3,8 @@
 //
 // It reads the same on-disk formats as Claude Code so existing skills and
 // plugins work unchanged: SKILL.md files with YAML frontmatter, plugin.json
-// manifests, and marketplace.json indexes. Discovery scans both ergon-native
-// (.ergon/, ~/.ergon/) and Claude (.claude/, ~/.claude/) locations.
+// manifests, and marketplace.json indexes. Discovery scans both dross-native
+// (.dross/, ~/.dross/) and Claude (.claude/, ~/.claude/) locations.
 package plugins
 
 import (

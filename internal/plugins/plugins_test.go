@@ -52,7 +52,7 @@ func TestParseSkillFile(t *testing.T) {
 
 func TestLoadAllProjectScope(t *testing.T) {
 	dir := t.TempDir()
-	sd := filepath.Join(dir, ".ergon", "skills", "greet")
+	sd := filepath.Join(dir, ".dross", "skills", "greet")
 	if err := os.MkdirAll(sd, 0o755); err != nil {
 		t.Fatal(err)
 	}

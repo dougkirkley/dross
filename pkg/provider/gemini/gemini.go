@@ -3,7 +3,7 @@
 // function calling and per-turn token accounting. Import for side effects to
 // register:
 //
-//	import _ "github.com/dougkirkley/ergon/pkg/provider/gemini"
+//	import _ "github.com/dougkirkley/dross/pkg/provider/gemini"
 package gemini
 
 import (
@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func init() {
@@ -228,7 +228,7 @@ func mapFinish(reason string, nCalls int) string {
 	}
 }
 
-// convertTools maps ergon tool defs to Gemini functionDeclarations (all under a
+// convertTools maps dross tool defs to Gemini functionDeclarations (all under a
 // single tools entry).
 func convertTools(defs []provider.ToolDef) []toolWrap {
 	if len(defs) == 0 {

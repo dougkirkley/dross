@@ -12,13 +12,13 @@ import (
 	yaml "go.yaml.in/yaml/v4"
 )
 
-// Home is the ergon plugin root (~/.ergon). Marketplaces are cloned under
+// Home is the dross plugin root (~/.dross). Marketplaces are cloned under
 // marketplaces/, installed plugins under plugins/, and state in plugins/state.json.
 func Home() string {
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".ergon")
+		return filepath.Join(h, ".dross")
 	}
-	return ".ergon"
+	return ".dross"
 }
 
 func marketplacesDir() string { return filepath.Join(Home(), "marketplaces") }
@@ -144,7 +144,7 @@ func readMarketplaceFile(dir string) (*Marketplace, error) {
 // --- add / install ---------------------------------------------------------
 
 // AddMarketplace clones a marketplace (github "owner/repo", a git URL, or a
-// local path) into ~/.ergon/marketplaces and records it.
+// local path) into ~/.dross/marketplaces and records it.
 func AddMarketplace(src string) (*Marketplace, error) {
 	name := deriveName(src)
 	dst := filepath.Join(marketplacesDir(), name)
@@ -166,7 +166,7 @@ func AddMarketplace(src string) (*Marketplace, error) {
 	return m, saveState(s)
 }
 
-// Install materializes a plugin from an added marketplace into ~/.ergon/plugins
+// Install materializes a plugin from an added marketplace into ~/.dross/plugins
 // and records it. ref is "plugin" or "plugin@marketplace".
 func Install(ref string) (*InstalledPlugin, error) {
 	pluginName, mktName, _ := strings.Cut(ref, "@")

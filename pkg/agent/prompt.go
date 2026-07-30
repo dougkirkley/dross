@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/dougkirkley/ergon/pkg/provider"
+import "github.com/dougkirkley/dross/pkg/provider"
 
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific

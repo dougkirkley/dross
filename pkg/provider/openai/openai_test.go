@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // TestSend_ToolCall spins a mock OpenAI-compatible server and verifies the

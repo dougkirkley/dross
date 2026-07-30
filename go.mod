@@ -1,4 +1,4 @@
-module github.com/dougkirkley/ergon
+module github.com/dougkirkley/dross
 
 go 1.26.4
 

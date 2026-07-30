@@ -14,13 +14,13 @@ class ApiException implements Exception {
   String toString() => 'server $status: $body';
 }
 
-/// ErgonClient talks to `ergon serve`. Sessions are server-side, so a run
+/// DrossClient talks to `dross serve`. Sessions are server-side, so a run
 /// continues whether or not the app is attached: fire an async prompt, then tail
 /// the SSE stream, reconnecting from the last seq for lossless catch-up.
-class ErgonClient {
-  ErgonClient({required this.baseUrl, this.token});
+class DrossClient {
+  DrossClient({required this.baseUrl, this.token});
 
-  final String baseUrl; // e.g. https://ergon.example.com
+  final String baseUrl; // e.g. https://dross.example.com
   final String? token;
 
   // On web this sends the same-origin SSO cookie (withCredentials); on native

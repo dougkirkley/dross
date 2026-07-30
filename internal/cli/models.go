@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dougkirkley/ergon/internal/catalog"
-	"github.com/dougkirkley/ergon/internal/config"
-	"github.com/dougkirkley/ergon/pkg/provider"
-	"github.com/dougkirkley/ergon/pkg/provider/bedrock"
+	"github.com/dougkirkley/dross/internal/catalog"
+	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider/bedrock"
 )
 
 var mentionRE = regexp.MustCompile(`@([^\s@]+)`)
@@ -125,7 +125,7 @@ func saveLeadProvider(explicit string, st *leadState) error {
 		if derr != nil {
 			return derr
 		}
-		path = filepath.Join(dir, "ergon", "config.json")
+		path = filepath.Join(dir, "dross", "config.json")
 	}
 	f.Provider = st.name // catalog id / kind; resolved to a backend via providerImpl on load
 	f.BaseURL = st.baseURL

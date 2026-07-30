@@ -12,18 +12,18 @@ void main() {
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState()..load(),
-      child: const ErgonApp(),
+      child: const DrossApp(),
     ),
   );
 }
 
-class ErgonApp extends StatelessWidget {
-  const ErgonApp({super.key});
+class DrossApp extends StatelessWidget {
+  const DrossApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ergon',
+      title: 'Dross',
       debugShowCheckedModeBanner: false,
       theme: T.themeData(),
       home: const Home(),
@@ -31,7 +31,7 @@ class ErgonApp extends StatelessWidget {
   }
 }
 
-/// The app is a thin client for `ergon serve`. Startup gate: pick a server URL,
+/// The app is a thin client for `dross serve`. Startup gate: pick a server URL,
 /// sign in via Google SSO, then the session list. Both steps are one-time (the
 /// URL is editable later in Settings; web is pre-authed via Cloudflare Access).
 class Home extends StatelessWidget {

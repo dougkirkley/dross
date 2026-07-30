@@ -27,7 +27,7 @@ func sessionTokenPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d := filepath.Join(dir, "ergon")
+	d := filepath.Join(dir, "dross")
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return "", err
 	}
@@ -81,7 +81,7 @@ func Login(ctx context.Context, server string) (string, error) {
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		t := r.URL.Query().Get("token")
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<h2>Ergon: signed in.</h2><p>You can return to the terminal.</p>")
+		fmt.Fprint(w, "<h2>Dross: signed in.</h2><p>You can return to the terminal.</p>")
 		tok <- t
 	})
 	srv := &http.Server{Handler: mux}

@@ -8,7 +8,7 @@ import '../screens/chat_screen.dart';
 import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 
-/// The left navigation drawer: a Chat tab and a Code tab (both `ergon serve`
+/// The left navigation drawer: a Chat tab and a Code tab (both `dross serve`
 /// sessions, differing only in presentation), plus recent sessions. Mirrors the
 /// Claude app's sidebar; the active tab is highlighted.
 class AppDrawer extends StatelessWidget {
@@ -28,9 +28,9 @@ class AppDrawer extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(20, 16, 20, 20),
               child: Row(
                 children: [
-                  ErgonLogo(size: 34, showWordmark: false),
+                  DrossLogo(size: 34, showWordmark: false),
                   SizedBox(width: 12),
-                  Text('Ergon', style: T.title),
+                  Text('Dross', style: T.title),
                 ],
               ),
             ),

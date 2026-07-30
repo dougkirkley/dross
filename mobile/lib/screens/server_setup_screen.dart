@@ -5,7 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
 
-/// First-run screen: enter the `ergon serve` URL. Everything else (models,
+/// First-run screen: enter the `dross serve` URL. Everything else (models,
 /// provider, permissions) is configured on the server, so this is the only
 /// setting the app needs. After this comes the Google sign-in gate.
 class ServerSetupScreen extends StatefulWidget {
@@ -51,13 +51,13 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: ErgonLogo(size: 132)),
+                const Center(child: DrossLogo(size: 132)),
                 const SizedBox(height: 32),
                 const Text('Connect to your server',
                     style: TextStyle(color: T.text, fontSize: 22, fontWeight: FontWeight.w600),
                     textAlign: TextAlign.center),
                 const SizedBox(height: 10),
-                const Text('Enter the URL of your ergon serve instance.',
+                const Text('Enter the URL of your dross serve instance.',
                     style: T.metaFaint, textAlign: TextAlign.center),
                 const SizedBox(height: 28),
                 TextField(
@@ -67,7 +67,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                   style: const TextStyle(color: T.text),
                   onSubmitted: (_) => _save(),
                   decoration: InputDecoration(
-                    hintText: 'https://ergon.example.com',
+                    hintText: 'https://dross.example.com',
                     hintStyle: const TextStyle(color: T.textFaint),
                     filled: true,
                     fillColor: T.inputBg,

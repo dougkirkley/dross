@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // scriptedProvider replays a fixed list of responses, one per Send, so a run can

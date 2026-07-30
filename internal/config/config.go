@@ -78,8 +78,8 @@ type PluginTool struct {
 	Required    []string       `json:"required,omitempty"`
 }
 
-// OAuthLogin configures the `ergon login` PKCE flow and the claude-sub
-// provider. Every value is user-supplied — ergon ships no OAuth client and
+// OAuthLogin configures the `dross login` PKCE flow and the claude-sub
+// provider. Every value is user-supplied — dross ships no OAuth client and
 // impersonates nobody. To use a Claude subscription you must fill these in
 // yourself (client id, endpoints, and the header/system-pin that scope needs).
 type OAuthLogin struct {
@@ -99,24 +99,24 @@ func (o *OAuthLogin) Configured() bool {
 }
 
 // SearchPaths returns the config file locations checked, in order. An explicit
-// path (from --config) wins; then $ERGON_CONFIG; then ./ergon.json; then
+// path (from --config) wins; then $DROSS_CONFIG; then ./dross.json; then
 // the user config dir.
 func SearchPaths(explicit string) []string {
 	var paths []string
 	if explicit != "" {
 		paths = append(paths, explicit)
 	}
-	if env := os.Getenv("ERGON_CONFIG"); env != "" {
+	if env := os.Getenv("DROSS_CONFIG"); env != "" {
 		paths = append(paths, env)
 	}
-	paths = append(paths, "ergon.json")
+	paths = append(paths, "dross.json")
 	home, _ := os.UserHomeDir()
 	dir, _ := os.UserConfigDir()
 	if home != "" {
-		paths = append(paths, filepath.Join(home, ".ergon", "settings.json"))
+		paths = append(paths, filepath.Join(home, ".dross", "settings.json"))
 	}
 	if dir != "" {
-		paths = append(paths, filepath.Join(dir, "ergon", "config.json"))
+		paths = append(paths, filepath.Join(dir, "dross", "config.json"))
 	}
 	return paths
 }

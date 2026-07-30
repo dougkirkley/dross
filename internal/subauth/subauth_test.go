@@ -3,7 +3,7 @@ package subauth
 import (
 	"testing"
 
-	"github.com/dougkirkley/ergon/internal/config"
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 func TestParseCallback(t *testing.T) {

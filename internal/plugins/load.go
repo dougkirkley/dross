@@ -6,7 +6,7 @@ import (
 )
 
 // LoadAll discovers every available skill and slash command, in precedence
-// order: project (.ergon, .claude under workdir), then user (~/.ergon,
+// order: project (.dross, .claude under workdir), then user (~/.dross,
 // ~/.claude), then installed plugins. Later duplicates of a name are dropped, so
 // project skills shadow user and plugin ones.
 func LoadAll(workdir string) []Skill {
@@ -47,7 +47,7 @@ func projectRoots(workdir string) []string {
 	if workdir == "" {
 		workdir = "."
 	}
-	return []string{filepath.Join(workdir, ".ergon"), filepath.Join(workdir, ".claude")}
+	return []string{filepath.Join(workdir, ".dross"), filepath.Join(workdir, ".claude")}
 }
 
 func userRoots() []string {
@@ -55,7 +55,7 @@ func userRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".ergon"), filepath.Join(home, ".claude")}
+	return []string{filepath.Join(home, ".dross"), filepath.Join(home, ".claude")}
 }
 
 func dedupe(in []Skill) []Skill {

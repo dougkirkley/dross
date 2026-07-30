@@ -4,7 +4,7 @@
 // api-key header. The "model" is the Azure deployment name. Import for side
 // effects to register:
 //
-//	import _ "github.com/dougkirkley/ergon/pkg/provider/azure"
+//	import _ "github.com/dougkirkley/dross/pkg/provider/azure"
 //
 // Endpoint, key, and api-version come from Config or the env: AZURE_OPENAI_ENDPOINT
 // (e.g. https://my-resource.openai.azure.com), AZURE_OPENAI_API_KEY, and
@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 const (

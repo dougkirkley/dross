@@ -4,27 +4,27 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
-// ErgonRunner runs tasks with the in-process agent, so it reports real cost.
-type ErgonRunner struct {
+// DrossRunner runs tasks with the in-process agent, so it reports real cost.
+type DrossRunner struct {
 	Provider    provider.Provider
 	Model       string
 	Worker      provider.Provider // optional
 	WorkerModel string
 }
 
-func (h *ErgonRunner) Name() string    { return "ergon" }
-func (h *ErgonRunner) Available() bool { return h.Provider != nil }
+func (h *DrossRunner) Name() string    { return "dross" }
+func (h *DrossRunner) Available() bool { return h.Provider != nil }
 
-func (h *ErgonRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics, error) {
+func (h *DrossRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics, error) {
 	opts := []agent.Option{}
 	if h.Worker != nil && h.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(h.Worker, h.WorkerModel))
 	}
-	ag, err := agent.New(agent.Config{Name: "ergon", Model: h.Model, Workdir: workdir}, h.Provider, opts...)
+	ag, err := agent.New(agent.Config{Name: "dross", Model: h.Model, Workdir: workdir}, h.Provider, opts...)
 	if err != nil {
 		return Metrics{}, err
 	}

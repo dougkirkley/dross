@@ -4,7 +4,7 @@
 // Application Default Credentials (ADC) instead of an API key. Import for side
 // effects to register:
 //
-//	import _ "github.com/dougkirkley/ergon/pkg/provider/vertex"
+//	import _ "github.com/dougkirkley/dross/pkg/provider/vertex"
 //
 // Project and region come from VERTEX_PROJECT / GOOGLE_CLOUD_PROJECT and
 // VERTEX_REGION / GOOGLE_CLOUD_LOCATION (default us-central1). Credentials come
@@ -25,7 +25,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func init() {

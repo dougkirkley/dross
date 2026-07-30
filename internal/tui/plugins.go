@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dougkirkley/ergon/internal/plugins"
+	"github.com/dougkirkley/dross/internal/plugins"
 )
 
 // editorDoneMsg is delivered after the external editor launched by /config exits.

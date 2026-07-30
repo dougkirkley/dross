@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func TestDrivenLive(t *testing.T) {
-	if os.Getenv("ERGON_LIVE") != "1" {
-		t.Skip("set ERGON_LIVE=1")
+	if os.Getenv("DROSS_LIVE") != "1" {
+		t.Skip("set DROSS_LIVE=1")
 	}
 	p, _ := provider.New("claude-code", provider.Config{})
 	s := p.NewSession(provider.SessionConfig{
 		Model:  "sonnet",
-		System: "You are ergon, a coding agent.",
+		System: "You are dross, a coding agent.",
 		Tools: []provider.ToolDef{{
 			Name:        "read",
 			Description: "Read a file from disk and return its contents.",

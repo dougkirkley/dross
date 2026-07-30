@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="ergon"
+        android:label="dross"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -25,7 +25,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Captures the ergon:// OAuth callback for flutter_web_auth_2, so
+        <!-- Captures the dross:// OAuth callback for flutter_web_auth_2, so
              the Google SSO redirect returns the session token to the app. -->
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
@@ -34,7 +34,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="ergon" />
+                <data android:scheme="dross" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

@@ -10,7 +10,7 @@ import '../widgets/new_session_sheet.dart';
 import '../widgets/prose.dart' show relTimeLong;
 import 'chat_screen.dart';
 
-/// The Chat tab list: a flat "Chats" page of `ergon serve` sessions, styled like
+/// The Chat tab list: a flat "Chats" page of `dross serve` sessions, styled like
 /// the Claude app's Chats page (title + rows only, no Devices/Sessions chrome).
 /// Backed by the same sessions as Code; tapping opens the conversational
 /// ChatScreen.
@@ -140,7 +140,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ErgonLogo(size: 132),
+              const DrossLogo(size: 132),
               const SizedBox(height: 28),
               Text('Cost-aware coding,\nin your pocket.',
                   style: T.prose.copyWith(

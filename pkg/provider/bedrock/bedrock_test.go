@@ -5,7 +5,7 @@ import (
 
 	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func TestIsAnthropicModel(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 // TestCompactRecorder proves the recorder appends one JSONL line per record and

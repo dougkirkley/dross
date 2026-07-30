@@ -1,4 +1,4 @@
-// Client models for `ergon serve`: the app attaches to server-side sessions and
+// Client models for `dross serve`: the app attaches to server-side sessions and
 // streams Events. Session/Event/PublishResult mirror the serve API
 // (internal/server); JSON is snake_case.
 

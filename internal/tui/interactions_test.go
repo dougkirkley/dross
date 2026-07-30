@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dougkirkley/ergon/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 // noRun fails if the agent is started (used to assert a keystroke did NOT begin
@@ -23,7 +23,7 @@ func noRun(t *testing.T) RunFunc {
 // TestSlashWhileRunning: a read-only slash command dispatches even while a run
 // is in progress, without starting another run.
 func TestSlashWhileRunning(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.width, m.height = 80, 24
 	m.layout()
 	m.running = true // a run is in flight
@@ -42,7 +42,7 @@ func TestSlashWhileRunning(t *testing.T) {
 // TestClearBlockedWhileRunning: /clear is refused mid-run (it would wipe an
 // active conversation).
 func TestClearBlockedWhileRunning(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.width, m.height = 80, 24
 	m.layout()
 	m.running = true
@@ -55,7 +55,7 @@ func TestClearBlockedWhileRunning(t *testing.T) {
 // TestScrollSetsScrolledUp: pgup stops auto-follow; returning to the bottom
 // resumes it.
 func TestScrollSetsScrolledUp(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.width, m.height = 80, 12
 	m.layout()
 	m.vp.SetContent(strings.Repeat("line\n", 100))
@@ -80,7 +80,7 @@ func TestScrollSetsScrolledUp(t *testing.T) {
 
 // TestSlashArgAutocomplete: after "/cmd ", argument values complete.
 func TestSlashArgAutocomplete(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.input.SetValue("/theme em")
 	ms := m.matchSlash()
 	if len(ms) != 1 || ms[0].name != "/theme ember" {
@@ -96,7 +96,7 @@ func TestSlashArgAutocomplete(t *testing.T) {
 // TestBuiltinNotHijackedBySkill: a plugin skill named like a builtin cannot
 // shadow the builtin command.
 func TestBuiltinNotHijackedBySkill(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.skillItems = []SkillItem{{Name: "help", UserInvocable: true, Body: "x"}}
 	if _, ok := m.findSkill("/help"); ok {
 		t.Fatal("/help must resolve to the builtin, not a skill")
@@ -111,7 +111,7 @@ func TestBuiltinNotHijackedBySkill(t *testing.T) {
 // TestCtrlCInterrupts: the first ctrl+c cancels the running prompt (not exit);
 // the model keeps running until the run's doneMsg arrives.
 func TestCtrlCInterrupts(t *testing.T) {
-	m := New("ergon", "m", "openai", noRun(t))
+	m := New("dross", "m", "openai", noRun(t))
 	m.width, m.height = 80, 24
 	m.layout()
 	canceled := false

@@ -11,14 +11,14 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/ergon/internal/catalog"
-	"github.com/dougkirkley/ergon/internal/plugins"
-	"github.com/dougkirkley/ergon/internal/relay"
-	"github.com/dougkirkley/ergon/internal/session"
-	"github.com/dougkirkley/ergon/internal/storage"
-	"github.com/dougkirkley/ergon/internal/tui"
-	"github.com/dougkirkley/ergon/pkg/agent"
-	"github.com/dougkirkley/ergon/pkg/provider"
+	"github.com/dougkirkley/dross/internal/catalog"
+	"github.com/dougkirkley/dross/internal/plugins"
+	"github.com/dougkirkley/dross/internal/relay"
+	"github.com/dougkirkley/dross/internal/session"
+	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/internal/tui"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func newTUICmd() *cobra.Command {
@@ -214,7 +214,7 @@ func newTUICmd() *cobra.Command {
 						}
 						opts = append(opts, agent.WithPermissionRules(rules))
 					}
-					a, err := agent.New(agent.Config{Name: "ergon", Model: st.model, Workdir: workdir, Identity: identity},
+					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err
@@ -227,10 +227,10 @@ func newTUICmd() *cobra.Command {
 			}
 
 			if once != "" {
-				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "ergon", st.model, st.name, run, once))
+				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "dross", st.model, st.name, run, once))
 				return nil
 			}
-			appName := "ergon"
+			appName := "dross"
 			if res.File.Name != "" {
 				appName = res.File.Name
 			}
@@ -419,7 +419,7 @@ func newTUICmd() *cobra.Command {
 			// If a handoff brief was saved this session, tell the user how to resume.
 			if store != nil {
 				if _, ok, _ := session.Load(store, sessionID); ok {
-					fmt.Fprintf(cmd.OutOrStdout(), "\nResume this session with:\n  ergon --resume %s\n", sessionID)
+					fmt.Fprintf(cmd.OutOrStdout(), "\nResume this session with:\n  dross --resume %s\n", sessionID)
 				}
 			}
 			return nil
@@ -456,7 +456,7 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&provName, "provider", "", "provider (default: none — set up via /model)")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
-	f.StringVar(&server, "server", "", "ergon server for /login and /rc device linking")
+	f.StringVar(&server, "server", "", "dross server for /login and /rc device linking")
 	f.StringVar(&workerProv, "worker-provider", "openai", "worker backend (for /rc)")
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation over /rc)")
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")

@@ -45,7 +45,7 @@ class _SignInScreenState extends State<SignInScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const ErgonLogo(size: 140),
+                const DrossLogo(size: 140),
                 const SizedBox(height: 34),
                 const Text('Sign in to continue',
                     style: TextStyle(color: T.text, fontSize: 22, fontWeight: FontWeight.w600)),
@@ -54,7 +54,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     style: T.metaFaint, textAlign: TextAlign.center),
                 const SizedBox(height: 32),
                 if (_busy)
-                  const ErgonSpinner(size: 30)
+                  const DrossSpinner(size: 30)
                 else
                   PillButton(
                     label: 'Sign in with Google',
