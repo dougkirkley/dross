@@ -49,6 +49,15 @@ func newRCCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
 
+			// Resolve the server URL: flag, else $DROSS_SERVER. Without it the
+			// login URL is malformed and no browser opens.
+			if server == "" {
+				server = os.Getenv("DROSS_SERVER")
+			}
+			if server == "" {
+				return fmt.Errorf("no server set: pass --server https://your-dross-host (or set DROSS_SERVER)")
+			}
+
 			// Authenticate as the SSO user (stored session, or sign in now).
 			if token == "" {
 				token = relay.LoadToken(server)

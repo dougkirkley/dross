@@ -89,7 +89,13 @@ func Login(ctx context.Context, server string) (string, error) {
 	defer srv.Close()
 
 	loginURL := strings.TrimRight(server, "/") + "/auth/login?mode=cli&redirect=" + url.QueryEscape(redirect)
-	_ = openBrowser(loginURL)
+	// Always print the URL: openBrowser is best-effort (it fails silently on
+	// headless hosts, over SSH, or when no handler is registered), so the user
+	// needs a copyable link to fall back to.
+	if err := openBrowser(loginURL); err != nil {
+		fmt.Fprintf(os.Stderr, "couldn't open a browser automatically.\n")
+	}
+	fmt.Fprintf(os.Stderr, "sign in at:\n  %s\n", loginURL)
 
 	select {
 	case <-ctx.Done():
