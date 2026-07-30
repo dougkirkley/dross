@@ -1510,8 +1510,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.quitCmd()
 			}
 			m.lastCtrlC = time.Now()
-			m.append(metaStyle.Render("press ctrl+c again to exit"))
-			return m, nil
+			// Hint shows under the prompt (footer), not in the transcript; the tick
+			// re-renders to clear it after the window closes.
+			return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return copyClearedMsg{} })
 		case "esc":
 			// Esc no longer quits (exit is double-ctrl+c or /exit); it clears the
 			// input if there's anything typed.
@@ -2802,6 +2803,10 @@ func (m Model) footer() string {
 	// A brief "copied" confirmation after any copy (drag-select, ctrl+y, /copy).
 	if !m.copiedAt.IsZero() && time.Since(m.copiedAt) < 2*time.Second {
 		mode += checkStyle.Render("  · ✓ copied to clipboard")
+	}
+	// First ctrl+c (when idle) shows the exit hint here, under the prompt.
+	if !m.running && !m.lastCtrlC.IsZero() && time.Since(m.lastCtrlC) < time.Second {
+		mode += goldStyle.Render("  · press ctrl+c again to exit")
 	}
 	// Bottom bar: mode/hints on the left, context meter + cost on the right.
 	modeLeft := "  " + mode
