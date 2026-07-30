@@ -408,7 +408,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant:  1, // gradient fade (default)
-		welcomeStyle: 2, // centered Dross splash (default)
+		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
 		sessions:    []session{{}},
 	}

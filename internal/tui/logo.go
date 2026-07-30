@@ -19,26 +19,10 @@ var drossArtRaw string
 // drossArtColored dedents the embedded art and colors it with the purple
 // gradient (animated with phase when driven, static top-to-bottom otherwise).
 func drossArtColored(phase float64) string {
-	lines := strings.Split(strings.Trim(drossArtRaw, "\n"), "\n")
-	minIndent := 1 << 30
-	for _, l := range lines {
-		if strings.TrimSpace(l) == "" {
-			continue
-		}
-		if n := len(l) - len(strings.TrimLeft(l, " ")); n < minIndent {
-			minIndent = n
-		}
-	}
-	if minIndent == 1<<30 {
-		minIndent = 0
-	}
+	lines := dedentLines(drossArtRaw)
 	n := len(lines)
 	out := make([]string, n)
 	for i, l := range lines {
-		if len(l) >= minIndent {
-			l = l[minIndent:]
-		}
-		l = strings.TrimRight(l, " ")
 		var c string
 		if phase >= 0 {
 			c = rampColorCyclic(holoLoop, phase+0.03*float64(i))
@@ -84,26 +68,48 @@ var holoLoop = []string{"#E9D5FF", "#C084FC", "#A855F7", "#8B5CF6", "#E06CE6", "
 // bottom, that gives the block wordmark its purple sheen.
 var purpleRamp = []string{"#D8B4FE", "#C084FC", "#A855F7", "#8B5CF6", "#7C3AED"}
 
-// drossMascot is the little Dross spirit — a round one-eyed blob (heavy brow,
-// small mouth) with two wavy tendril legs. Kept to 5 rows so it sits beside the
-// block wordmark; every row is the same width so it stays aligned.
-var drossMascot = []string{
-	" .---. ",
-	"|=== | ",
-	"|(o) | ",
-	" \\   / ",
-	" )/ \\( ",
+// drossMascotRaw is the compact Dross spirit (a small shaded one-eyed blob with
+// tendrils) drawn beside the wordmark in the clean top-left layout.
+//
+//go:embed dross_mascot.txt
+var drossMascotRaw string
+
+// dedentLines splits raw into lines, drops leading/trailing blank lines, strips
+// the common left indent, and trims trailing spaces — so embedded ASCII art
+// left-aligns cleanly.
+func dedentLines(raw string) []string {
+	lines := strings.Split(strings.Trim(raw, "\n"), "\n")
+	minIndent := 1 << 30
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if n := len(l) - len(strings.TrimLeft(l, " ")); n < minIndent {
+			minIndent = n
+		}
+	}
+	if minIndent == 1<<30 {
+		minIndent = 0
+	}
+	for i, l := range lines {
+		if len(l) >= minIndent {
+			l = l[minIndent:]
+		}
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
 }
 
-// mascotColored renders the Dross mascot in the purple gradient (animated with
-// phase when driven, static top-to-bottom otherwise).
+// mascotColored renders the compact Dross mascot in the purple gradient
+// (animated with phase when driven, static top-to-bottom otherwise).
 func mascotColored(phase float64) string {
-	n := len(drossMascot)
+	lines := dedentLines(drossMascotRaw)
+	n := len(lines)
 	out := make([]string, n)
-	for i, l := range drossMascot {
+	for i, l := range lines {
 		var c string
 		if phase >= 0 {
-			c = rampColorCyclic(holoLoop, phase+0.1*float64(i))
+			c = rampColorCyclic(holoLoop, phase+0.08*float64(i))
 		} else {
 			c = rampColor(purpleRamp, float64(i)/float64(n-1))
 		}
