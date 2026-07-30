@@ -136,11 +136,17 @@ lists what's loaded. Installed plugins live under `~/.dross/`.
   `/mouse` (toggle mouse capture), `/clear`, `/init` (generate `AGENTS.md`),
   `/help`, `/login`, `/rc`.
   User-invocable skills also appear as `/<skill-name>`.
-- **Mouse** is on by default so the scroll wheel scrolls the transcript (and
-  click-to-expand tool output works). Text selection still works with your
-  terminal's modifier — Shift-drag on most terminals, Option-drag in macOS
-  Terminal/iTerm2; `/mouse` turns capture off for plain drag-select. `pgup` /
-  `ctrl+u` / `ctrl+d` also scroll.
+- **Mouse is off by default** so your terminal keeps native text selection and
+  right-click copy. Scroll history with the keyboard (`pgup`/`pgdn`,
+  `ctrl+u`/`ctrl+d`). `/mouse` turns on capture (wheel scrolls the viewport +
+  click-to-expand tool output) at the cost of native drag-select.
+- **Copy** — `ctrl+y` copies the last reply to the clipboard; `/copy` copies the
+  whole transcript. Both use the OS clipboard (pbcopy/xclip/wl-copy) plus OSC 52,
+  so they work locally and over SSH.
+- **Exit** takes two `ctrl+c` within a second (or `/exit`); a single `ctrl+c`
+  while a run is in flight interrupts it. `esc` clears the input, it doesn't quit.
+- **Follow-ups** — after a run, recommended next prompts appear above the input;
+  `↑`/`↓` to pick, `tab` to drop one in to edit and send.
 - The model can also edit `dross`'s own config on request via a built-in
   `config` tool (e.g. "set my worker to qwen3-coder").
 - **`!cmd`** — run a shell command directly (gold prompt border).

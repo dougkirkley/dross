@@ -177,6 +177,8 @@ var slashCommands = []slashCmd{
 	{"/usage", "token and cost usage by model"},
 	{"/tools", "expand full tool commands + output"},
 	{"/clear", "start a fresh session"},
+	{"/copy", "copy the whole transcript to the clipboard"},
+	{"/exit", "quit dross"},
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
 	{"/theme", "switch color theme"},
@@ -311,7 +313,11 @@ type Model struct {
 	pickOrder  []int // session indices in switcher display order
 	helpOpen   bool  // shortcuts overlay open
 
-	lines []string // rendered log lines
+	lines       []string  // rendered log lines
+	lastReply   string    // raw text of the last assistant reply (for ctrl+y copy)
+	lastCtrlC   time.Time // for double-ctrl+c-to-exit
+	suggestions []string  // recommended follow-up prompts after a run (tab to use)
+	sugSel      int       // highlighted suggestion
 
 	run  RunFunc
 	msgs chan tea.Msg
@@ -413,7 +419,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		logoVariant:  1, // gradient fade (default)
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
-		mouseOn:      true, // wheel scrolls; /mouse toggles off for plain select
+		mouseOn:      false, // off by default: native selection + right-click copy
 		sessions:    []session{{}},
 	}
 }
@@ -504,6 +510,16 @@ func (m *Model) removeSession(i int) {
 // file (see SetPhrases).
 // DefaultPhrases are in the voice of Dross — the dramatic, brilliant spirit
 // companion the project is named for.
+// followUpSuggestions are recommended next prompts shown after a run finishes
+// (above an empty input; tab drops the highlighted one in to edit/send).
+var followUpSuggestions = []string{
+	"Run the tests and fix anything that fails",
+	"Commit the changes with a clear message",
+	"Explain what you changed and why",
+	"Review the diff for bugs or edge cases",
+	"Write tests for the new code",
+}
+
 var DefaultPhrases = []string{
 	"Running the simulations",
 	"Consulting my vast intellect",
@@ -917,6 +933,18 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.toolViewOpen = true
 		m.toolSel = len(m.toolRecs) - 1 // start on the most recent
 		return true, nil
+	case "/copy":
+		m.input.Reset()
+		if len(m.lines) == 0 {
+			m.append(metaStyle.Render("nothing to copy yet"))
+			return true, nil
+		}
+		copyToClipboard(stripANSI(strings.Join(m.lines, "\n")))
+		m.append(checkStyle.Render("✓ copied transcript to clipboard"))
+		return true, nil
+	case "/exit", "/quit":
+		m.input.Reset()
+		return true, m.quitCmd()
 	case "/clear":
 		m.input.Reset()
 		if m.running {
@@ -1266,6 +1294,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, c
 			}
 		}
+		// Post-run suggestions: with an empty input, offer recommended follow-up
+		// prompts. up/down to pick, tab to drop it into the input to edit/send.
+		if strings.TrimSpace(m.input.Value()) == "" && !m.running && len(m.suggestions) > 0 {
+			switch msg.String() {
+			case "up":
+				if m.sugSel > 0 {
+					m.sugSel--
+				}
+				return m, nil
+			case "down":
+				if m.sugSel < len(m.suggestions)-1 {
+					m.sugSel++
+				}
+				return m, nil
+			case "tab", "right":
+				m.input.SetValue(m.suggestions[m.sugSel])
+				m.input.CursorEnd()
+				m.suggestions, m.sugSel = nil, 0
+				return m, nil
+			}
+		}
 		// Session switcher overlay captures keys.
 		if m.pickerOpen {
 			switch msg.String() {
@@ -1423,15 +1472,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "ctrl+c":
-			// First ctrl+c interrupts the running prompt; when idle it exits.
+			// While running, ctrl+c interrupts the prompt. When idle, exit requires
+			// a confirming second ctrl+c within a second (no accidental quit).
 			if m.running && m.runCancel != nil {
 				m.runCancel()
 				m.append(metaStyle.Render("interrupting…"))
 				return m, nil
 			}
-			return m, m.quitCmd()
+			if time.Since(m.lastCtrlC) < time.Second {
+				return m, m.quitCmd()
+			}
+			m.lastCtrlC = time.Now()
+			m.append(metaStyle.Render("press ctrl+c again to exit"))
+			return m, nil
 		case "esc":
-			return m, m.quitCmd()
+			// Esc no longer quits (exit is double-ctrl+c or /exit); it clears the
+			// input if there's anything typed.
+			if strings.TrimSpace(m.input.Value()) != "" {
+				m.input.Reset()
+			}
+			return m, nil
+		case "ctrl+y":
+			// Copy the last assistant reply to the system clipboard (no mouse
+			// selection needed).
+			if strings.TrimSpace(m.lastReply) != "" {
+				copyToClipboard(m.lastReply)
+				m.append(checkStyle.Render("✓ copied last reply to clipboard"))
+			}
+			return m, nil
 		case "pgup":
 			m.vp.ViewUp()
 			m.scrolledUp = !m.vp.AtBottom()
@@ -1470,6 +1538,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				m.scrolledUp = false // a new prompt jumps back to following output
+				m.suggestions, m.sugSel = nil, 0
 				prompt := m.input.Value()
 				// "!cmd" runs a shell command directly instead of prompting the
 				// agent, like Claude Code's bash escape.
@@ -1520,6 +1589,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.turns = msg.res.Turns
 			// No completion/recap line: the final message is already in the
 			// transcript, and cost/turns show in the footer.
+			// Offer recommended follow-ups (shown above an empty input; tab to use).
+			m.suggestions, m.sugSel = followUpSuggestions, 0
 		}
 		// Fire the next queued message, if any.
 		if len(m.queue) > 0 {
@@ -2623,6 +2694,17 @@ func (m Model) footer() string {
 				rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
 			}
 			suggest = strings.Join(rows, "\n") + "\n"
+		} else if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) > 0 {
+			// Recommended follow-ups after a run: tab drops the highlighted one in.
+			rows := []string{metaStyle.Render("try next  (↑/↓ · tab to use)")}
+			for i, s := range m.suggestions {
+				cur, style := "  ", metaStyle
+				if i == m.sugSel {
+					cur, style = promptMark.Render("› "), agentText
+				}
+				rows = append(rows, cur+style.Render(s))
+			}
+			suggest = strings.Join(rows, "\n") + "\n"
 		}
 	}
 	box = suggest + box
@@ -2686,7 +2768,8 @@ func (m *Model) applyEvent(e agent.Event) {
 	case "text":
 		if !worker {
 			m.lastText = truncate(oneLine(e.Data), 70)
-			m.bashCmd = "" // a message means the foreground command finished
+			m.lastReply = e.Data // full text, for ctrl+y copy
+			m.bashCmd = ""       // a message means the foreground command finished
 		}
 		// Headline (the model's one-line summary) sits next to the name; the rest
 		// of the body is left-aligned underneath, not hang-indented under the label.
