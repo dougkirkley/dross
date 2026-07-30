@@ -206,9 +206,22 @@ class _OrbPainter extends CustomPainter {
       blink = math.sin(p * math.pi); // 0 -> 1 -> 0
     }
 
+    // Scratch: occasionally the right arm rises to scratch the unibrow while the
+    // face scrunches up with the effort (squint + furrowed brow). raise 0..1.
+    double raise = 0, wig = 0;
+    const s0 = 0.12, s1 = 0.42;
+    if (scratch >= s0 && scratch <= s1) {
+      final p = (scratch - s0) / (s1 - s0); // 0..1
+      raise = math.sin(p * math.pi); // ease up, hold, ease down
+      wig = math.sin(p * math.pi * 10) * raise; // fast scratching motion
+    }
+
+    final cx = bodyC.dx, cy = bodyC.dy, r = bodyR;
     final eyeC = Offset(w * 0.5, bodyC.dy);
     final eyeR = w * 0.16;
-    final eyeH = eyeR * (1 - 0.9 * blink); // squash vertically on blink
+    // Squash on blink; a strong squint while scrunching the face.
+    final close = math.max(0.9 * blink, 0.6 * raise);
+    final eyeH = eyeR * (1 - close);
 
     // Eyeball (an oval so it can squash shut).
     canvas.drawOval(
@@ -216,20 +229,25 @@ class _OrbPainter extends CustomPainter {
       Paint()..color = _eyeWhite,
     );
 
-    // Pupil darts left/right; hidden while blinking.
-    if (blink < 0.6) {
+    // Pupil darts left/right; while scrunching it rolls up toward the itch.
+    if (close < 0.6) {
       final dart = math.sin(tau * t) * eyeR * 0.45;
       canvas.drawCircle(
-        Offset(eyeC.dx + dart, eyeC.dy),
-        eyeR * 0.55 * (1 - blink),
+        Offset(eyeC.dx + dart, eyeC.dy - eyeR * 0.35 * raise),
+        eyeR * 0.55 * (1 - close),
         Paint()..color = _dark,
       );
     }
 
-    // Heavy half-lid brow for the unimpressed Dross look.
+    // Heavy unibrow. Rests half-lidded and unimpressed; furrows down and inward
+    // (an annoyed scrunch) as the face works at the itch.
+    final browL = Offset.lerp(Offset(eyeC.dx - eyeR * 1.05, eyeC.dy - eyeR * 0.7),
+        Offset(eyeC.dx - eyeR * 1.0, eyeC.dy - eyeR * 0.32), raise)!;
+    final browR = Offset.lerp(Offset(eyeC.dx + eyeR * 1.15, eyeC.dy - eyeR * 0.95),
+        Offset(eyeC.dx + eyeR * 0.85, eyeC.dy - eyeR * 0.5), raise)!;
     canvas.drawLine(
-      Offset(eyeC.dx - eyeR * 1.05, eyeC.dy - eyeR * 0.7),
-      Offset(eyeC.dx + eyeR * 1.15, eyeC.dy - eyeR * 0.95),
+      browL,
+      browR,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = w * 0.075
@@ -237,14 +255,20 @@ class _OrbPainter extends CustomPainter {
         ..color = _dark,
     );
 
-    // Arms. The left rests at the side; the right occasionally raises to
-    // scratch the top of the head (a fast wiggle at the peak of the raise).
-    double raise = 0, wig = 0;
-    const s0 = 0.12, s1 = 0.40;
-    if (scratch >= s0 && scratch <= s1) {
-      final p = (scratch - s0) / (s1 - s0); // 0..1
-      raise = math.sin(p * math.pi); // ease up, hold, ease down
-      wig = math.sin(p * math.pi * 9) * raise; // fast scratching motion
+    // A small scrunched mouth appears while concentrating on the itch.
+    if (raise > 0.15) {
+      final my = eyeC.dy + eyeR * 1.15;
+      canvas.drawPath(
+        Path()
+          ..moveTo(eyeC.dx - eyeR * 0.4, my)
+          ..quadraticBezierTo(
+              eyeC.dx, my - eyeR * 0.3 * raise, eyeC.dx + eyeR * 0.4, my),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w * 0.045
+          ..strokeCap = StrokeCap.round
+          ..color = _dark.withValues(alpha: raise),
+      );
     }
 
     final armPaint = Paint()
@@ -253,7 +277,6 @@ class _OrbPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..color = _arm;
-    final cx = bodyC.dx, cy = bodyC.dy, r = bodyR;
 
     // Left arm — resting.
     canvas.drawPath(
@@ -264,11 +287,11 @@ class _OrbPainter extends CustomPainter {
       armPaint,
     );
 
-    // Right arm — lerps from resting to raised-at-head, then wiggles.
+    // Right arm — lerps from resting up to the unibrow, then scratches across it.
     final rElbow = Offset.lerp(Offset(cx + r * 1.15, cy + r * 0.6),
-        Offset(cx + r * 1.2, cy - r * 0.35), raise)!;
+        Offset(cx + r * 0.95, cy - r * 0.1), raise)!;
     final rHand = Offset.lerp(Offset(cx + r * 0.95, cy + r * 1.15),
-        Offset(cx + r * 0.25 + wig * r * 0.3, cy - r * 1.05), raise)!;
+        Offset(eyeC.dx + wig * eyeR * 0.7, eyeC.dy - eyeR * 1.05), raise)!;
     canvas.drawPath(
       Path()
         ..moveTo(cx + r * 0.72, cy + r * 0.15)
