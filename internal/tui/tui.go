@@ -2296,8 +2296,12 @@ func (m Model) modelBox(bodyH int) string {
 		subRow = metaStyle.Render("› choose the lead model for planning and hard tasks")
 	}
 
-	// Windowed model list around the selection.
-	maxList := bodyH - 10
+	// Windowed model list around the selection: a small fixed viewport that
+	// scrolls, not a full-height dump of every model.
+	maxList := 12
+	if h := bodyH - 10; h < maxList {
+		maxList = h
+	}
 	if maxList < 4 {
 		maxList = 4
 	}

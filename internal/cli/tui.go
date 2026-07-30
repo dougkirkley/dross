@@ -332,9 +332,14 @@ func newTUICmd() *cobra.Command {
 								key = os.Getenv(c.APIKeyEnv)
 							}
 						}
-						if p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key}); err == nil {
-							st.name, st.baseURL, st.apiKey, st.prov = prov, base, key, p
+						p, err := provider.New(impl, provider.Config{BaseURL: base, APIKey: key})
+						if err != nil {
+							// Don't half-apply: leaving st.model set with a nil
+							// provider makes every run report "no model configured".
+							// Keep the previous working model/provider instead.
+							return
 						}
+						st.name, st.baseURL, st.apiKey, st.prov = prov, base, key, p
 					}
 					st.model = model
 					_ = saveLeadProvider(cfgPath, st)
