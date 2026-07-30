@@ -79,6 +79,21 @@ and returns the link. Use it when the user wants to see or share a produced
 artifact — a screenshot, a rendered image or gif, an exported report. Include
 the returned URL in your reply.`
 
+const sandboxGuidance = `
+
+This is a sandboxed session. HOME, PATH, and every package-manager prefix
+(go, npm, pip, cargo, ...) point inside the workspace, so anything you install
+stays in this session and is immediately on PATH — you keep access to all global
+tools and env, but must never write outside the workspace.
+- Install with the normal commands; they already land in the sandbox: ` + "`go install`" + `,
+  ` + "`npm install -g`" + `, ` + "`pip install --user`" + `, ` + "`cargo install`" + `.
+- To install a language toolchain/SDK (Go, Node, ...), download and unpack it
+  under $DROSS_TOOLS (e.g. extract Go to $DROSS_TOOLS/go). $DROSS_TOOLS/<name>/bin
+  is already on PATH, so the tool works in your next command.
+- NEVER use sudo or doas, and never a system package manager (apt/apk/brew) or a
+  path outside the workspace — you have no root, don't need it, and such changes
+  won't persist. $DROSS_WORKSPACE is the workspace root; $DROSS_TOOLS holds SDKs.`
+
 func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
 	p := basePrompt
 	if hasWorker {
@@ -86,6 +101,9 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
 	}
 	if hasPublish {
 		p += publishGuidance
+	}
+	if cfg.Sandbox {
+		p += sandboxGuidance
 	}
 	if d := styleDirective(cfg.Style); d != "" {
 		p += "\n" + d

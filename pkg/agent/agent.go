@@ -57,6 +57,11 @@ type Config struct {
 	MaxTokens int    // per-turn output cap; 0 = provider default
 	MaxTurns  int    // tool-loop iterations before giving up; 0 = default (defaultMaxTurns)
 	Style     Style  // output verbosity; default StyleNormal
+	// Sandbox scopes HOME/PATH and package-manager prefixes into the workspace so
+	// tool installs stay inside the session and never touch the host. Enabled for
+	// pod-hosted remote Code sessions; left off for local CLI and device-relay
+	// (remote-control) sessions, which use the user's real environment.
+	Sandbox bool
 }
 
 // Event is emitted for each step of a run so callers can stream progress.
@@ -419,7 +424,7 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 	if cfg.Workdir == "" {
 		return nil, fmt.Errorf("agent %q: Workdir is required", cfg.Name)
 	}
-	ws, err := newWorkspace(cfg.Workdir)
+	ws, err := newWorkspace(cfg.Workdir, cfg.Sandbox)
 	if err != nil {
 		return nil, err
 	}
@@ -1018,6 +1023,9 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
+		if msg := a.ws.blockedCmd(in.Command); msg != "" {
+			return msg, true
+		}
 		if in.Background {
 			return a.startBackground(ctx, in.Command)
 		}
@@ -1179,6 +1187,7 @@ func (a *Agent) delegateOne(ctx context.Context, task, name string) (*Result, st
 		Identity: workerIdentity,
 		Model:    a.worker.model,
 		Workdir:  a.ws.root,
+		Sandbox:  a.cfg.Sandbox, // share the parent's sandboxed env
 	}, a.worker.prov, WithEventHook(func(e Event) {
 		a.emit("worker:"+e.Kind, name+workerTagSep+e.Data)
 	}))

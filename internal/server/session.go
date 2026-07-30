@@ -344,6 +344,10 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 	ag, err := agent.New(agent.Config{
 		Name: "dross", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
+		// Pod-hosted Code sessions are sandboxed: tool installs stay in the
+		// per-session workspace. Device (remote-control) sessions never reach
+		// here — they relay to the linked machine and use its real environment.
+		Sandbox: true,
 	}, m.lead, opts...)
 	if err != nil {
 		return err

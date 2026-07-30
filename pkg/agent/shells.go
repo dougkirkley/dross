@@ -71,6 +71,9 @@ func (a *Agent) startBackground(ctx context.Context, command string) (string, bo
 	s := &shell{id: id, command: command, start: time.Now()}
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = a.ws.root
+	if a.ws.env != nil {
+		cmd.Env = a.ws.env
+	}
 	sink := io.MultiWriter(writerFunc(s.write), shellEmitWriter{a: a, id: id})
 	cmd.Stdout, cmd.Stderr = sink, sink
 	s.cmd = cmd
@@ -185,6 +188,9 @@ func (a *Agent) runForegroundBash(ctx context.Context, command string) (string, 
 	s := &shell{command: command, start: time.Now()}
 	cmd := exec.CommandContext(childCtx, "bash", "-c", command)
 	cmd.Dir = a.ws.root
+	if a.ws.env != nil {
+		cmd.Env = a.ws.env
+	}
 	sink := fgSink{a: a, s: s}
 	cmd.Stdout, cmd.Stderr = sink, sink
 	s.cmd = cmd

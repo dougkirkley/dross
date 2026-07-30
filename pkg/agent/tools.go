@@ -78,10 +78,12 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 // manual/auto/accept-edits/plan modes) is phase 4 — for now the workspace root
 // is the boundary and bash runs with a timeout.
 type workspace struct {
-	root string
+	root  string
+	tools string   // sandbox: where SDKs/toolchains install ($DROSS_TOOLS); "" if not sandboxed
+	env   []string // sandbox: scoped process env for bash/monitor; nil = inherit parent env
 }
 
-func newWorkspace(root string) (*workspace, error) {
+func newWorkspace(root string, sandbox bool) (*workspace, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -93,7 +95,101 @@ func newWorkspace(root string) (*workspace, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("workspace %s is not a directory", abs)
 	}
-	return &workspace{root: abs}, nil
+	w := &workspace{root: abs}
+	if sandbox {
+		if err := w.initSandbox(); err != nil {
+			return nil, err
+		}
+	}
+	return w, nil
+}
+
+// sandboxDir is the hidden root under the workspace holding the session's HOME
+// and installed toolchains. Kept out of file listings/search (see skipDir).
+const sandboxDir = ".dross"
+
+// initSandbox inherits the host's full environment and binaries, then redirects
+// every default write/install location into a hidden dir under the workspace.
+// The model keeps access to all global tools and env vars, but anything it
+// installs (go, node, npm, pip, cargo, a downloaded SDK) lands inside this
+// session — never in the host's real HOME or system dirs — and is immediately on
+// PATH. Note: this scopes where tools write by convention; hard filesystem
+// isolation is the container's job (e.g. a read-only rootfs with the workspace
+// as the only writable mount).
+func (w *workspace) initSandbox() error {
+	home := filepath.Join(w.root, sandboxDir, "home")
+	tools := filepath.Join(w.root, sandboxDir, "tools")
+	dirs := []string{
+		home, tools,
+		filepath.Join(tools, "bin"),
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".npm-global", "bin"),
+		filepath.Join(home, ".cargo", "bin"),
+		filepath.Join(home, ".local", "bin"),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return fmt.Errorf("sandbox %s: %w", d, err)
+		}
+	}
+	w.tools = tools
+
+	// PATH: sandbox bins first (so installed tools win and a freshly-installed
+	// toolchain is usable in the next command), then the inherited PATH so all
+	// global binaries still resolve. $DROSS_TOOLS/<name>/bin is the convention
+	// for an extracted SDK (e.g. Go at $DROSS_TOOLS/go).
+	binDirs := []string{
+		filepath.Join(tools, "bin"),
+		filepath.Join(tools, "go", "bin"),
+		filepath.Join(tools, "node", "bin"),
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".npm-global", "bin"),
+		filepath.Join(home, ".cargo", "bin"),
+		filepath.Join(home, ".local", "bin"),
+	}
+	path := strings.Join(binDirs, string(os.PathListSeparator))
+	if base := os.Getenv("PATH"); base != "" {
+		path += string(os.PathListSeparator) + base
+	}
+
+	// Inherit the whole parent env, then append overrides. exec uses the last
+	// value for a duplicate key, so these win while everything else carries over.
+	env := append(os.Environ(),
+		"HOME="+home,
+		"PATH="+path,
+		"DROSS_WORKSPACE="+w.root,
+		"DROSS_TOOLS="+tools,
+		"GOPATH="+filepath.Join(home, "go"),
+		"GOBIN="+filepath.Join(home, "go", "bin"),
+		"GOCACHE="+filepath.Join(home, ".cache", "go-build"),
+		"npm_config_prefix="+filepath.Join(home, ".npm-global"),
+		"npm_config_cache="+filepath.Join(home, ".npm-cache"),
+		"PNPM_HOME="+filepath.Join(home, ".pnpm"),
+		"CARGO_HOME="+filepath.Join(home, ".cargo"),
+		"RUSTUP_HOME="+filepath.Join(home, ".rustup"),
+		"PYTHONUSERBASE="+filepath.Join(home, ".local"),
+		"PIP_CACHE_DIR="+filepath.Join(home, ".pip-cache"),
+	)
+	w.env = env
+	return nil
+}
+
+// sudoRE matches a `sudo` (or `doas`) invocation: at the start of the command
+// or right after a shell separator. Used to block privilege escalation in
+// sandboxed sessions.
+var sudoRE = regexp.MustCompile(`(^|[\s;&|(])(sudo|doas)\b`)
+
+// blockedCmd returns a message to hand back to the model instead of running the
+// command, or "" to allow it. Only enforced in sandboxed sessions. The model is
+// told why and what to do instead, so it self-corrects rather than retrying.
+func (w *workspace) blockedCmd(command string) string {
+	if w.env == nil { // not sandboxed: no restrictions
+		return ""
+	}
+	if sudoRE.MatchString(command) {
+		return "[blocked] sudo/doas is not allowed in this sandboxed session and you never need it: HOME, PATH, and every package-manager prefix already point inside the writable workspace. Install and write there (e.g. under $DROSS_TOOLS), no root required."
+	}
+	return ""
 }
 
 // grep searches file contents under path (or the whole workspace) for a regexp,
@@ -204,7 +300,7 @@ func (w *workspace) glob(pattern string) (string, error) {
 
 func skipDir(name string) bool {
 	switch name {
-	case ".git", "node_modules", "vendor", ".venv", "dist", "build":
+	case ".git", "node_modules", "vendor", ".venv", "dist", "build", sandboxDir:
 		return true
 	}
 	return false
@@ -446,6 +542,9 @@ func (f flexSeconds) durationOr(def time.Duration) time.Duration {
 // It's how the agent waits on async state — a server coming up, CI finishing, a
 // file appearing — without spending turns re-checking.
 func (w *workspace) monitor(command string, interval, timeout time.Duration) (string, error) {
+	if msg := w.blockedCmd(command); msg != "" {
+		return msg, nil
+	}
 	ctx, cancel := contextWithTimeout(timeout)
 	defer cancel()
 	start := time.Now()
@@ -454,6 +553,9 @@ func (w *workspace) monitor(command string, interval, timeout time.Duration) (st
 		checks++
 		cmd := exec.CommandContext(ctx, "bash", "-c", command)
 		cmd.Dir = w.root
+		if w.env != nil {
+			cmd.Env = w.env
+		}
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			body := strings.TrimSpace(string(out))
@@ -478,11 +580,17 @@ func (w *workspace) monitor(command string, interval, timeout time.Duration) (st
 // runBash executes a command with the workspace as cwd, capturing combined
 // output and exit code. Bounded by a timeout. Phase 4 adds permission gating.
 func (w *workspace) runBash(command string) (string, error) {
+	if msg := w.blockedCmd(command); msg != "" {
+		return msg, nil
+	}
 	ctx, cancel := contextWithTimeout(bashTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = w.root
+	if w.env != nil {
+		cmd.Env = w.env
+	}
 	out, err := cmd.CombinedOutput()
 
 	result := string(out)

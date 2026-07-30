@@ -20,7 +20,7 @@ func TestWorkspaceGrepGlob(t *testing.T) {
 	must("cmd/tool/main.go", "package main\n// TODO: wire it\n")
 	must("readme.md", "docs\n")
 
-	w, err := newWorkspace(dir)
+	w, err := newWorkspace(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
