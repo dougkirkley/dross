@@ -17,7 +17,7 @@ import (
 // an error if credentials/region are unavailable; callers fall back to the
 // catalog list.
 func ListModels(ctx context.Context) ([]string, error) {
-	awsCfg, err := awscfg.LoadDefaultConfig(ctx)
+	awsCfg, err := awscfg.LoadDefaultConfig(ctx, loadOpts()...)
 	if err != nil {
 		return nil, err
 	}

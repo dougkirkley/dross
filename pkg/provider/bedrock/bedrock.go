@@ -14,6 +14,7 @@ package bedrock
 
 import (
 	"context"
+	"os"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
@@ -25,18 +26,37 @@ import (
 	"github.com/dougkirkley/dross/pkg/provider/anthropic"
 )
 
+// envRegion returns the region from AWS_REGION (then AWS_DEFAULT_REGION), or "".
+func envRegion() string {
+	if r := os.Getenv("AWS_REGION"); r != "" {
+		return r
+	}
+	return os.Getenv("AWS_DEFAULT_REGION")
+}
+
+// loadOpts pins the region from the AWS_REGION env vars when set, so a us./eu./
+// apac. inference profile matches the region it's invoked in.
+func loadOpts() []func(*awscfg.LoadOptions) error {
+	if r := envRegion(); r != "" {
+		return []func(*awscfg.LoadOptions) error{awscfg.WithRegion(r)}
+	}
+	return nil
+}
+
 func init() {
 	provider.Register("bedrock", func(cfg provider.Config) (provider.Provider, error) {
+		ctx := context.Background()
 		opts := []option.RequestOption{
-			// Resolves credentials and region from the AWS default chain.
-			bedrock.WithLoadDefaultConfig(context.Background()),
+			// Resolves credentials and region from the AWS default chain
+			// (region pinned from AWS_REGION / AWS_DEFAULT_REGION when set).
+			bedrock.WithLoadDefaultConfig(ctx, loadOpts()...),
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 		}
 		p := &prov{claude: anthropic.NewWithClient(sdk.NewClient(opts...), "bedrock")}
 		// Converse client for non-Claude models (Llama, Nova, Mistral, …).
-		if awsCfg, err := awscfg.LoadDefaultConfig(context.Background()); err == nil {
+		if awsCfg, err := awscfg.LoadDefaultConfig(ctx, loadOpts()...); err == nil {
 			p.brc = bedrockruntime.NewFromConfig(awsCfg)
 		}
 		return p, nil
