@@ -3068,18 +3068,29 @@ func (m *Model) applyEvent(e agent.Event) {
 			Added   int    `json:"added"`
 			Removed int    `json:"removed"`
 			Diff    string `json:"diff"`
+			New     bool   `json:"new"`
+			Content string `json:"content"`
 		}
 		if json.Unmarshal([]byte(e.Data), &ed) == nil {
 			base := ed.File
 			if i := strings.LastIndexByte(base, '/'); i >= 0 {
 				base = base[i+1:]
 			}
-			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
-				diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
-				diffDelStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
 			bandW := m.width - len([]rune(indent)) - 2
-			for _, l := range renderDiff(ed.Diff, bandW, 200) {
-				m.append(indent + "  " + l)
+			if ed.New {
+				// New file: print its content, not a diff.
+				m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("created ") + toolName.Render(base) + " " +
+					diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)))
+				for _, l := range renderFileContent(ed.Content, bandW, 200) {
+					m.append(indent + "  " + l)
+				}
+			} else {
+				m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
+					diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
+					diffDelStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
+				for _, l := range renderDiff(ed.Diff, bandW, 200) {
+					m.append(indent + "  " + l)
+				}
 			}
 		}
 	case "usage":

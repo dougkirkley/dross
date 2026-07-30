@@ -29,6 +29,38 @@ func extractNext(s string) (clean, next string) {
 // diffGap marks collapsed unchanged regions in a rendered diff.
 const diffGap = "  ⋮"
 
+// renderFileContent renders raw file content as line-numbered rows (dim gutter,
+// normal text, no diff bands) — used when printing a brand-new file instead of a
+// diff. Caps at maxLines with a trailing note. width is the full row width.
+func renderFileContent(content string, width, maxLines int) []string {
+	content = strings.TrimRight(content, "\n")
+	if content == "" {
+		return []string{lipgloss.NewStyle().Foreground(muted).Render("[empty file]")}
+	}
+	raw := strings.Split(content, "\n")
+	numW := len(strconv.Itoa(len(raw)))
+	if numW < 3 {
+		numW = 3
+	}
+	gutter := lipgloss.NewStyle().Foreground(dim)
+	body := lipgloss.NewStyle().Foreground(prose)
+	avail := width - numW - 2
+	if avail < 1 {
+		avail = 1
+	}
+	var out []string
+	for i, l := range raw {
+		if i >= maxLines {
+			out = append(out, lipgloss.NewStyle().Foreground(muted).Render(
+				fmt.Sprintf("  … (%d more lines — ctrl+o for full)", len(raw)-i)))
+			break
+		}
+		num := gutter.Render(fmt.Sprintf("%*d", numW, i+1))
+		out = append(out, num+"  "+body.Render(truncate(l, avail)))
+	}
+	return out
+}
+
 // renderDiff renders a "+ /- /  "-prefixed whole-file diff as git-style rows:
 // added lines get a full-width green band, removed lines a red band, and each
 // row carries a line-number gutter (old line for removals, new line for context

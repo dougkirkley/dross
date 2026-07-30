@@ -156,8 +156,8 @@ List<Object> buildTimeline(List<Event> events) {
           final info =
               EditInfo.fromJson(jsonDecode(e.data) as Map<String, dynamic>);
           (cur ??= Activity()).steps.add(ActStep(
-              icon: Icons.edit_outlined,
-              label: 'Edited ${info.file}',
+              icon: info.isNew ? Icons.note_add_outlined : Icons.edit_outlined,
+              label: '${info.isNew ? 'Created' : 'Edited'} ${info.file}',
               edit: info));
         } catch (_) {}
       default:
@@ -470,14 +470,16 @@ class EditDiffView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lines = edit.diff.split('\n');
+    // New file: show its contents plainly (line-numbered), not a diff.
+    final lines =
+        (edit.isNew ? edit.content : edit.diff).replaceAll('\r', '').split('\n');
     return Scaffold(
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             FlatHeader(
-              title: 'Edit',
+              title: edit.isNew ? 'New file' : 'Edit',
               leading: CircleIconButton(
                   icon: Icons.close, onTap: () => Navigator.pop(context)),
             ),
@@ -498,9 +500,9 @@ class EditDiffView extends StatelessWidget {
                 child: Text(edit.file, style: T.mono.copyWith(color: T.text)),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-              child: Text('Output', style: T.meta),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Text(edit.isNew ? 'Contents' : 'Output', style: T.meta),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -508,12 +510,34 @@ class EditDiffView extends StatelessWidget {
                 child: ListView.builder(
                   shrinkWrap: false,
                   itemCount: lines.length,
-                  itemBuilder: (_, i) => _diffLine(i + 1, lines[i]),
+                  itemBuilder: (_, i) => edit.isNew
+                      ? _contentLine(i + 1, lines[i])
+                      : _diffLine(i + 1, lines[i]),
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// A plain line-numbered row for new-file contents (no diff coloring).
+  Widget _contentLine(int n, String line) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 44,
+            child: Text('$n',
+                textAlign: TextAlign.right,
+                style: T.mono.copyWith(color: T.textFaint)),
+          ),
+          const SizedBox(width: 12),
+          Text(line, style: T.mono.copyWith(color: T.text, height: 1.4)),
+        ],
       ),
     );
   }

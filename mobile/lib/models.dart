@@ -142,17 +142,25 @@ class EditInfo {
     required this.added,
     required this.removed,
     required this.diff,
+    this.isNew = false,
+    this.content = '',
   });
   final String file;
   final int added;
   final int removed;
   final String diff;
 
+  /// A brand-new file: [content] holds the file, and there's no diff to show.
+  final bool isNew;
+  final String content;
+
   factory EditInfo.fromJson(Map<String, dynamic> j) => EditInfo(
         file: j['file'] as String? ?? '',
         added: (j['added'] as num?)?.toInt() ?? 0,
         removed: (j['removed'] as num?)?.toInt() ?? 0,
         diff: j['diff'] as String? ?? '',
+        isNew: j['new'] as bool? ?? false,
+        content: j['content'] as String? ?? '',
       );
 }
 

@@ -642,14 +642,21 @@ func (a *Agent) emit(kind, data string) {
 }
 
 // emitEdit emits a structured "edit" event describing a write/edit: the file,
-// added/removed line counts, and a unified diff. Clients render it as an
-// activity line ("Edited file +A -B") that expands to the diff.
+// added/removed line counts, and either a unified diff (existing file) or, for a
+// brand-new file, its full content with "new": true so clients print the file
+// instead of an all-additions diff.
 func (a *Agent) emitEdit(file, oldText, newText string) {
 	added, removed, diff := diffStat(oldText, newText)
 	a.edits = append(a.edits, editRec{file: file, diff: diff})
-	payload, err := json.Marshal(map[string]any{
-		"file": file, "added": added, "removed": removed, "diff": diff,
-	})
+	fields := map[string]any{"file": file, "added": added, "removed": removed}
+	if oldText == "" {
+		// New file: show the content, not a diff of nothing-to-everything.
+		fields["new"] = true
+		fields["content"] = truncate(newText, 12000)
+	} else {
+		fields["diff"] = diff
+	}
+	payload, err := json.Marshal(fields)
 	if err != nil {
 		return
 	}

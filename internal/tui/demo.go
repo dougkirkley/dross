@@ -52,6 +52,7 @@ func DemoView(width, height int) string {
 		{Kind: "worker:tool", Data: `write {"path":"internal/cli/output.go"}`},
 		{Kind: "worker:tool-result", Data: "wrote 38 lines to internal/cli/output.go"},
 		{Kind: "tool-result", Data: "worker: added Output struct; internal/cli/output.go compiles."},
+		{Kind: "edit", Data: `{"file":"internal/cli/output.go","added":12,"new":true,"content":"package cli\n\nimport (\n\t\"encoding/json\"\n\t\"io\"\n)\n\n// Output is the machine-readable result emitted with --json.\ntype Output struct {\n\tFiles []string\n\tCost  float64\n}\n\nfunc (o Output) Render(w io.Writer) error {\n\treturn json.NewEncoder(w).Encode(o)\n}"}`},
 		{Kind: "tool", Data: `edit {"path":"cmd/dross/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
 		{Kind: "edit", Data: `{"file":"cmd/dross/main.go","added":6,"removed":1,"diff":"  func main() {\n  \tfs := flag.NewFlagSet(\"dross\", flag.ExitOnError)\n- \tfs.Parse(os.Args[1:])\n+ \tjsonOut := fs.Bool(\"json\", false, \"emit machine-readable JSON\")\n+ \tfs.Parse(os.Args[1:])\n+ \tif *jsonOut {\n+ \t\tout.Render(os.Stdout)\n+ \t\treturn\n+ \t}\n  \trun(fs.Args())\n  }"}`},
 		{Kind: "ask", Data: "Name the flag --json or --output=json?"},
