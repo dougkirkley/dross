@@ -2688,11 +2688,13 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.lastText = truncate(oneLine(e.Data), 70)
 			m.bashCmd = "" // a message means the foreground command finished
 		}
-		width := m.width - 14
+		// Headline (the model's one-line summary) sits next to the name; the rest
+		// of the body is left-aligned underneath, not hang-indented under the label.
+		width := m.width - 4
 		lines := wrap(e.Data, width)
 		m.append(indent + agentLabel.Render(m.agentName) + "  " + proseStyle.Render(lines[0]))
 		for _, l := range lines[1:] {
-			m.append(indent + "          " + proseStyle.Render(l))
+			m.append(indent + proseStyle.Render(l))
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
