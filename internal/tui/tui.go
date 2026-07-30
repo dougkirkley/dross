@@ -204,7 +204,6 @@ type slashCmd struct{ name, desc string }
 var slashCommands = []slashCmd{
 	{"/model", "list and switch models"},
 	{"/usage", "token and cost usage by model"},
-	{"/tools", "expand full tool commands + output"},
 	{"/clear", "start a fresh session"},
 	{"/copy", "copy the whole transcript to the clipboard"},
 	{"/exit", "quit dross"},
@@ -295,6 +294,7 @@ type Model struct {
 	turns          int
 	inTok          int64
 	outTok         int64
+	ctxTok         int64 // latest turn's total input-side tokens (context window fill)
 
 	vp          viewport.Model
 	input       textinput.Model
@@ -996,15 +996,6 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.input.Reset()
 		m.helpOpen = true
 		return true, nil
-	case "/tools":
-		m.input.Reset()
-		if len(m.toolRecs) == 0 {
-			m.append(metaStyle.Render("no tool calls yet"))
-			return true, nil
-		}
-		m.toolViewOpen = true
-		m.toolSel = len(m.toolRecs) - 1 // start on the most recent
-		return true, nil
 	case "/copy":
 		m.input.Reset()
 		if len(m.lines) == 0 {
@@ -1242,7 +1233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Tools viewer overlay captures keys.
 		if m.toolViewOpen {
 			switch msg.String() {
-			case "esc", "q":
+			case "esc", "q", "ctrl+o":
 				m.toolViewOpen = false
 			case "up", "k":
 				if m.toolSel > 0 {
@@ -2098,8 +2089,17 @@ func (m Model) header() string {
 // shown at the bottom-right.
 func (m Model) statsSegment() string {
 	cost := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
-	if win, ok := contextWindow(m.model); ok && m.inTok > 0 {
-		frac := float64(m.inTok) / float64(win)
+	// The meter tracks how full the model's context window is: the latest turn's
+	// total input-side tokens (fresh + cache), not the cumulative session input.
+	ctx := m.ctxTok
+	if ctx == 0 {
+		ctx = m.inTok // fall back to cumulative input if no per-turn context reported
+	}
+	if win, ok := contextWindow(m.model); ok && ctx > 0 {
+		frac := float64(ctx) / float64(win)
+		if frac > 1 {
+			frac = 1
+		}
 		return crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
 			metaStyle.Render("   ·   ") + cost
 	}
@@ -2687,7 +2687,7 @@ func renderHelp() string {
 		{"ctrl+c", "interrupt run · twice to exit"},
 		{"esc", "clear input · close menus"},
 		{"ctrl+y", "copy last reply to clipboard"},
-		{"ctrl+o", "expand collapsed tool output"},
+		{"ctrl+o", "open / close the tool-output view"},
 		{"ctrl+b", "background the running shell command"},
 		{"! cmd", "run a shell command directly"},
 		{"@path", "attach a file to your prompt"},
@@ -3086,9 +3086,10 @@ func (m *Model) applyEvent(e agent.Event) {
 		var u struct {
 			In  int64 `json:"in"`
 			Out int64 `json:"out"`
+			Ctx int64 `json:"ctx"`
 		}
 		if json.Unmarshal([]byte(e.Data), &u) == nil {
-			m.inTok, m.outTok = u.In, u.Out
+			m.inTok, m.outTok, m.ctxTok = u.In, u.Out, u.Ctx
 		}
 	case "review":
 		width := m.width - 14

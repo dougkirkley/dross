@@ -521,7 +521,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		}
 		res.Turns++
 		res.add(a.cfg.Model, resp.Usage)
-		a.emitUsage(res)
+		a.emitUsage(res, resp.Usage)
 
 		if resp.Text != "" {
 			res.Text = resp.Text
@@ -651,12 +651,16 @@ func (a *Agent) emitEdit(file, oldText, newText string) {
 	a.emit("edit", string(payload))
 }
 
-// emitUsage emits the run's cumulative token usage so a client can show a live
-// token counter (like Claude Code's).
-func (a *Agent) emitUsage(res *Result) {
+// emitUsage emits token usage so a client can show a live token counter (like
+// Claude Code's). "in"/"out" are the run's cumulative totals for cost; "ctx" is
+// the latest turn's total input-side tokens (fresh input + cache read + cache
+// write) — i.e. how full the model's context window currently is.
+func (a *Agent) emitUsage(res *Result, turn provider.Usage) {
+	ctx := turn.InputTokens + turn.CacheReadTokens + turn.CacheWriteTokens
 	payload, err := json.Marshal(map[string]any{
 		"in":  res.Usage.InputTokens,
 		"out": res.Usage.OutputTokens,
+		"ctx": ctx,
 	})
 	if err != nil {
 		return

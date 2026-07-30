@@ -235,17 +235,21 @@ type streamEvent struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
-			InputTokens  int64 `json:"input_tokens"`
-			OutputTokens int64 `json:"output_tokens"`
-		} `json:"usage"`
+		Usage tokenUsage `json:"usage"`
 	} `json:"message"`
-	Result  string `json:"result"`
-	IsError bool   `json:"is_error"`
-	Usage   struct {
-		InputTokens  int64 `json:"input_tokens"`
-		OutputTokens int64 `json:"output_tokens"`
-	} `json:"usage"`
+	Result  string     `json:"result"`
+	IsError bool       `json:"is_error"`
+	Usage   tokenUsage `json:"usage"`
+}
+
+// tokenUsage mirrors the token accounting Claude Code reports. Cache tokens are
+// the bulk of a resumed turn's context, so they must be counted for the context
+// gauge to reflect the real window fill.
+type tokenUsage struct {
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_input_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_input_tokens"`
 }
 
 func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Response, error) {
@@ -313,11 +317,15 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 			}
 			usage.InputTokens += e.Message.Usage.InputTokens
 			usage.OutputTokens += e.Message.Usage.OutputTokens
+			usage.CacheReadTokens += e.Message.Usage.CacheReadTokens
+			usage.CacheWriteTokens += e.Message.Usage.CacheCreationTokens
 		case "result":
 			final.WriteString(e.Result)
 			isErr = e.IsError
-			if e.Usage.InputTokens > 0 || e.Usage.OutputTokens > 0 {
-				usage.InputTokens, usage.OutputTokens = e.Usage.InputTokens, e.Usage.OutputTokens
+			u := e.Usage
+			if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 || u.CacheCreationTokens > 0 {
+				usage.InputTokens, usage.OutputTokens = u.InputTokens, u.OutputTokens
+				usage.CacheReadTokens, usage.CacheWriteTokens = u.CacheReadTokens, u.CacheCreationTokens
 			}
 		}
 	}
