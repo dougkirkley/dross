@@ -352,7 +352,7 @@ func newTUICmd() *cobra.Command {
 			// credentials, run the browser login and then apply the model.
 			mdl.SetLogin(func(ctx context.Context, _ string) error {
 				return googleauth.Login(ctx, io.Discard)
-			}, "vertex")
+			}, "vertex", "gemini")
 			// Worker slot of the /model picker (the cheaper delegate model).
 			mdl.SetWorker(
 				func(prov, model string) {
