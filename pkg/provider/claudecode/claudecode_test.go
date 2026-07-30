@@ -41,3 +41,14 @@ func TestStripProtocolNoCalls(t *testing.T) {
 		t.Fatalf("stray tags remain: %q", got)
 	}
 }
+
+func TestStripProtocolDropsSystemReminder(t *testing.T) {
+	s := "Done.\n<system-reminder>\nWarning: this tool call took a long time to run.\n</system-reminder>"
+	got := stripProtocol(s)
+	if strings.Contains(got, "system-reminder") || strings.Contains(got, "took a long time") {
+		t.Fatalf("system-reminder leaked: %q", got)
+	}
+	if got != "Done." {
+		t.Fatalf("want %q, got %q", "Done.", got)
+	}
+}

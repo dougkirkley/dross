@@ -26,6 +26,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider/googleauth"
 )
 
 func init() {
@@ -38,9 +39,15 @@ func init() {
 		if region == "" {
 			region = "us-central1"
 		}
-		ts, err := google.DefaultTokenSource(context.Background(), "https://www.googleapis.com/auth/cloud-platform")
-		if err != nil {
-			return nil, fmt.Errorf("vertex: no Google credentials (ADC): %w", err)
+		// Prefer a dross browser login (`dross login gemini`); fall back to the
+		// Google ADC chain (gcloud, service account, workload identity).
+		ts, ok := googleauth.TokenSource(context.Background())
+		if !ok {
+			var err error
+			ts, err = google.DefaultTokenSource(context.Background(), "https://www.googleapis.com/auth/cloud-platform")
+			if err != nil {
+				return nil, fmt.Errorf("vertex: no Google credentials — run `dross login gemini` or set up ADC: %w", err)
+			}
 		}
 		base := cfg.BaseURL
 		if base == "" {

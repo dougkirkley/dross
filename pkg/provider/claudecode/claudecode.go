@@ -134,7 +134,11 @@ var (
 	// <tool_result>/<function_results> wrappers it was handed).
 	resultBlockRE = regexp.MustCompile(`(?s)<(tool_result|tool_error|function_results|function_calls)\b[^>]*>.*?</(tool_result|tool_error|function_results|function_calls)>`)
 	// strayTagRE removes any leftover protocol tags (malformed/half-emitted).
-	strayTagRE = regexp.MustCompile(`</?(function|parameter|tool_result|tool_error|function_results|function_calls|invoke)\b[^>]*>`)
+	strayTagRE = regexp.MustCompile(`</?(function|parameter|tool_result|tool_error|function_results|function_calls|invoke|system-reminder)\b[^>]*>`)
+	// reminderRE removes <system-reminder> blocks the driven Claude Code CLI
+	// injects (e.g. "this tool call took a long time"); they are harness noise,
+	// not the model's reply, so they must not surface as assistant text.
+	reminderRE = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 )
 
 // toolAlias maps common Claude-native tool names to dross's lowercase tools, so
@@ -181,6 +185,7 @@ func parseCalls(s string) ([]provider.ToolCall, string) {
 // stripProtocol removes tool-call protocol scaffolding (echoed result blocks and
 // stray tags) so it never leaks into the user-facing assistant text.
 func stripProtocol(s string) string {
+	s = reminderRE.ReplaceAllString(s, "")
 	s = resultBlockRE.ReplaceAllString(s, "")
 	s = strayTagRE.ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
