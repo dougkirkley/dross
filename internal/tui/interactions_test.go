@@ -131,6 +131,43 @@ func TestCtrlCInterrupts(t *testing.T) {
 	}
 }
 
+// TestSkillShortName: a plugin skill "plug:greet" resolves as "/greet" too, but
+// only when the short name is unambiguous.
+func TestSkillShortName(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.skillItems = []SkillItem{{Name: "plug:greet", UserInvocable: true, Body: "x"}}
+	if _, ok := m.findSkill("/greet"); !ok {
+		t.Fatal("/greet should resolve to plug:greet")
+	}
+	if _, ok := m.findSkill("/plug:greet"); !ok {
+		t.Fatal("fully-qualified /plug:greet should still resolve")
+	}
+	// Ambiguous short name → no match.
+	m.skillItems = []SkillItem{
+		{Name: "a:greet", UserInvocable: true, Body: "x"},
+		{Name: "b:greet", UserInvocable: true, Body: "x"},
+	}
+	if _, ok := m.findSkill("/greet"); ok {
+		t.Fatal("ambiguous /greet should not resolve")
+	}
+}
+
+// TestExtractNext pulls a trailing [next] suggestion out and strips it.
+func TestExtractNext(t *testing.T) {
+	clean, next := extractNext("Done.\nAll tests pass.\n[next] commit the changes")
+	if next != "commit the changes" {
+		t.Fatalf("next = %q", next)
+	}
+	if strings.Contains(clean, "[next]") || clean != "Done.\nAll tests pass." {
+		t.Fatalf("clean = %q", clean)
+	}
+	// No marker → unchanged, empty suggestion.
+	c2, n2 := extractNext("just a reply")
+	if n2 != "" || c2 != "just a reply" {
+		t.Fatalf("no-marker: clean=%q next=%q", c2, n2)
+	}
+}
+
 // TestThemeSwitch: SetTheme changes the active theme; unknown names are rejected.
 func TestThemeSwitch(t *testing.T) {
 	defer SetTheme("crystal") // restore global state

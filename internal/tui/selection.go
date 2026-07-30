@@ -1,10 +1,28 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// nextRE matches a "[next] <prompt>" line the model may append to propose a
+// follow-up. Only present when there's a real next step.
+var nextRE = regexp.MustCompile(`(?im)^[ \t]*\[next\][ \t]*:?[ \t]*(.+?)[ \t]*$`)
+
+// extractNext pulls a trailing [next] suggestion out of assistant text, returning
+// the text with that line removed and the suggested prompt ("" if none).
+func extractNext(s string) (clean, next string) {
+	locs := nextRE.FindAllStringSubmatchIndex(s, -1)
+	if len(locs) == 0 {
+		return s, ""
+	}
+	last := locs[len(locs)-1] // use the final [next] line
+	next = strings.TrimSpace(s[last[2]:last[3]])
+	clean = strings.TrimRight(s[:last[0]]+s[last[1]:], " \t\n")
+	return clean, next
+}
 
 // selPt is a point in the transcript: a line index into m.lines and a rune
 // column into that line's plain (ANSI-stripped) text.

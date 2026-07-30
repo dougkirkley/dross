@@ -113,6 +113,15 @@ type doneMsg struct {
 	err error
 }
 
+// copyClearedMsg fires ~2s after a copy to re-render (hiding the "copied" toast).
+type copyClearedMsg struct{}
+
+// noteCopied records a copy and returns a command that clears the toast later.
+func (m *Model) noteCopied() tea.Cmd {
+	m.copiedAt = time.Now()
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return copyClearedMsg{} })
+}
+
 // askState holds a pending ask_user request: the questions, per-question option
 // selections (a set, for multi-select), the highlighted cursor per question, the
 // active tab (0..len = Submit), and the reply channel the agent goroutine blocks
@@ -316,8 +325,8 @@ type Model struct {
 	lines       []string  // rendered log lines
 	lastReply   string    // raw text of the last assistant reply (for ctrl+y copy)
 	lastCtrlC   time.Time // for double-ctrl+c-to-exit
-	suggestions []string  // recommended follow-up prompts after a run (tab to use)
-	sugSel      int       // highlighted suggestion
+	copiedAt    time.Time // when the last copy happened (drives the "copied" toast)
+	suggestion string // a single contextual next-step (from the reply's [next] line); ghost placeholder, tab to use
 
 	// Mouse text selection (drag to select, copies on release).
 	selecting bool  // a left-drag is in progress
@@ -517,16 +526,6 @@ func (m *Model) removeSession(i int) {
 // file (see SetPhrases).
 // DefaultPhrases are in the voice of Dross — the dramatic, brilliant spirit
 // companion the project is named for.
-// followUpSuggestions are recommended next prompts shown after a run finishes
-// (above an empty input; tab drops the highlighted one in to edit/send).
-var followUpSuggestions = []string{
-	"Run the tests and fix anything that fails",
-	"Commit the changes with a clear message",
-	"Explain what you changed and why",
-	"Review the diff for bugs or edge cases",
-	"Write tests for the new code",
-}
-
 var DefaultPhrases = []string{
 	"Running the simulations",
 	"Consulting my vast intellect",
@@ -652,12 +651,33 @@ func (m Model) findSkill(slash string) (SkillItem, bool) {
 		return SkillItem{}, false
 	}
 	name := strings.TrimPrefix(slash, "/")
+	// Exact match on the (possibly fully-qualified) name.
 	for _, s := range m.skillItems {
 		if s.UserInvocable && s.Name == name {
 			return s, true
 		}
 	}
+	// Short name: a plugin skill registered as "plugin:skill" can also be invoked
+	// as just "skill", as long as that short name is unambiguous.
+	var match SkillItem
+	count := 0
+	for _, s := range m.skillItems {
+		if s.UserInvocable && shortSkillName(s.Name) == name {
+			match, count = s, count+1
+		}
+	}
+	if count == 1 {
+		return match, true
+	}
 	return SkillItem{}, false
+}
+
+// shortSkillName is the segment after the last ':' (e.g. "plugin:skill" -> "skill").
+func shortSkillName(name string) string {
+	if i := strings.LastIndex(name, ":"); i >= 0 {
+		return name[i+1:]
+	}
+	return name
 }
 
 // SetWelcomeStyle picks the empty-state layout variant (see welcome()).
@@ -947,8 +967,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			return true, nil
 		}
 		copyToClipboard(stripANSI(strings.Join(m.lines, "\n")))
-		m.append(checkStyle.Render("✓ copied transcript to clipboard"))
-		return true, nil
+		return true, m.noteCopied()
 	case "/exit", "/quit":
 		m.input.Reset()
 		return true, m.quitCmd()
@@ -1301,24 +1320,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, c
 			}
 		}
-		// Post-run suggestions: with an empty input, offer recommended follow-up
-		// prompts. up/down to pick, tab to drop it into the input to edit/send.
-		if strings.TrimSpace(m.input.Value()) == "" && !m.running && len(m.suggestions) > 0 {
+		// A contextual next-step suggestion (from the reply's [next] line) shows as
+		// ghost placeholder in an empty input; tab drops it in to edit/send.
+		if strings.TrimSpace(m.input.Value()) == "" && m.suggestion != "" {
 			switch msg.String() {
-			case "up":
-				if m.sugSel > 0 {
-					m.sugSel--
-				}
-				return m, nil
-			case "down":
-				if m.sugSel < len(m.suggestions)-1 {
-					m.sugSel++
-				}
-				return m, nil
 			case "tab", "right":
-				m.input.SetValue(m.suggestions[m.sugSel])
+				m.input.SetValue(m.suggestion)
 				m.input.CursorEnd()
-				m.suggestions, m.sugSel = nil, 0
+				m.suggestion = ""
 				return m, nil
 			}
 		}
@@ -1506,7 +1515,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// selection needed).
 			if strings.TrimSpace(m.lastReply) != "" {
 				copyToClipboard(m.lastReply)
-				m.append(checkStyle.Render("✓ copied last reply to clipboard"))
+				return m, m.noteCopied()
 			}
 			return m, nil
 		case "pgup":
@@ -1547,7 +1556,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !m.running && strings.TrimSpace(m.input.Value()) != "" {
 				m.scrolledUp = false // a new prompt jumps back to following output
-				m.suggestions, m.sugSel = nil, 0
+				m.suggestion = ""
 				prompt := m.input.Value()
 				// "!cmd" runs a shell command directly instead of prompting the
 				// agent, like Claude Code's bash escape.
@@ -1597,9 +1606,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cost = msg.res.Cost()
 			m.turns = msg.res.Turns
 			// No completion/recap line: the final message is already in the
-			// transcript, and cost/turns show in the footer.
-			// Offer recommended follow-ups (shown above an empty input; tab to use).
-			m.suggestions, m.sugSel = followUpSuggestions, 0
+			// transcript, and cost/turns show in the footer. Any next-step
+			// suggestion came from the reply's [next] line (see applyEvent).
 		}
 		// Fire the next queued message, if any.
 		if len(m.queue) > 0 {
@@ -1655,6 +1663,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selecting = false
 					if txt := m.selectionText(); strings.TrimSpace(txt) != "" {
 						copyToClipboard(txt)
+						return m, m.noteCopied()
 					}
 					return m, nil
 				}
@@ -1677,6 +1686,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.append(metaStyle.Render(msg.text))
 		cmds = append(cmds, m.pump())
+	case copyClearedMsg:
+		return m, nil // just re-render so the "copied" toast disappears
 	case bangMsg:
 		for _, l := range strings.Split(strings.TrimRight(msg.out, "\n"), "\n") {
 			m.append(resultStyle.Render(l))
@@ -2719,6 +2730,19 @@ func (m Model) footer() string {
 	if bang {
 		mark, boxStyle = goldStyle.Render("! "), inputBox.BorderForeground(gold)
 	}
+	// Placeholder: the hint on a fresh session, empty once the conversation has
+	// started, or the contextual next-step suggestion (ghost text) when there is
+	// one. The ask flow sets its own placeholder, so leave it alone then.
+	if m.pendingAsk == nil {
+		switch {
+		case m.suggestion != "":
+			m.input.Placeholder = m.suggestion
+		case len(m.lines) > 0:
+			m.input.Placeholder = ""
+		default:
+			m.input.Placeholder = "ask " + m.agentName + " to build, edit, or run something…"
+		}
+	}
 	line := mark + m.input.View()
 	box := boxStyle.Width(m.width - 2).Render(line)
 	// Slash-command autocomplete: matching commands listed above the input; the
@@ -2740,17 +2764,6 @@ func (m Model) footer() string {
 			rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+c.desc))
 		}
 		suggest = strings.Join(rows, "\n") + "\n"
-	} else if !m.running && strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) > 0 {
-		// Recommended follow-ups after a run: tab drops the highlighted one in.
-		rows := []string{metaStyle.Render("try next  (↑/↓ · tab to use)")}
-		for i, s := range m.suggestions {
-			cur, style := "  ", metaStyle
-			if i == m.sugSel {
-				cur, style = promptMark.Render("› "), agentText
-			}
-			rows = append(rows, cur+style.Render(s))
-		}
-		suggest = strings.Join(rows, "\n") + "\n"
 	}
 	box = suggest + box
 	var mode string
@@ -2765,6 +2778,10 @@ func (m Model) footer() string {
 			mode += costStyle.Render(fmt.Sprintf(" · %d shell%s", n, plural(n)))
 		}
 		mode += metaStyle.Render(" · ⇥ mode · ← sessions · ⏎ send · / cmds · ? help")
+	}
+	// A brief "copied" confirmation after any copy (drag-select, ctrl+y, /copy).
+	if !m.copiedAt.IsZero() && time.Since(m.copiedAt) < 2*time.Second {
+		mode += checkStyle.Render("  · ✓ copied to clipboard")
 	}
 	// Bottom bar: mode/hints on the left, context meter + cost on the right.
 	modeLeft := "  " + mode
@@ -2811,15 +2828,24 @@ func (m *Model) applyEvent(e agent.Event) {
 	}
 	switch kind {
 	case "text":
+		data := e.Data
 		if !worker {
-			m.lastText = truncate(oneLine(e.Data), 70)
-			m.lastReply = e.Data // full text, for ctrl+y copy
-			m.bashCmd = ""       // a message means the foreground command finished
+			// The model may end with a "[next] <prompt>" line proposing a follow-up.
+			// Pull it out (only when there's a real next step) to offer as a ghost
+			// suggestion in the input; strip it from the shown text.
+			var next string
+			data, next = extractNext(data)
+			if next != "" {
+				m.suggestion = next
+			}
+			m.lastText = truncate(oneLine(data), 70)
+			m.lastReply = data // full text, for ctrl+y copy
+			m.bashCmd = ""     // a message means the foreground command finished
 		}
 		// Headline (the model's one-line summary) sits next to the name; the rest
 		// of the body is left-aligned underneath, not hang-indented under the label.
 		width := m.width - 4
-		lines := wrap(e.Data, width)
+		lines := wrap(data, width)
 		m.append(indent + agentLabel.Render(m.agentName) + "  " + proseStyle.Render(lines[0]))
 		for _, l := range lines[1:] {
 			m.append(indent + proseStyle.Render(l))
