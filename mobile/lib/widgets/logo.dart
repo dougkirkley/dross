@@ -47,28 +47,28 @@ class _DrossPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final bodyC = Offset(w * 0.5, h * 0.44);
-    final bodyR = w * 0.30;
+    final bodyC = Offset(w * 0.5, h * 0.38);
+    final bodyR = w * 0.28;
 
-    // Two wavy tendril legs behind the body.
+    // Two wavy tendril legs behind the body (longer + thinner than the body).
     final legPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.10
+      ..strokeWidth = w * 0.085
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
-      ).createShader(Rect.fromLTWH(0, h * 0.6, w, h * 0.4));
+      ).createShader(Rect.fromLTWH(0, h * 0.55, w, h * 0.45));
     final left = Path()
-      ..moveTo(w * 0.40, h * 0.64)
-      ..quadraticBezierTo(w * 0.28, h * 0.76, w * 0.37, h * 0.85)
-      ..quadraticBezierTo(w * 0.46, h * 0.93, w * 0.35, h * 0.99);
+      ..moveTo(w * 0.42, h * 0.58)
+      ..quadraticBezierTo(w * 0.28, h * 0.72, w * 0.38, h * 0.82)
+      ..quadraticBezierTo(w * 0.48, h * 0.92, w * 0.38, h * 0.99);
     final right = Path()
-      ..moveTo(w * 0.60, h * 0.64)
-      ..quadraticBezierTo(w * 0.72, h * 0.76, w * 0.63, h * 0.85)
-      ..quadraticBezierTo(w * 0.54, h * 0.93, w * 0.65, h * 0.99);
+      ..moveTo(w * 0.58, h * 0.58)
+      ..quadraticBezierTo(w * 0.72, h * 0.72, w * 0.62, h * 0.82)
+      ..quadraticBezierTo(w * 0.52, h * 0.92, w * 0.62, h * 0.99);
     canvas.drawPath(left, legPaint);
     canvas.drawPath(right, legPaint);
 
@@ -81,31 +81,32 @@ class _DrossPainter extends CustomPainter {
       ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR));
     canvas.drawCircle(bodyC, bodyR, body);
 
-    // Heavy brow, angled slightly over the eye.
+    // Big single eye, right of centre, iris looking down.
+    final eyeC = Offset(w * 0.55, h * 0.38);
+    canvas.drawCircle(eyeC, w * 0.13, Paint()..color = _eyeWhite);
+    canvas.drawCircle(
+        Offset(eyeC.dx + w * 0.02, eyeC.dy + w * 0.035), w * 0.085,
+        Paint()..color = _dark);
+
+    // Heavy brow drawn ON TOP of the eye as a lid — covers the upper third so it
+    // reads half-lidded and unimpressed, the way Dross looks at you.
     final brow = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = w * 0.075
       ..strokeCap = StrokeCap.round
       ..color = _dark;
     canvas.drawLine(
-        Offset(w * 0.37, h * 0.32), Offset(w * 0.67, h * 0.28), brow);
+        Offset(w * 0.40, h * 0.31), Offset(w * 0.66, h * 0.275), brow);
 
-    // Big single eye, upper-right, looking out.
-    final eyeC = Offset(w * 0.55, h * 0.42);
-    canvas.drawCircle(eyeC, w * 0.13, Paint()..color = _eyeWhite);
-    canvas.drawCircle(
-        Offset(eyeC.dx + w * 0.02, eyeC.dy + w * 0.015), w * 0.075,
-        Paint()..color = _dark);
-
-    // Small mouth.
+    // Small mouth: a gentle smile low and centre-left of the eye.
     final mouth = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.045
+      ..strokeWidth = w * 0.042
       ..strokeCap = StrokeCap.round
       ..color = _dark;
     final m = Path()
-      ..moveTo(w * 0.44, h * 0.55)
-      ..quadraticBezierTo(w * 0.50, h * 0.575, w * 0.57, h * 0.55);
+      ..moveTo(w * 0.42, h * 0.49)
+      ..quadraticBezierTo(w * 0.49, h * 0.535, w * 0.58, h * 0.49);
     canvas.drawPath(m, mouth);
   }
 
