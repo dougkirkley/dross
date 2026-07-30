@@ -4,57 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// 5-row block font shared with the TUI logo, so the app and terminal render the
-/// same DROSS wordmark. Each glyph is 5 rows of a 5-wide cell.
-const Map<String, List<String>> _glyphs = {
-  'D': ['████ ', '█   █', '█   █', '█   █', '████ '],
-  'R': ['████ ', '█   █', '████ ', '█  █ ', '█   █'],
-  'O': [' ███ ', '█   █', '█   █', '█   █', ' ███ '],
-  'S': [' ████', '█    ', ' ███ ', '    █', '████ '],
-};
-
-/// The little Dross spirit — a shaded one-eyed blob with tendrils — shown beside
-/// the wordmark. Same compact art as the TUI mascot.
-const String _mascot = '    ======-\n'
-    '  ===========\n'
-    ' =============\n'
-    '=====-  @@* ==:\n'
-    ':=====-   :===:\n'
-    ' ==========#==\n'
-    '  ==========.\n'
-    ' :   ====-  =\n'
-    ' =          -\n'
-    '-           =\n'
-    '-            -';
-
-/// Assembles [word] into 5 rows of block glyphs (two spaces between letters).
-List<String> _blockRows(String word) {
-  final rows = List.filled(5, '');
-  for (final ch in word.toUpperCase().split('')) {
-    final g = _glyphs[ch];
-    if (g == null) continue;
-    for (var r = 0; r < 5; r++) {
-      rows[r] += '${g[r]}  ';
-    }
-  }
-  return rows;
-}
-
-/// Dross's signature light-to-deep violet gradient (top to bottom).
-const _purpleGradient = LinearGradient(
-  begin: Alignment.topCenter,
-  end: Alignment.bottomCenter,
-  colors: [
-    Color(0xFFD8B4FE),
-    Color(0xFFC084FC),
-    Color(0xFFA855F7),
-    Color(0xFF8B5CF6),
-    Color(0xFF7C3AED),
-  ],
-);
-
-/// The Dross mark: the word DROSS in purple ASCII block-art, matching the TUI
-/// wordmark. A purple vertical gradient gives it the brand sheen.
+/// The Dross mark: the one-eyed purple spirit from Cradle, drawn as a vector
+/// (CustomPaint) so it stays crisp at any size — a round violet blob with a big
+/// eye, a heavy brow, a small mouth, and two wavy tendril legs. An ASCII version
+/// lives in the TUI; on mobile a painter reads far better than monospace art.
 class DrossLogo extends StatelessWidget {
   const DrossLogo({super.key, this.size = 72, this.showWordmark = true});
   final double size;
@@ -62,47 +15,23 @@ class DrossLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = _blockRows('DROSS');
-    // The block is ~34 cells wide; scale the monospace cell so it fills `size`.
-    final cell = size / 22;
-    const mono = TextStyle(
-      fontFamily: 'monospace',
-      fontFamilyFallback: ['Menlo', 'Courier'],
-      height: 1.0,
-      color: Colors.white,
-      fontWeight: FontWeight.w700,
+    final mark = SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _DrossPainter()),
     );
-    final art = ShaderMask(
-      shaderCallback: (rect) => _purpleGradient.createShader(rect),
-      blendMode: BlendMode.srcIn,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // The little one-eyed Dross spirit, directly left of the wordmark
-          // (smaller per-cell so its 11 rows sit at a similar height).
-          Text(_mascot, style: mono.copyWith(fontSize: cell * 0.5, height: 1.0)),
-          SizedBox(width: size * 0.12),
-          Text(
-            rows.join('\n'),
-            style: mono.copyWith(fontSize: cell, letterSpacing: -0.5),
-          ),
-        ],
-      ),
-    );
-
-    if (!showWordmark) return art;
+    if (!showWordmark) return mark;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        art,
-        SizedBox(height: size * 0.22),
+        mark,
+        SizedBox(height: size * 0.18),
         Text(
           'Dross',
           style: TextStyle(
             color: T.text,
-            fontSize: size * 0.30,
-            fontWeight: FontWeight.w600,
+            fontSize: size * 0.34,
+            fontWeight: FontWeight.w700,
             letterSpacing: -size * 0.005,
           ),
         ),
@@ -111,9 +40,81 @@ class DrossLogo extends StatelessWidget {
   }
 }
 
-/// A small continuously-spinning cube for loading / running-task indicators
-/// (the app's spinner in place of a CircularProgressIndicator), recolored to the
-/// Dross purple palette.
+class _DrossPainter extends CustomPainter {
+  static const _dark = Color(0xFF0C0A1F); // brow / eye / mouth
+  static const _eyeWhite = Color(0xFFF3EEFF);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final bodyC = Offset(w * 0.5, h * 0.44);
+    final bodyR = w * 0.30;
+
+    // Two wavy tendril legs behind the body.
+    final legPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.10
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+      ).createShader(Rect.fromLTWH(0, h * 0.6, w, h * 0.4));
+    final left = Path()
+      ..moveTo(w * 0.40, h * 0.64)
+      ..quadraticBezierTo(w * 0.28, h * 0.76, w * 0.37, h * 0.85)
+      ..quadraticBezierTo(w * 0.46, h * 0.93, w * 0.35, h * 0.99);
+    final right = Path()
+      ..moveTo(w * 0.60, h * 0.64)
+      ..quadraticBezierTo(w * 0.72, h * 0.76, w * 0.63, h * 0.85)
+      ..quadraticBezierTo(w * 0.54, h * 0.93, w * 0.65, h * 0.99);
+    canvas.drawPath(left, legPaint);
+    canvas.drawPath(right, legPaint);
+
+    // Body: violet blob with a top-lit gradient.
+    final body = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFC4A5FF), Color(0xFF7C3AED)],
+      ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR));
+    canvas.drawCircle(bodyC, bodyR, body);
+
+    // Heavy brow, angled slightly over the eye.
+    final brow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.075
+      ..strokeCap = StrokeCap.round
+      ..color = _dark;
+    canvas.drawLine(
+        Offset(w * 0.37, h * 0.32), Offset(w * 0.67, h * 0.28), brow);
+
+    // Big single eye, upper-right, looking out.
+    final eyeC = Offset(w * 0.55, h * 0.42);
+    canvas.drawCircle(eyeC, w * 0.13, Paint()..color = _eyeWhite);
+    canvas.drawCircle(
+        Offset(eyeC.dx + w * 0.02, eyeC.dy + w * 0.015), w * 0.075,
+        Paint()..color = _dark);
+
+    // Small mouth.
+    final mouth = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.045
+      ..strokeCap = StrokeCap.round
+      ..color = _dark;
+    final m = Path()
+      ..moveTo(w * 0.44, h * 0.55)
+      ..quadraticBezierTo(w * 0.50, h * 0.575, w * 0.57, h * 0.55);
+    canvas.drawPath(m, mouth);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DrossPainter oldDelegate) => false;
+}
+
+/// A small continuously-spinning cube for loading / running-task indicators,
+/// in the Dross purple palette.
 class DrossSpinner extends StatefulWidget {
   const DrossSpinner({super.key, this.size = 28});
   final double size;
@@ -152,12 +153,11 @@ class _V3 {
 
 class _CubePainter extends CustomPainter {
   _CubePainter({required this.spin});
-  final double spin; // radians (continuous Y rotation)
+  final double spin;
 
-  static const double _h = 0.5; // half-edge
-  static const double _tilt = 0.5; // fixed X tilt so it reads as 3D
+  static const double _h = 0.5;
+  static const double _tilt = 0.5;
 
-  // Purple palette: violet frame + translucent violet glass.
   static const _frame = Color(0xFF8B5CF6);
   static const _frameHi = Color(0xFFC084FC);
   static const _glass = Color(0xFF7C3AED);
@@ -208,7 +208,7 @@ class _CubePainter extends CustomPainter {
       depth /= idx.length;
       built.add((depth, pts, _rotate(_V3(n.x, n.y, n.z))));
     }
-    built.sort((a, b) => a.$1.compareTo(b.$1)); // far → near
+    built.sort((a, b) => a.$1.compareTo(b.$1));
 
     final w = size.width;
     for (final (_, pts, nrot) in built) {
