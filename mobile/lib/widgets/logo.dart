@@ -125,13 +125,18 @@ class DrossSpinner extends StatefulWidget {
 }
 
 class _DrossSpinnerState extends State<DrossSpinner>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  // Fast loop: eye pulse/dart/blink. Slow loop: an occasional head-scratch.
   late final AnimationController _c = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1600))
+    ..repeat();
+  late final AnimationController _scratch = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 5200))
     ..repeat();
   @override
   void dispose() {
     _c.dispose();
+    _scratch.dispose();
     super.dispose();
   }
 
@@ -140,22 +145,25 @@ class _DrossSpinnerState extends State<DrossSpinner>
         width: widget.size,
         height: widget.size,
         child: AnimatedBuilder(
-          animation: _c,
+          animation: Listenable.merge([_c, _scratch]),
           builder: (_, __) => CustomPaint(
-            painter: _OrbPainter(_c.value),
+            painter: _OrbPainter(_c.value, _scratch.value),
           ),
         ),
       );
 }
 
 /// Paints the Dross orb for a loop phase t in [0,1): a bob, a pulsing glow, an
-/// eye that darts left/right, and a quick blink once per cycle.
+/// eye that darts left/right, and a quick blink once per cycle. The `scratch`
+/// phase (its own slower loop) occasionally raises an arm to scratch the head.
 class _OrbPainter extends CustomPainter {
-  _OrbPainter(this.t);
+  _OrbPainter(this.t, this.scratch);
   final double t;
+  final double scratch;
 
   static const _dark = Color(0xFF0C0A1F);
   static const _eyeWhite = Color(0xFFF3EEFF);
+  static const _arm = Color(0xFF7C3AED);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -228,8 +236,49 @@ class _OrbPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..color = _dark,
     );
+
+    // Arms. The left rests at the side; the right occasionally raises to
+    // scratch the top of the head (a fast wiggle at the peak of the raise).
+    double raise = 0, wig = 0;
+    const s0 = 0.12, s1 = 0.40;
+    if (scratch >= s0 && scratch <= s1) {
+      final p = (scratch - s0) / (s1 - s0); // 0..1
+      raise = math.sin(p * math.pi); // ease up, hold, ease down
+      wig = math.sin(p * math.pi * 9) * raise; // fast scratching motion
+    }
+
+    final armPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.06
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = _arm;
+    final cx = bodyC.dx, cy = bodyC.dy, r = bodyR;
+
+    // Left arm — resting.
+    canvas.drawPath(
+      Path()
+        ..moveTo(cx - r * 0.72, cy + r * 0.15)
+        ..quadraticBezierTo(
+            cx - r * 1.15, cy + r * 0.6, cx - r * 0.95, cy + r * 1.15),
+      armPaint,
+    );
+
+    // Right arm — lerps from resting to raised-at-head, then wiggles.
+    final rElbow = Offset.lerp(Offset(cx + r * 1.15, cy + r * 0.6),
+        Offset(cx + r * 1.2, cy - r * 0.35), raise)!;
+    final rHand = Offset.lerp(Offset(cx + r * 0.95, cy + r * 1.15),
+        Offset(cx + r * 0.25 + wig * r * 0.3, cy - r * 1.05), raise)!;
+    canvas.drawPath(
+      Path()
+        ..moveTo(cx + r * 0.72, cy + r * 0.15)
+        ..quadraticBezierTo(rElbow.dx, rElbow.dy, rHand.dx, rHand.dy),
+      armPaint,
+    );
+    canvas.drawCircle(rHand, w * 0.05, Paint()..color = _arm);
   }
 
   @override
-  bool shouldRepaint(covariant _OrbPainter old) => old.t != t;
+  bool shouldRepaint(covariant _OrbPainter old) =>
+      old.t != t || old.scratch != scratch;
 }
