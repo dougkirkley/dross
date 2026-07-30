@@ -13,9 +13,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
+	"golang.org/x/oauth2"
+
 	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider/googleauth"
 )
 
 func init() {
@@ -24,19 +28,39 @@ func init() {
 		if base == "" {
 			base = "https://generativelanguage.googleapis.com/v1beta"
 		}
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("gemini: no API key (set GEMINI_API_KEY)")
+		p := &prov{base: strings.TrimRight(base, "/"), hc: &http.Client{}}
+		if cfg.APIKey != "" {
+			p.apiKey = cfg.APIKey
+			return p, nil
 		}
-		return &prov{base: strings.TrimRight(base, "/"), apiKey: cfg.APIKey, hc: &http.Client{}}, nil
+		// No API key: fall back to the OAuth login (`dross login gemini`). The
+		// Gemini API accepts a Bearer token with an x-goog-user-project header.
+		if ts, ok := googleauth.TokenSource(context.Background()); ok {
+			p.ts = ts
+			p.project = firstEnv("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID")
+			return p, nil
+		}
+		return nil, fmt.Errorf("gemini: no API key (set GEMINI_API_KEY) and no OAuth login — run `dross login gemini`")
 	})
+}
+
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 const defaultMaxTokens = 8192
 
 type prov struct {
-	base   string
-	apiKey string
-	hc     *http.Client
+	base    string
+	apiKey  string             // API-key auth (x-goog-api-key)
+	ts      oauth2.TokenSource // OAuth auth (Bearer) when no API key
+	project string             // x-goog-user-project for OAuth requests
+	hc      *http.Client
 }
 
 func (p *prov) Name() string { return "gemini" }
@@ -164,7 +188,19 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-goog-api-key", s.prov.apiKey) // key in header, not the URL
+	if s.prov.ts != nil {
+		// OAuth: Bearer token + the billing/quota project.
+		tok, err := s.prov.ts.Token()
+		if err != nil {
+			return nil, fmt.Errorf("gemini: token refresh failed (re-run `dross login gemini`): %w", err)
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+		if s.prov.project != "" {
+			httpReq.Header.Set("x-goog-user-project", s.prov.project)
+		}
+	} else {
+		httpReq.Header.Set("x-goog-api-key", s.prov.apiKey) // key in header, not the URL
+	}
 
 	resp, err := s.prov.hc.Do(httpReq)
 	if err != nil {
