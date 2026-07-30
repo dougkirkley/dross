@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/pkg/agent"
@@ -180,4 +181,89 @@ func defaultConfigPath() string {
 		return filepath.Join(dir, "dross", "config.json")
 	}
 	return "dross.json"
+}
+
+// mcpCommand backs the TUI /mcp slash command: list, add, or remove MCP servers,
+// persisting to the config file and bumping gen so the agent rebuilds (and
+// reconnects) on the next prompt. Deliberately TUI/config-only — MCP servers are
+// never addable from the mobile app.
+func mcpCommand(file *config.File, cfgPath string, gen *int) func(args []string) []string {
+	save := func() []string {
+		if err := setConfigKey(cfgPath, "mcp", file.MCP); err != nil {
+			return []string{"save failed: " + err.Error()}
+		}
+		(*gen)++
+		return nil
+	}
+	return func(args []string) []string {
+		if len(args) == 0 || args[0] == "list" {
+			if len(file.MCP) == 0 {
+				return []string{"no MCP servers · add one: /mcp add <name> <url>"}
+			}
+			out := []string{"MCP servers:"}
+			for _, s := range file.MCP {
+				t := s.Transport
+				if t == "" {
+					t = "http"
+				}
+				loc := s.URL
+				if t == "stdio" {
+					loc = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
+				}
+				out = append(out, fmt.Sprintf("  %s  (%s)  %s", s.Name, t, loc))
+			}
+			return out
+		}
+		switch args[0] {
+		case "add":
+			if len(args) < 3 {
+				return []string{"usage: /mcp add <name> <url>   |   /mcp add <name> stdio <command> [args...]"}
+			}
+			name := args[1]
+			var spec config.MCPServer
+			if args[2] == "stdio" {
+				if len(args) < 4 {
+					return []string{"usage: /mcp add <name> stdio <command> [args...]"}
+				}
+				spec = config.MCPServer{Name: name, Transport: "stdio", Command: args[3], Args: args[4:]}
+			} else {
+				spec = config.MCPServer{Name: name, Transport: "http", URL: args[2]}
+			}
+			kept := make([]config.MCPServer, 0, len(file.MCP)+1)
+			for _, s := range file.MCP {
+				if s.Name != name {
+					kept = append(kept, s)
+				}
+			}
+			file.MCP = append(kept, spec)
+			if msg := save(); msg != nil {
+				return msg
+			}
+			return []string{fmt.Sprintf("added MCP server %q — connects on your next message", name)}
+		case "remove", "rm":
+			if len(args) < 2 {
+				return []string{"usage: /mcp remove <name>"}
+			}
+			name := args[1]
+			kept := make([]config.MCPServer, 0, len(file.MCP))
+			found := false
+			for _, s := range file.MCP {
+				if s.Name == name {
+					found = true
+					continue
+				}
+				kept = append(kept, s)
+			}
+			if !found {
+				return []string{"no MCP server named " + name}
+			}
+			file.MCP = kept
+			if msg := save(); msg != nil {
+				return msg
+			}
+			return []string{"removed MCP server " + name}
+		default:
+			return []string{"usage: /mcp [list] | /mcp add <name> <url> | /mcp add <name> stdio <cmd> [args...] | /mcp remove <name>"}
+		}
+	}
 }

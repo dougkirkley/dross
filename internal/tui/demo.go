@@ -203,7 +203,7 @@ func DemoSlashView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  wire up the login flow")
-	m.input.SetValue("/r")
+	m.input.SetValue("/m")
 	return m.View()
 }
 

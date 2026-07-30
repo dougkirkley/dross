@@ -204,6 +204,7 @@ type slashCmd struct{ name, desc string }
 var slashCommands = []slashCmd{
 	{"/model", "list and switch models"},
 	{"/usage", "token and cost usage by model"},
+	{"/mcp", "list, add, or remove MCP servers"},
 	{"/clear", "start a fresh session"},
 	{"/copy", "copy the whole transcript to the clipboard"},
 	{"/exit", "quit dross"},
@@ -276,6 +277,7 @@ type Model struct {
 	quitting       bool                        // a checkpoint-then-quit is in flight
 	onTheme        func(string)                // persist the chosen theme (SetThemeSaver)
 	onWelcome      func(string)                // persist the welcome layout (SetWelcomeSaver)
+	mcp            func([]string) []string     // /mcp list|add|remove handler (SetMCPCommand)
 	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
 	pluginReload   func() []SkillItem
 	skillsViewOpen bool
@@ -610,6 +612,10 @@ func (m *Model) SetConfigPath(path string) { m.configPath = path }
 // SetThemeSaver wires a callback that persists the theme chosen via /theme.
 func (m *Model) SetThemeSaver(fn func(string)) { m.onTheme = fn }
 
+// SetMCPCommand wires the /mcp slash command (list/add/remove MCP servers). The
+// handler receives the args after "/mcp" and returns lines to print.
+func (m *Model) SetMCPCommand(fn func(args []string) []string) { m.mcp = fn }
+
 // SetWelcomeSaver wires a callback that persists the layout chosen via /welcome.
 func (m *Model) SetWelcomeSaver(fn func(string)) { m.onWelcome = fn }
 
@@ -923,6 +929,16 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		return true, tea.Batch(m.beginRun(prompt), m.sp.Tick, m.pump())
 	}
 	switch name {
+	case "/mcp":
+		m.input.Reset()
+		if m.mcp == nil {
+			m.append(metaStyle.Render("mcp is not available here"))
+			return true, nil
+		}
+		for _, l := range m.mcp(strings.Fields(text)[1:]) {
+			m.append(l)
+		}
+		return true, nil
 	case "/theme":
 		m.input.Reset()
 		args := strings.Fields(text)[1:]

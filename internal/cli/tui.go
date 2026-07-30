@@ -132,6 +132,7 @@ func newTUICmd() *cobra.Command {
 			var skillSpecs []agent.SkillSpec
 			var skillItems []tui.SkillItem
 			var skillGen int
+			var mcpGen int // bumped by /mcp add|remove to rebuild the agent
 			skillOff := map[string]bool{} // skills disabled via the /skills modal
 			loadSkills := func() {
 				skillSpecs, skillItems = skillSpecs[:0], skillItems[:0]
@@ -172,7 +173,7 @@ func newTUICmd() *cobra.Command {
 				if st.prov == nil || st.model == "" {
 					return nil, fmt.Errorf("no model configured — use /model to set up a provider")
 				}
-				key := fmt.Sprintf("%s|%s|%s|%s|%d", st.name, st.model, st.workerName, st.workerModel, skillGen)
+				key := fmt.Sprintf("%s|%s|%s|%s|%d|%d", st.name, st.model, st.workerName, st.workerModel, skillGen, mcpGen)
 				if conv == nil || key != convKey {
 					opts := []agent.Option{agent.WithConversation()}
 					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
@@ -244,6 +245,7 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
+			mdl.SetMCPCommand(mcpCommand(res.File, configFilePath(cfgPath), &mcpGen))
 			if theme == "" && res.File.Theme != "" {
 				tui.SetTheme(res.File.Theme)
 			}
