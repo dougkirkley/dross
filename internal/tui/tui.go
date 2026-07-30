@@ -77,7 +77,9 @@ func rebuildStyles() {
 	logoStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	metaStyle = lipgloss.NewStyle().Foreground(muted)
 	costStyle = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
-	headerBar = lipgloss.NewStyle().Background(panel).Padding(0, 1)
+	// No background: gradient wordmark spans reset it mid-row, so a panel bg only
+	// paints behind the model and reads as a stuck highlight. Keep the header flat.
+	headerBar = lipgloss.NewStyle().Padding(0, 1)
 	ruleStyle = lipgloss.NewStyle().Foreground(dim)
 	youLabel = lipgloss.NewStyle().Foreground(muted).Bold(true)
 	agentLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
