@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/dougkirkley/dross/internal/tui"
 	"github.com/dougkirkley/dross/pkg/agent"
 	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/pkg/provider/googleauth"
 )
 
 func newTUICmd() *cobra.Command {
@@ -346,6 +348,11 @@ func newTUICmd() *cobra.Command {
 					return nil
 				},
 			)
+			// OAuth-only providers (vertex): if picking one fails for lack of
+			// credentials, run the browser login and then apply the model.
+			mdl.SetLogin(func(ctx context.Context, _ string) error {
+				return googleauth.Login(ctx, io.Discard)
+			}, "vertex")
 			// Worker slot of the /model picker (the cheaper delegate model).
 			mdl.SetWorker(
 				func(prov, model string) {

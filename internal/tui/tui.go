@@ -116,6 +116,20 @@ type doneMsg struct {
 // copyClearedMsg fires ~2s after a copy to re-render (hiding the "copied" toast).
 type copyClearedMsg struct{}
 
+// loginDoneMsg reports the result of an OAuth login started from the /model picker.
+type loginDoneMsg struct{ err error }
+
+// loginCmd runs the wired OAuth login (browser flow) for the pending provider.
+func (m Model) loginCmd() tea.Cmd {
+	fn, prov := m.onLogin, m.loginProv
+	return func() tea.Msg {
+		if fn == nil {
+			return loginDoneMsg{err: fmt.Errorf("login not available")}
+		}
+		return loginDoneMsg{err: fn(context.Background(), prov)}
+	}
+}
+
 // noteCopied records a copy and returns a command that clears the toast later.
 func (m *Model) noteCopied() tea.Cmd {
 	m.copiedAt = time.Now()
@@ -360,6 +374,10 @@ type Model struct {
 	modelList       func() []ModelGroup
 	modelSetup      func(kind, baseURL, apiKey string) ([]ModelGroup, error)
 	onModel         func(provider, model string) error
+	onLogin         func(ctx context.Context, provider string) error // runs the OAuth login for a provider
+	oauthProviders  map[string]bool                                  // providers whose auth is a login flow (vertex, …)
+	loginProv       string                                           // pending login target (provider)
+	loginModel      string                                           // pending login target (model to set after)
 	modelGroups     []ModelGroup
 	modelFlat       []string // selectable ids, in display order
 	modelFlatProv   []string // provider id parallel to modelFlat
@@ -712,6 +730,17 @@ func (m *Model) SetModelPicker(
 	m.modelList = list
 	m.modelSetup = setup
 	m.onModel = onPick
+}
+
+// SetLogin wires the OAuth login flow: when a model from one of the named
+// providers is picked and its provider can't be configured (no credentials),
+// dross runs fn (a browser login) and then applies the model.
+func (m *Model) SetLogin(fn func(ctx context.Context, provider string) error, providers ...string) {
+	m.onLogin = fn
+	m.oauthProviders = map[string]bool{}
+	for _, p := range providers {
+		m.oauthProviders[p] = true
+	}
 }
 
 // SetWorker wires the "Worker" slot of the /model picker: onPick assigns the
@@ -1226,32 +1255,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Model picker overlay. Navigate by default; "/" starts a search.
 		if m.modelPickerOpen {
-			pick := func() {
-				if m.modelSel < len(m.modelFiltered) {
-					idx := m.modelFiltered[m.modelSel]
-					id, prov := m.modelFlat[idx], m.modelFlatProv[idx]
-					if m.modelSlot == 1 { // worker slot
-						m.workerModel, m.workerProv = id, prov
-						if m.onWorker != nil {
-							m.onWorker(prov, id)
+			pick := func() tea.Cmd {
+				if m.modelSel >= len(m.modelFiltered) {
+					m.modelPickerOpen = false
+					return nil
+				}
+				idx := m.modelFiltered[m.modelSel]
+				id, prov := m.modelFlat[idx], m.modelFlatProv[idx]
+				m.modelPickerOpen = false
+				if m.modelSlot == 1 { // worker slot
+					m.workerModel, m.workerProv = id, prov
+					if m.onWorker != nil {
+						m.onWorker(prov, id)
+					}
+					m.append(startGlyph.Render("▸ ") + metaStyle.Render("worker set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
+					return nil
+				}
+				// Lead slot: configure the provider first; only commit the model if
+				// it succeeds. For OAuth-only providers (e.g. vertex) with no
+				// credentials, start the login flow instead of failing.
+				if m.onModel != nil {
+					if err := m.onModel(prov, id); err != nil {
+						if m.oauthProviders[prov] && m.onLogin != nil {
+							m.loginProv, m.loginModel = prov, id
+							m.append(startGlyph.Render("▸ ") + metaStyle.Render("signing in to "+prov+" — opening your browser…"))
+							return m.loginCmd()
 						}
-						m.append(startGlyph.Render("▸ ") + metaStyle.Render("worker set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
-					} else { // lead slot
-						// Configure the provider first; only commit the model if it
-						// succeeds, so a failed switch (e.g. missing key) doesn't leave
-						// the old provider running a mismatched model.
-						if m.onModel != nil {
-							if err := m.onModel(prov, id); err != nil {
-								m.append(errStyle.Render("✗ " + err.Error()))
-								m.modelPickerOpen = false
-								return
-							}
-						}
-						m.model, m.provider = id, prov
-						m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
+						m.append(errStyle.Render("✗ " + err.Error()))
+						return nil
 					}
 				}
-				m.modelPickerOpen = false
+				m.model, m.provider = id, prov
+				m.append(startGlyph.Render("▸ ") + metaStyle.Render("model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
+				return nil
 			}
 			toggleSlot := func() {
 				if m.onWorker == nil {
@@ -1266,7 +1302,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.modelSearching, m.modelQuery = false, ""
 					m.filterModels()
 				case tea.KeyEnter:
-					pick()
+					return m, pick()
 				case tea.KeyUp:
 					if m.modelSel > 0 {
 						m.modelSel--
@@ -1305,7 +1341,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.modelSel++
 				}
 			case "enter":
-				pick()
+				return m, pick()
 			}
 			return m, nil
 		}
@@ -1745,6 +1781,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.pump())
 	case copyClearedMsg:
 		return m, nil // just re-render so the "copied" toast disappears
+	case loginDoneMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("✗ login failed: " + msg.err.Error()))
+			return m, nil
+		}
+		// Credentials exist now — apply the model that triggered the login.
+		prov, id := m.loginProv, m.loginModel
+		if m.onModel != nil {
+			if err := m.onModel(prov, id); err != nil {
+				m.append(errStyle.Render("✗ " + err.Error()))
+				return m, nil
+			}
+		}
+		m.model, m.provider = id, prov
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("signed in — model set to ") + toolName.Render(id) + metaStyle.Render("  "+prov))
+		return m, nil
 	case bangMsg:
 		for _, l := range strings.Split(strings.TrimRight(msg.out, "\n"), "\n") {
 			m.append(resultStyle.Render(l))
