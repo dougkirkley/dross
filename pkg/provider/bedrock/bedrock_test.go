@@ -81,6 +81,7 @@ func TestFixModelRegion(t *testing.T) {
 		{"us.amazon.nova-pro-v1:0", "eu-west-1", "eu.amazon.nova-pro-v1:0"},
 		{"us.amazon.nova-pro-v1:0", "us-east-1", "us.amazon.nova-pro-v1:0"},
 		{"us.amazon.nova-pro-v1:0", "ap-southeast-2", "apac.amazon.nova-pro-v1:0"},
+		{"us.anthropic.claude-sonnet-5", "us-gov-west-1", "us-gov.anthropic.claude-sonnet-5"},
 		{"amazon.nova-pro-v1:0", "eu-west-1", "amazon.nova-pro-v1:0"}, // no prefix, unchanged
 		{"us.amazon.nova-pro-v1:0", "", "us.amazon.nova-pro-v1:0"},    // unknown region, unchanged
 	}

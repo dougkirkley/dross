@@ -38,6 +38,8 @@ type converseSession struct {
 // geoPrefix maps an AWS region to the cross-region inference-profile prefix.
 func geoPrefix(region string) string {
 	switch {
+	case strings.HasPrefix(region, "us-gov-"):
+		return "us-gov"
 	case strings.HasPrefix(region, "us-"):
 		return "us"
 	case strings.HasPrefix(region, "eu-"):
@@ -57,7 +59,7 @@ func fixModelRegion(model, region string) string {
 	if geo == "" {
 		return model
 	}
-	for _, p := range []string{"us.", "eu.", "apac."} {
+	for _, p := range []string{"us-gov.", "us.", "eu.", "apac."} {
 		if strings.HasPrefix(model, p) {
 			if p != geo+"." {
 				return geo + "." + strings.TrimPrefix(model, p)
