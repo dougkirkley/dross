@@ -136,10 +136,11 @@ lists what's loaded. Installed plugins live under `~/.dross/`.
   `/mouse` (toggle mouse capture), `/clear`, `/init` (generate `AGENTS.md`),
   `/help`, `/login`, `/rc`.
   User-invocable skills also appear as `/<skill-name>`.
-- **Scroll & copy both work natively.** dross runs inline (no alternate
-  screen): the transcript is printed into your terminal's normal buffer, so the
-  scroll wheel and text selection / copy both work with no modifier, exactly
-  like a normal shell. Only the input + status stay pinned at the bottom.
+- **Mouse** is on by default so the scroll wheel scrolls the transcript (and
+  click-to-expand tool output works). Text selection still works with your
+  terminal's modifier — Shift-drag on most terminals, Option-drag in macOS
+  Terminal/iTerm2; `/mouse` turns capture off for plain drag-select. `pgup` /
+  `ctrl+u` / `ctrl+d` also scroll.
 - The model can also edit `dross`'s own config on request via a built-in
   `config` tool (e.g. "set my worker to qwen3-coder").
 - **`!cmd`** — run a shell command directly (gold prompt border).
