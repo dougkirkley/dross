@@ -53,7 +53,7 @@ func DemoView(width, height int) string {
 		{Kind: "worker:tool-result", Data: "wrote 38 lines to internal/cli/output.go"},
 		{Kind: "tool-result", Data: "worker: added Output struct; internal/cli/output.go compiles."},
 		{Kind: "tool", Data: `edit {"path":"cmd/dross/main.go","old_str":"flag.Parse()","new_str":"jsonOut := fs.Bool(\"json\", false, ...)"}`},
-		{Kind: "edit", Data: `{"file":"cmd/dross/main.go","added":6,"removed":1}`},
+		{Kind: "edit", Data: `{"file":"cmd/dross/main.go","added":6,"removed":1,"diff":"  func main() {\n  \tfs := flag.NewFlagSet(\"dross\", flag.ExitOnError)\n- \tfs.Parse(os.Args[1:])\n+ \tjsonOut := fs.Bool(\"json\", false, \"emit machine-readable JSON\")\n+ \tfs.Parse(os.Args[1:])\n+ \tif *jsonOut {\n+ \t\tout.Render(os.Stdout)\n+ \t\treturn\n+ \t}\n  \trun(fs.Args())\n  }"}`},
 		{Kind: "ask", Data: "Name the flag --json or --output=json?"},
 		{Kind: "answer", Data: "--json"},
 		{Kind: "tool", Data: `bash {"command":"go build ./... && go test ./..."}`},

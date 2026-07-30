@@ -3077,19 +3077,9 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
 				diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 				diffDelStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
-			for _, l := range diffLines(ed.Diff, 200) {
-				var st lipgloss.Style
-				switch {
-				case strings.HasPrefix(l, "+ "):
-					st = diffAddStyle
-				case strings.HasPrefix(l, "- "):
-					st = diffDelStyle
-				case l == diffGap:
-					st = metaStyle
-				default:
-					st = resultStyle
-				}
-				m.append(indent + "    " + st.Render(truncate(l, m.width-8)))
+			bandW := m.width - len([]rune(indent)) - 2
+			for _, l := range renderDiff(ed.Diff, bandW, 200) {
+				m.append(indent + "  " + l)
 			}
 		}
 	case "usage":

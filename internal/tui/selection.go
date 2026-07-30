@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -27,19 +29,26 @@ func extractNext(s string) (clean, next string) {
 // diffGap marks collapsed unchanged regions in a rendered diff.
 const diffGap = "  ⋮"
 
-// diffLines formats a "+ /- /  "-prefixed diff for display: it keeps changed
-// lines and up to 3 context lines around each, collapsing longer unchanged runs
-// to a "⋮" marker. Caps at maxLines total (with a trailing note) so a huge diff
-// doesn't flood the feed — the full version is available via ctrl+o / the tool
-// view.
-func diffLines(diff string, maxLines int) []string {
+// renderDiff renders a "+ /- /  "-prefixed whole-file diff as git-style rows:
+// added lines get a full-width green band, removed lines a red band, and each
+// row carries a line-number gutter (old line for removals, new line for context
+// and additions). Unchanged runs beyond 3 lines of context collapse to a "⋮"
+// marker; output caps at maxLines. width is the full band width (already net of
+// the caller's indent). Returns fully styled rows.
+func renderDiff(diff string, width, maxLines int) []string {
 	raw := strings.Split(strings.TrimRight(diff, "\n"), "\n")
 	if len(raw) == 1 && raw[0] == "" {
 		return nil
 	}
-	isChange := func(l string) bool {
-		return strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "- ")
+	prefix := func(l string) (mark byte, code string, ok bool) {
+		if len(l) >= 2 && (l[:2] == "  " || l[:2] == "+ " || l[:2] == "- ") {
+			return l[0], l[2:], true
+		}
+		return 0, l, false
 	}
+	isChange := func(l string) bool { return strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "- ") }
+
+	// keep[] marks changed lines plus 3 lines of surrounding context.
 	const ctx = 3
 	keep := make([]bool, len(raw))
 	for i, l := range raw {
@@ -57,20 +66,70 @@ func diffLines(diff string, maxLines int) []string {
 			keep[j] = true
 		}
 	}
+
+	numW := len(strconv.Itoa(len(raw) + 1))
+	if numW < 3 {
+		numW = 3
+	}
+	addBand := lipgloss.NewStyle().Foreground(lipgloss.Color("#CDEAD5")).Background(lipgloss.Color("#123322")).Width(width)
+	delBand := lipgloss.NewStyle().Foreground(lipgloss.Color("#F1CCD1")).Background(lipgloss.Color("#3A1A1E")).Width(width)
+	ctxStyle := lipgloss.NewStyle().Foreground(dim)
+	gapStyle := lipgloss.NewStyle().Foreground(muted)
+
+	row := func(band lipgloss.Style, num int, mark byte, code string) string {
+		numStr := ""
+		if num > 0 {
+			numStr = strconv.Itoa(num)
+		}
+		avail := width - numW - 3
+		if avail < 1 {
+			avail = 1
+		}
+		text := fmt.Sprintf("%*s %c %s", numW, numStr, mark, truncate(code, avail))
+		return band.Render(text)
+	}
+
 	var out []string
+	oldLn, newLn := 0, 0 // 1-based counters; incremented as we pass each raw line
 	gap := false
 	for i, l := range raw {
+		mark, code, ok := prefix(l)
+		switch {
+		case !ok: // truncation note or stray line; no counter advance
+		case mark == ' ':
+			oldLn++
+			newLn++
+		case mark == '-':
+			oldLn++
+		case mark == '+':
+			newLn++
+		}
 		if !keep[i] {
 			gap = true
 			continue
 		}
 		if gap {
-			out = append(out, diffGap)
+			out = append(out, gapStyle.Render(diffGap))
 			gap = false
 		}
-		out = append(out, l)
+		switch {
+		case !ok:
+			out = append(out, gapStyle.Render("  "+l))
+		case mark == '+':
+			out = append(out, row(addBand, newLn, '+', code))
+		case mark == '-':
+			out = append(out, row(delBand, oldLn, '-', code))
+		default:
+			// context row: dim gutter + dim code, no band.
+			numStr := strconv.Itoa(newLn)
+			avail := width - numW - 3
+			if avail < 1 {
+				avail = 1
+			}
+			out = append(out, ctxStyle.Render(fmt.Sprintf("%*s   %s", numW, numStr, truncate(code, avail))))
+		}
 		if len(out) >= maxLines {
-			out = append(out, diffGap+" (diff truncated — ctrl+o for full)")
+			out = append(out, gapStyle.Render(diffGap+" (diff truncated — ctrl+o for full)"))
 			break
 		}
 	}
