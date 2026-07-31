@@ -642,7 +642,7 @@ func (a *Agent) friendlyErr(err error) error {
 
 // firstReplyDirective is appended to the first user turn of a new code session so
 // the reply opens with a fixed marker restating the request, before any work.
-const firstReplyDirective = `[system] This is the first message of the session. Begin your reply with the literal marker "[Information Requested]" followed on the same line by a brief one-line summary of the request above (what you're about to do). Then proceed. Use this marker only on this first reply.`
+const firstReplyDirective = `[system] This is the first message of the session. Begin your reply with the literal marker "[Information Requested]" followed on the same line by a brief one-line summary of the request above (what you're about to do). Then proceed. Do NOT add any other bracketed marker anywhere in this reply — "[Information Requested]" is the only bracket allowed, and only on this first reply.`
 
 func seedPrompt(resume, prompt string) string {
 	if resume == "" {
