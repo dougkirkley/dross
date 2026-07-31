@@ -68,8 +68,13 @@ var (
 	goldStyle    lipgloss.Style
 	crystalStyle lipgloss.Style
 	violStyle    lipgloss.Style
+	drossBullet  lipgloss.Style
 	inputBox     lipgloss.Style
 )
+
+// drossOrbGlyph is the Dross orb rendered as a single glyph — the leading bullet
+// on each assistant block (Claude-Code style, but the circle is Dross's eye).
+const drossOrbGlyph = "◉"
 
 func init() { rebuildStyles() }
 
@@ -103,6 +108,7 @@ func rebuildStyles() {
 	goldStyle = lipgloss.NewStyle().Foreground(gold).Bold(true)
 	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
 	violStyle = lipgloss.NewStyle().Foreground(holoViol)
+	drossBullet = lipgloss.NewStyle().Foreground(holoViol).Bold(true)
 	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).Padding(0, 1)
 	mdCached = nil // markdown renderer bakes in the palette; rebuild on theme change
 }
@@ -3008,17 +3014,17 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.lastReply = data // full text, for ctrl+y copy
 			m.bashCmd = ""     // a message means the foreground command finished
 		}
-		// Headline (the model's one-line summary) sits next to the name; the rest
-		// of the body is left-aligned underneath, not hang-indented under the label.
+		// Claude-Code style: the Dross orb leads the block, the summary sits on
+		// that line, and the rest of the body aligns underneath the text.
 		// Markdown is rendered to styled terminal output via glamour.
 		width := m.width - 4 - len([]rune(indent))
 		lines := renderMarkdown(data, width)
 		if len(lines) == 0 {
 			lines = []string{""}
 		}
-		m.append(indent + agentLabel.Render(m.agentName) + "  " + lines[0])
+		m.append(indent + drossBullet.Render(drossOrbGlyph) + " " + lines[0])
 		for _, l := range lines[1:] {
-			m.append(indent + l)
+			m.append(indent + "  " + l)
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
@@ -3095,13 +3101,13 @@ func (m *Model) applyEvent(e agent.Event) {
 			bandW := m.width - len([]rune(indent)) - 2
 			if ed.New {
 				// New file: print its content, not a diff.
-				m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("created ") + toolName.Render(base) + " " +
+				m.append(indent + drossBullet.Render(drossOrbGlyph+" ") + resultStyle.Render("created ") + toolName.Render(base) + " " +
 					diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)))
 				for _, l := range renderFileContent(ed.Content, bandW, 200) {
 					m.append(indent + "  " + l)
 				}
 			} else {
-				m.append(indent + violStyle.Render("◈ ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
+				m.append(indent + drossBullet.Render(drossOrbGlyph+" ") + resultStyle.Render("edited ") + toolName.Render(base) + " " +
 					diffAddStyle.Render(fmt.Sprintf("+%d", ed.Added)) + " " +
 					diffDelStyle.Render(fmt.Sprintf("-%d", ed.Removed)))
 				for _, l := range renderDiff(ed.Diff, bandW, 200) {
