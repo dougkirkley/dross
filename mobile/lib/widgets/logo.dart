@@ -77,12 +77,17 @@ class _DrossPainter extends CustomPainter {
       ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR));
     canvas.drawCircle(bodyC, bodyR, body);
 
-    // One big eye, slightly left of centre; the iris looks off to the right.
+    // One big eye, slightly left of centre. The iris looks off to the right but
+    // stays fully inside the sclera (offset + iris radius < eye radius), so it
+    // never clips the white — the previous values let it poke out the right side.
     final eyeC = Offset(w * 0.46, h * 0.38);
-    canvas.drawCircle(eyeC, w * 0.145, Paint()..color = _eyeWhite);
-    canvas.drawCircle(
-        Offset(eyeC.dx + w * 0.055, eyeC.dy), w * 0.10,
-        Paint()..color = _dark);
+    final eyeR = w * 0.15;
+    canvas.drawCircle(eyeC, eyeR, Paint()..color = _eyeWhite);
+    final irisC = Offset(eyeC.dx + w * 0.045, eyeC.dy + h * 0.006);
+    canvas.drawCircle(irisC, w * 0.085, Paint()..color = _dark);
+    // A small catchlight makes the eye read as alive rather than a flat dot.
+    canvas.drawCircle(Offset(irisC.dx - w * 0.03, irisC.dy - h * 0.032),
+        w * 0.022, Paint()..color = _eyeWhite);
 
     // Heavy brow, arched OVER the top of the eye (raised, expressive) — a long
     // curved stroke, not a lid.

@@ -80,9 +80,66 @@ const drossOrbGlyph = "◉"
 
 func init() { rebuildStyles() }
 
+// dimLevel is the fraction (0..1) that every foreground color is blended toward
+// the background, dimming the whole UI. 0 = full color. Changed via /dim.
+var dimLevel float64
+
+// dimSteps are the selectable dim levels /dim cycles through.
+var dimSteps = []float64{0, 0.2, 0.4, 0.6}
+
+// cycleDim advances to the next dim level, rebuilds styles, and returns the new
+// level as a 0..100 percentage.
+func cycleDim() int {
+	i := 0
+	for j, v := range dimSteps {
+		if v == dimLevel {
+			i = j
+			break
+		}
+	}
+	dimLevel = dimSteps[(i+1)%len(dimSteps)]
+	rebuildStyles()
+	return int(dimLevel*100 + 0.5)
+}
+
+// hexRGB parses "#RRGGBB" into components; ok is false for anything else (e.g. a
+// named/ANSI color), so callers leave those untouched.
+func hexRGB(c lipgloss.Color) (r, g, b int, ok bool) {
+	s := string(c)
+	if len(s) != 7 || s[0] != '#' {
+		return 0, 0, 0, false
+	}
+	var n int
+	if _, err := fmt.Sscanf(s[1:], "%06x", &n); err != nil {
+		return 0, 0, 0, false
+	}
+	return n >> 16 & 0xff, n >> 8 & 0xff, n & 0xff, true
+}
+
+// dimColor blends c toward the base background by dimLevel. Non-hex colors and a
+// zero dim level pass through unchanged.
+func dimColor(c lipgloss.Color) lipgloss.Color {
+	if dimLevel <= 0 {
+		return c
+	}
+	fr, fg2, fb, ok := hexRGB(c)
+	br, bg2, bb, ok2 := hexRGB(base)
+	if !ok || !ok2 {
+		return c
+	}
+	mix := func(f, b int) int { return int(float64(f)*(1-dimLevel) + float64(b)*dimLevel + 0.5) }
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", mix(fr, br), mix(fg2, bg2), mix(fb, bb)))
+}
+
 // rebuildStyles derives every style from the current palette. Called at startup
-// and after any theme/color change.
+// and after any theme/color/dim change. Colors are read through dimColor so the
+// active dim level applies without mutating the raw palette.
 func rebuildStyles() {
+	accent, accentHi := dimColor(accent), dimColor(accentHi)
+	fg, prose, muted, dim := dimColor(fg), dimColor(prose), dimColor(muted), dimColor(dim)
+	bad, ok, gold, worker := dimColor(bad), dimColor(ok), dimColor(gold), dimColor(worker)
+	holoCyan, holoViol := dimColor(holoCyan), dimColor(holoViol)
+
 	logoStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	metaStyle = lipgloss.NewStyle().Foreground(muted)
 	costStyle = lipgloss.NewStyle().Foreground(accentHi).Bold(true)
@@ -221,6 +278,7 @@ var slashCommands = []slashCmd{
 	{"/init", "generate an AGENTS.md for this repo"},
 	{"/help", "show shortcuts"},
 	{"/theme", "switch color theme"},
+	{"/dim", "cycle UI dim level (opacity)"},
 	{"/welcome", "switch empty-state layout"},
 	{"/mouse", "toggle mouse capture (drag-select+copy, wheel scroll)"},
 	{"/config", "edit the config file in $EDITOR"},
@@ -1025,6 +1083,15 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.themeViewOpen = true
 		m.themeOrig = currentTheme
 		m.themeSel = currentTheme
+		return true, nil
+	case "/dim":
+		m.input.Reset()
+		pct := cycleDim()
+		label := fmt.Sprintf("%d%%", pct)
+		if pct == 0 {
+			label = "off"
+		}
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("dim ") + crystalStyle.Render(label))
 		return true, nil
 	case "/welcome":
 		m.input.Reset()
