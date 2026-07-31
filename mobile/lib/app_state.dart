@@ -320,21 +320,15 @@ class AppState extends ChangeNotifier {
     await sendPrompt(next);
   }
 
-  /// Moves queued item [i] to the front and interrupts the running turn so it
-  /// runs next ("run now").
+  /// Moves queued item [i] to the front so it is the next prompt to run. If the
+  /// session is idle it starts immediately; otherwise it runs when the current
+  /// turn finishes. Does not interrupt the running turn (use Stop for that).
   Future<void> promoteRemote(int i) async {
-    if (i < 0 || i >= queue.length) return;
-    if (i != 0) {
-      final t = queue.removeAt(i);
-      queue.insert(0, t);
-    }
+    if (i <= 0 || i >= queue.length) return; // already front or out of range
+    final t = queue.removeAt(i);
+    queue.insert(0, t);
     notifyListeners();
-    final s = current;
-    if (s != null && s.isRunning) {
-      await interrupt();
-    } else {
-      await _drainQueue();
-    }
+    await _drainQueue(); // no-op while running; sends immediately when idle
   }
 
   String removeQueued(int i) {

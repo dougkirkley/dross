@@ -71,12 +71,7 @@ class _SessionScreenState extends State<SessionScreen> {
               leading: CircleIconButton(
                   icon: Icons.chevron_left,
                   onTap: () => Navigator.pop(context)),
-              trailing: (sess?.isRunning ?? false)
-                  ? CircleIconButton(
-                      icon: Icons.stop,
-                      tooltip: 'Interrupt',
-                      onTap: () => context.read<AppState>().interrupt())
-                  : null,
+              trailing: null,
             ),
             Expanded(
               child: Builder(builder: (_) {
@@ -171,7 +166,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.arrow_upward,
                         size: 18, color: T.accent),
-                    tooltip: 'Run now',
+                    tooltip: 'Run next',
                     onPressed: () => context.read<AppState>().promoteRemote(i),
                   ),
                   IconButton(
@@ -282,16 +277,42 @@ class _SessionScreenState extends State<SessionScreen> {
                     onSubmitted: (_) => _send(context),
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => _send(context),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                        color: T.accent, shape: BoxShape.circle),
-                    child: Icon(running ? Icons.add : Icons.arrow_upward,
-                        size: 20, color: T.bg),
-                  ),
+                // Button is a square by default; it becomes the round send arrow
+                // only when the composer has text. While running with an empty
+                // composer the square acts as the Stop control (interrupt).
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _input,
+                  builder: (context, value, _) {
+                    final hasText = value.text.trim().isNotEmpty;
+                    if (hasText) {
+                      return GestureDetector(
+                        onTap: () => _send(context),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: const BoxDecoration(
+                              color: T.accent, shape: BoxShape.circle),
+                          child: Icon(running ? Icons.add : Icons.arrow_upward,
+                              size: 20, color: T.bg),
+                        ),
+                      );
+                    }
+                    return GestureDetector(
+                      onTap: running
+                          ? () => context.read<AppState>().interrupt()
+                          : null,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: running ? T.accent : T.surfaceAlt,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.stop,
+                            size: 18, color: running ? T.bg : T.textDim),
+                      ),
+                    );
+                  },
                 ),
               ]),
               const SizedBox(height: 8),
