@@ -40,85 +40,213 @@ class DrossLogo extends StatelessWidget {
   }
 }
 
-class _DrossPainter extends CustomPainter {
-  static const _dark = Color(0xFF0C0A1F); // brow / eye / mouth
-  static const _eyeWhite = Color(0xFFF3EEFF);
+/// Samples a Catmull-Rom spline through [pts] (endpoints duplicated).
+List<Offset> _spline(List<Offset> pts, {int per = 14}) {
+  final p = [pts.first, ...pts, pts.last];
+  final out = <Offset>[];
+  for (var i = 0; i < p.length - 3; i++) {
+    final p0 = p[i], p1 = p[i + 1], p2 = p[i + 2], p3 = p[i + 3];
+    for (var s = 0; s < per; s++) {
+      final t = s / per, t2 = t * t, t3 = t2 * t;
+      out.add(Offset(
+        0.5 * (2 * p1.dx + (-p0.dx + p2.dx) * t +
+            (2 * p0.dx - 5 * p1.dx + 4 * p2.dx - p3.dx) * t2 +
+            (-p0.dx + 3 * p1.dx - 3 * p2.dx + p3.dx) * t3),
+        0.5 * (2 * p1.dy + (-p0.dy + p2.dy) * t +
+            (2 * p0.dy - 5 * p1.dy + 4 * p2.dy - p3.dy) * t2 +
+            (-p0.dy + 3 * p1.dy - 3 * p2.dy + p3.dy) * t3),
+      ));
+    }
+  }
+  out.add(pts.last);
+  return out;
+}
 
+/// A closed tapered-tube outline following the centerline [pts]: each sample is
+/// offset perpendicular by a half-width easing from [wStart] to [wEnd]. This is
+/// what makes the tentacles read as one continuous limb instead of a chain of
+/// segments with visible kinks.
+Path _tentacle(List<Offset> pts, double wStart, double wEnd) {
+  final c = _spline(pts);
+  final n = c.length;
+  final left = <Offset>[], right = <Offset>[];
+  for (var i = 0; i < n; i++) {
+    final t = i / (n - 1);
+    final w = wStart + (wEnd - wStart) * math.pow(t, 1.35);
+    final a = c[math.max(i - 1, 0)], b = c[math.min(i + 1, n - 1)];
+    final d = b - a;
+    final len = d.distance == 0 ? 1.0 : d.distance;
+    final nx = -d.dy / len, ny = d.dx / len;
+    left.add(Offset(c[i].dx + nx * w, c[i].dy + ny * w));
+    right.add(Offset(c[i].dx - nx * w, c[i].dy - ny * w));
+  }
+  final path = Path()..moveTo(left.first.dx, left.first.dy);
+  for (final p in left.skip(1)) {
+    path.lineTo(p.dx, p.dy);
+  }
+  for (final p in right.reversed) {
+    path.lineTo(p.dx, p.dy);
+  }
+  return path..close();
+}
+
+/// Centerline of the left tentacle in unit (0..1) coordinates: leaves the body,
+/// sweeps down and out, then hooks back up and inward into a curl. [curl] in
+/// 0..1 pulls the tip up and in — a flex.
+List<Offset> _leftTentacle(double w, double h, double curl) {
+  final pts = <Offset>[
+    const Offset(0.285, 0.541),
+    const Offset(0.200, 0.593),
+    const Offset(0.131, 0.674),
+    const Offset(0.115, 0.770),
+    const Offset(0.177, 0.837),
+    const Offset(0.262, 0.822),
+    const Offset(0.285, 0.756),
+    const Offset(0.254, 0.726),
+  ];
+  // Flexing lifts and tightens the outer half of the limb.
+  return [
+    for (var i = 0; i < pts.length; i++)
+      () {
+        final f = (i / (pts.length - 1)) * curl;
+        return Offset(
+          (pts[i].dx + 0.070 * f) * w,
+          (pts[i].dy - 0.130 * f) * h,
+        );
+      }()
+  ];
+}
+
+class _DrossPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final bodyC = Offset(w * 0.5, h * 0.40);
-    final bodyR = w * 0.30;
-
-    // Two thin curly tendril legs behind the body, splayed left and right.
-    final legPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.06
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = const Color(0xFF7C3AED);
-    final left = Path()
-      ..moveTo(w * 0.43, h * 0.66)
-      ..quadraticBezierTo(w * 0.26, h * 0.78, w * 0.34, h * 0.88)
-      ..quadraticBezierTo(w * 0.42, h * 0.96, w * 0.30, h * 0.99);
-    final right = Path()
-      ..moveTo(w * 0.57, h * 0.66)
-      ..quadraticBezierTo(w * 0.76, h * 0.78, w * 0.66, h * 0.88)
-      ..quadraticBezierTo(w * 0.56, h * 0.97, w * 0.70, h * 1.00);
-    canvas.drawPath(left, legPaint);
-    canvas.drawPath(right, legPaint);
-
-    // Body: a solid violet blob (flat, with only a whisper of top light).
-    final body = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
-      ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR));
-    canvas.drawCircle(bodyC, bodyR, body);
-
-    // One big eye, slightly left of centre. The iris looks off to the right but
-    // stays fully inside the sclera (offset + iris radius < eye radius), so it
-    // never clips the white — the previous values let it poke out the right side.
-    final eyeC = Offset(w * 0.46, h * 0.38);
-    final eyeR = w * 0.15;
-    canvas.drawCircle(eyeC, eyeR, Paint()..color = _eyeWhite);
-    final irisC = Offset(eyeC.dx + w * 0.045, eyeC.dy + h * 0.006);
-    canvas.drawCircle(irisC, w * 0.085, Paint()..color = _dark);
-    // A small catchlight makes the eye read as alive rather than a flat dot.
-    canvas.drawCircle(Offset(irisC.dx - w * 0.03, irisC.dy - h * 0.032),
-        w * 0.022, Paint()..color = _eyeWhite);
-
-    // Heavy brow, arched OVER the top of the eye (raised, expressive) — a long
-    // curved stroke, not a lid.
-    final brow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.055
-      ..strokeCap = StrokeCap.round
-      ..color = _dark;
-    canvas.drawPath(
-      Path()
-        ..moveTo(w * 0.29, h * 0.34)
-        ..quadraticBezierTo(w * 0.49, h * 0.19, w * 0.70, h * 0.29),
-      brow,
-    );
-
-    // Wide, gentle smile low and centred under the eye.
-    final mouth = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.05
-      ..strokeCap = StrokeCap.round
-      ..color = _dark;
-    canvas.drawPath(
-      Path()
-        ..moveTo(w * 0.33, h * 0.53)
-        ..quadraticBezierTo(w * 0.50, h * 0.62, w * 0.67, h * 0.53),
-      mouth,
-    );
+    paintDross(canvas, size, curl: 0);
   }
 
   @override
   bool shouldRepaint(covariant _DrossPainter oldDelegate) => false;
+}
+
+/// Draws the Dross mark: a violet blob with a bold outline, two tapered tentacle
+/// arms, one big glossy eye under a heavy lid, and a small one-sided smirk.
+/// [curl] 0..1 flexes both tentacles up and inward. [close] 0..1 shuts the eye.
+void paintDross(Canvas canvas, Size size,
+    {double curl = 0, double close = 0}) {
+  const dark = Color(0xFF140A24);
+  const eyeWhite = Color(0xFFF4F1FC);
+  final w = size.width, h = size.height;
+
+  final outline = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = w * 0.032
+    ..strokeJoin = StrokeJoin.round
+    ..strokeCap = StrokeCap.round
+    ..color = dark;
+
+  // Body: a slightly tilted egg (cartoon weight, not a perfect circle).
+  final bodyRect = Rect.fromLTWH(w * 0.154, h * 0.067, w * 0.669, h * 0.659);
+  final bodyC = bodyRect.center;
+  final body = Paint()
+    ..shader = const LinearGradient(
+      begin: Alignment(-0.7, -1),
+      end: Alignment(0.7, 1),
+      colors: [Color(0xFFB292F2), Color(0xFF8B5CF6), Color(0xFF6320C9)],
+      stops: [0, 0.5, 1],
+    ).createShader(bodyRect);
+
+  // Tentacles first, so the body overlaps where they attach.
+  final lPts = _leftTentacle(w, h, curl);
+  final rPts = [for (final p in lPts) Offset(w - p.dx, p.dy)];
+  for (final pts in [lPts, rPts]) {
+    final t = _tentacle(pts, w * 0.096, w * 0.013);
+    canvas.drawPath(t, outline);
+    canvas.drawPath(t, body);
+  }
+
+  final bodyPath = Path()..addOval(bodyRect);
+  canvas.drawPath(bodyPath, body);
+  canvas.drawPath(bodyPath, outline..strokeWidth = w * 0.040);
+
+  // Eye, centred on the body.
+  final eyeC = Offset(bodyC.dx, h * 0.385);
+  final eyeR = w * 0.196;
+  canvas.drawCircle(eyeC, eyeR, Paint()..color = eyeWhite);
+
+  final irisC = Offset(eyeC.dx, eyeC.dy + h * 0.015);
+  canvas.drawCircle(
+    irisC,
+    w * 0.123,
+    Paint()
+      ..shader = const RadialGradient(
+        center: Alignment(-0.24, -0.36),
+        radius: 0.74,
+        colors: [
+          Color(0xFFD6E6FF),
+          Color(0xFF5D83CC),
+          Color(0xFF23397A),
+          Color(0xFF151F4C),
+        ],
+        stops: [0, 0.38, 0.78, 1],
+      ).createShader(Rect.fromCircle(center: irisC, radius: w * 0.123)),
+  );
+  canvas.drawCircle(irisC, w * 0.038, Paint()..color = const Color(0xFF0F1836));
+  canvas.drawOval(
+    Rect.fromCenter(
+        center: Offset(irisC.dx - w * 0.050, irisC.dy - h * 0.044),
+        width: w * 0.069,
+        height: h * 0.089),
+    Paint()..color = Colors.white.withValues(alpha: 0.9),
+  );
+  canvas.drawCircle(Offset(irisC.dx + w * 0.062, irisC.dy + h * 0.056),
+      w * 0.017, Paint()..color = Colors.white.withValues(alpha: 0.7));
+
+  // Heavy upper lid, clipped to the eyeball so it sits flush rather than
+  // floating as a band across it. `close` drops it to a full blink.
+  canvas.save();
+  canvas.clipPath(Path()..addOval(Rect.fromCircle(center: eyeC, radius: eyeR)));
+  final lidY = eyeC.dy - eyeR * 0.50 + (eyeR * 1.55) * close;
+  final lid = Path()
+    ..moveTo(eyeC.dx - eyeR * 1.2, eyeC.dy - eyeR * 2)
+    ..lineTo(eyeC.dx + eyeR * 1.2, eyeC.dy - eyeR * 2)
+    ..lineTo(eyeC.dx + eyeR * 1.2, lidY - eyeR * 0.16)
+    ..quadraticBezierTo(eyeC.dx, lidY - eyeR * 0.52, eyeC.dx - eyeR * 1.2, lidY)
+    ..close();
+  canvas.drawPath(lid, body);
+  canvas.drawPath(
+    Path()
+      ..moveTo(eyeC.dx - eyeR * 1.2, lidY)
+      ..quadraticBezierTo(
+          eyeC.dx, lidY - eyeR * 0.52, eyeC.dx + eyeR * 1.2, lidY - eyeR * 0.16),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.036
+      ..strokeCap = StrokeCap.round
+      ..color = dark,
+  );
+  canvas.restore();
+
+  // Bold ring around the eyeball, drawn last so it stays crisp over the lid —
+  // this is what gives the mark its cartoon weight.
+  canvas.drawCircle(
+    eyeC,
+    eyeR,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.036
+      ..color = dark,
+  );
+
+  // Small, tight, one-sided smirk.
+  canvas.drawPath(
+    Path()
+      ..moveTo(w * 0.385, h * 0.637)
+      ..quadraticBezierTo(w * 0.485, h * 0.667, w * 0.581, h * 0.607),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.036
+      ..strokeCap = StrokeCap.round
+      ..color = dark,
+  );
 }
 
 /// A loading / running-task indicator: the Dross spirit as an orb. While
@@ -135,17 +263,17 @@ class DrossSpinner extends StatefulWidget {
 
 class _DrossSpinnerState extends State<DrossSpinner>
     with TickerProviderStateMixin {
-  // Fast loop: eye pulse/dart/blink. Slow loop: an occasional head-scratch.
+  // Fast loop: bob, glow pulse, blink. Slow loop: the periodic tentacle flex.
   late final AnimationController _c = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1600))
     ..repeat();
-  late final AnimationController _scratch = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 5200))
+  late final AnimationController _flex = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 4200))
     ..repeat();
   @override
   void dispose() {
     _c.dispose();
-    _scratch.dispose();
+    _flex.dispose();
     super.dispose();
   }
 
@@ -154,26 +282,23 @@ class _DrossSpinnerState extends State<DrossSpinner>
         width: widget.size,
         height: widget.size,
         child: AnimatedBuilder(
-          animation: Listenable.merge([_c, _scratch]),
+          animation: Listenable.merge([_c, _flex]),
           builder: (_, __) => CustomPaint(
-            painter: _OrbPainter(_c.value, _scratch.value, widget.active),
+            painter: _OrbPainter(_c.value, _flex.value, widget.active),
           ),
         ),
       );
 }
 
-/// Paints the Dross orb for a loop phase t in [0,1): a bob, a pulsing glow, an
-/// eye that darts left/right, and a quick blink once per cycle. The `scratch`
-/// phase (its own slower loop) occasionally raises an arm to scratch the head.
+/// Paints the Dross orb for a loop phase t in [0,1): a gentle bob, a pulsing
+/// glow, and a quick blink once per cycle. The `flex` phase (its own slower
+/// loop) curls BOTH tentacles up and inward on a beat — showing off, which is
+/// rather the point. When inactive it settles: no bob, no flex, just a blink.
 class _OrbPainter extends CustomPainter {
-  _OrbPainter(this.t, this.scratch, this.active);
+  _OrbPainter(this.t, this.flex, this.active);
   final double t;
-  final double scratch;
+  final double flex;
   final bool active;
-
-  static const _dark = Color(0xFF0C0A1F);
-  static const _eyeWhite = Color(0xFFF3EEFF);
-  static const _arm = Color(0xFF7C3AED);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -181,140 +306,43 @@ class _OrbPainter extends CustomPainter {
     const tau = 2 * math.pi;
 
     // Gentle vertical bob so the orb floats — only while active.
-    final bob = active ? math.sin(tau * t) * h * 0.05 : 0.0;
-    final bodyC = Offset(w * 0.5, h * 0.5 + bob);
-    final bodyR = w * 0.34;
+    final bob = active ? math.sin(tau * t) * h * 0.035 : 0.0;
 
     // Soft outer glow: pulses while active, steady when idle.
-    final glow =
-        active ? 0.30 + 0.18 * (0.5 + 0.5 * math.sin(tau * t)) : 0.26;
+    final glow = active ? 0.30 + 0.18 * (0.5 + 0.5 * math.sin(tau * t)) : 0.26;
     canvas.drawCircle(
-      bodyC,
-      bodyR * 1.5,
+      Offset(w * 0.5, h * 0.44 + bob),
+      w * 0.46,
       Paint()
         ..color = const Color(0xFF8B5CF6).withValues(alpha: glow)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.10),
     );
 
-    // Body: violet blob, top-lit.
-    canvas.drawCircle(
-      bodyC,
-      bodyR,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFC4A5FF), Color(0xFF7C3AED)],
-        ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR)),
-    );
-
-    // Blink: a short window near the end of each cycle where the lid closes.
-    // blink in [0,1]: 0 open, 1 fully shut.
+    // Blink: a short window near the end of each cycle.
     double blink = 0;
     const blinkStart = 0.82, blinkEnd = 0.94;
     if (t >= blinkStart && t <= blinkEnd) {
-      final p = (t - blinkStart) / (blinkEnd - blinkStart); // 0..1
-      blink = math.sin(p * math.pi); // 0 -> 1 -> 0
+      final p = (t - blinkStart) / (blinkEnd - blinkStart);
+      blink = math.sin(p * math.pi);
     }
 
-    // Scratch: only while active. Occasionally the right arm rises to scratch
-    // the unibrow while the face scrunches up (squint + furrowed brow). When
-    // idle, Dross rests — no scratching. raise 0..1.
-    double raise = 0, wig = 0;
-    const s0 = 0.12, s1 = 0.42;
-    if (active && scratch >= s0 && scratch <= s1) {
-      final p = (scratch - s0) / (s1 - s0); // 0..1
-      raise = math.sin(p * math.pi); // ease up, hold, ease down
-      wig = math.sin(p * math.pi * 10) * raise; // fast scratching motion
+    // Flex: while active, BOTH tentacles curl up and inward on a beat, hold,
+    // then release. Idle Dross keeps its arms down.
+    double curl = 0;
+    const f0 = 0.10, f1 = 0.45;
+    if (active && flex >= f0 && flex <= f1) {
+      final p = (flex - f0) / (f1 - f0);
+      curl = math.sin(p * math.pi); // ease up, hold, ease down
     }
 
-    final cx = bodyC.dx, cy = bodyC.dy, r = bodyR;
-    final eyeC = Offset(w * 0.5, bodyC.dy);
-    final eyeR = w * 0.16;
-    // Squash on blink; a strong squint while scrunching the face.
-    final close = math.max(0.9 * blink, 0.6 * raise);
-    final eyeH = eyeR * (1 - close);
-
-    // Eyeball (an oval so it can squash shut).
-    canvas.drawOval(
-      Rect.fromCenter(center: eyeC, width: eyeR * 2, height: eyeH * 2),
-      Paint()..color = _eyeWhite,
-    );
-
-    // Pupil darts left/right while active (rolling up toward the itch when
-    // scrunching); when idle it stays centered — Dross just blinks.
-    if (close < 0.6) {
-      final dart = active ? math.sin(tau * t) * eyeR * 0.45 : 0.0;
-      canvas.drawCircle(
-        Offset(eyeC.dx + dart, eyeC.dy - eyeR * 0.35 * raise),
-        eyeR * 0.55 * (1 - close),
-        Paint()..color = _dark,
-      );
-    }
-
-    // Heavy unibrow. Rests half-lidded and unimpressed; furrows down and inward
-    // (an annoyed scrunch) as the face works at the itch.
-    final browL = Offset.lerp(Offset(eyeC.dx - eyeR * 1.05, eyeC.dy - eyeR * 0.7),
-        Offset(eyeC.dx - eyeR * 1.0, eyeC.dy - eyeR * 0.32), raise)!;
-    final browR = Offset.lerp(Offset(eyeC.dx + eyeR * 1.15, eyeC.dy - eyeR * 0.95),
-        Offset(eyeC.dx + eyeR * 0.85, eyeC.dy - eyeR * 0.5), raise)!;
-    canvas.drawLine(
-      browL,
-      browR,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * 0.075
-        ..strokeCap = StrokeCap.round
-        ..color = _dark,
-    );
-
-    // A small scrunched mouth appears while concentrating on the itch.
-    if (raise > 0.15) {
-      final my = eyeC.dy + eyeR * 1.15;
-      canvas.drawPath(
-        Path()
-          ..moveTo(eyeC.dx - eyeR * 0.4, my)
-          ..quadraticBezierTo(
-              eyeC.dx, my - eyeR * 0.3 * raise, eyeC.dx + eyeR * 0.4, my),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = w * 0.045
-          ..strokeCap = StrokeCap.round
-          ..color = _dark.withValues(alpha: raise),
-      );
-    }
-
-    final armPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.06
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = _arm;
-
-    // Left arm — resting.
-    canvas.drawPath(
-      Path()
-        ..moveTo(cx - r * 0.72, cy + r * 0.15)
-        ..quadraticBezierTo(
-            cx - r * 1.15, cy + r * 0.6, cx - r * 0.95, cy + r * 1.15),
-      armPaint,
-    );
-
-    // Right arm — lerps from resting up to the unibrow, then scratches across it.
-    final rElbow = Offset.lerp(Offset(cx + r * 1.15, cy + r * 0.6),
-        Offset(cx + r * 0.95, cy - r * 0.1), raise)!;
-    final rHand = Offset.lerp(Offset(cx + r * 0.95, cy + r * 1.15),
-        Offset(eyeC.dx + wig * eyeR * 0.7, eyeC.dy - eyeR * 1.05), raise)!;
-    canvas.drawPath(
-      Path()
-        ..moveTo(cx + r * 0.72, cy + r * 0.15)
-        ..quadraticBezierTo(rElbow.dx, rElbow.dy, rHand.dx, rHand.dy),
-      armPaint,
-    );
-    canvas.drawCircle(rHand, w * 0.05, Paint()..color = _arm);
+    canvas.save();
+    canvas.translate(0, bob);
+    paintDross(canvas, size, curl: curl, close: blink * 0.95);
+    canvas.restore();
   }
+
 
   @override
   bool shouldRepaint(covariant _OrbPainter old) =>
-      old.t != t || old.scratch != scratch || old.active != active;
+      old.t != t || old.flex != flex || old.active != active;
 }
