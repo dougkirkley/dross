@@ -287,6 +287,9 @@ func (m Model) skillsBox(bodyH int) string {
 			state = checkStyle.Render("◆ auto")
 		}
 		note := metaStyle.Render(" · " + s.Source)
+		if s.Foreign {
+			note += goldStyle.Render(" · .claude")
+		}
 		if locked {
 			note += metaStyle.Render(" · locked")
 		}

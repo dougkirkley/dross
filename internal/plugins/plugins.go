@@ -53,6 +53,7 @@ type Skill struct {
 	DisableModelInvocation bool     // if true, only the user can invoke it (/name)
 	UserInvocable          bool     // if false, hidden from the / menu (model-only)
 	Source                 string   // "project" | "user" | plugin name
+	Foreign                bool     // loaded from a .claude/ dir — off until enabled
 }
 
 // front is the recognized SKILL.md / command frontmatter.

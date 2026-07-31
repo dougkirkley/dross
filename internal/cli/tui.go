@@ -134,13 +134,21 @@ func newTUICmd() *cobra.Command {
 			var skillItems []tui.SkillItem
 			var skillGen int
 			var mcpGen int // bumped by /mcp add|remove to rebuild the agent
-			skillOff := map[string]bool{} // skills disabled via the /skills modal
+			skillOff := map[string]bool{}  // skills disabled via the /skills modal
+			skillSeen := map[string]bool{} // skills we've applied a default enable/disable to
 			loadSkills := func() {
 				skillSpecs, skillItems = skillSpecs[:0], skillItems[:0]
 				for _, s := range plugins.LoadAll(workdir) {
+					// Foreign (.claude/) skills are loaded but default OFF — they must
+					// be explicitly enabled via /skills. Only default once, so a later
+					// reload doesn't undo the user's choice.
+					if s.Foreign && !skillSeen[s.Name] {
+						skillOff[s.Name] = true
+					}
+					skillSeen[s.Name] = true
 					skillItems = append(skillItems, tui.SkillItem{
 						Name: s.Name, Desc: s.Description, Body: s.Body,
-						Source: s.Source, UserInvocable: s.UserInvocable,
+						Source: s.Source, UserInvocable: s.UserInvocable, Foreign: s.Foreign,
 					})
 					if !s.DisableModelInvocation && !skillOff[s.Name] {
 						skillSpecs = append(skillSpecs, agent.SkillSpec{Name: s.Name, Description: s.Description, Body: s.Body})

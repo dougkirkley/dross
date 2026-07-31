@@ -11,17 +11,26 @@ import (
 // project skills shadow user and plugin ones.
 func LoadAll(workdir string) []Skill {
 	var all []Skill
-	add := func(s []Skill) { all = append(all, s...) }
+	// add marks each skill's Foreign flag (true for .claude/ roots, which are
+	// loaded but disabled until the user enables them).
+	add := func(s []Skill, foreign bool) {
+		for _, sk := range s {
+			sk.Foreign = foreign
+			all = append(all, sk)
+		}
+	}
 
 	// Project scope.
 	for _, root := range projectRoots(workdir) {
-		add(skillsInDir(filepath.Join(root, "skills"), "project"))
-		add(commandsInDir(filepath.Join(root, "commands"), "project"))
+		foreign := isClaudeRoot(root)
+		add(skillsInDir(filepath.Join(root, "skills"), "project"), foreign)
+		add(commandsInDir(filepath.Join(root, "commands"), "project"), foreign)
 	}
 	// User scope.
 	for _, root := range userRoots() {
-		add(skillsInDir(filepath.Join(root, "skills"), "user"))
-		add(commandsInDir(filepath.Join(root, "commands"), "user"))
+		foreign := isClaudeRoot(root)
+		add(skillsInDir(filepath.Join(root, "skills"), "user"), foreign)
+		add(commandsInDir(filepath.Join(root, "commands"), "user"), foreign)
 	}
 	// Installed, enabled plugins (skills namespaced "plugin:skill").
 	if st, err := LoadState(); err == nil {
@@ -41,6 +50,11 @@ func LoadAll(workdir string) []Skill {
 	}
 
 	return dedupe(all)
+}
+
+// isClaudeRoot reports whether a root is a .claude directory (foreign to dross).
+func isClaudeRoot(root string) bool {
+	return filepath.Base(root) == ".claude"
 }
 
 func projectRoots(workdir string) []string {

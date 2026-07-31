@@ -239,6 +239,7 @@ type SkillItem struct {
 	Body          string
 	Source        string
 	UserInvocable bool
+	Foreign       bool // from a .claude/ dir — off until enabled
 }
 
 // Ask is the AskFunc wired into the agent: it posts the questions to the running
@@ -294,6 +295,7 @@ type Model struct {
 	skillsViewOpen bool
 	skillSel       int
 	skillOff       map[string]bool           // session-disabled skills (by name)
+	skillSeen      map[string]bool           // skills a default enable/disable was applied to
 	onSkillsApply  func(off map[string]bool) // rebuild the agent with the new off-set
 
 	// Live streaming of assistant prose: streamStart is the m.lines index where
@@ -671,7 +673,23 @@ func (m *Model) quitCmd() tea.Cmd {
 }
 
 // SetSkillItems sets the discovered skills (for /skills and /name commands).
-func (m *Model) SetSkillItems(items []SkillItem) { m.skillItems = items }
+// Foreign (.claude/) skills default to OFF the first time they're seen, so they
+// must be explicitly enabled in the /skills modal before use.
+func (m *Model) SetSkillItems(items []SkillItem) {
+	m.skillItems = items
+	if m.skillOff == nil {
+		m.skillOff = map[string]bool{}
+	}
+	if m.skillSeen == nil {
+		m.skillSeen = map[string]bool{}
+	}
+	for _, s := range items {
+		if s.Foreign && !m.skillSeen[s.Name] {
+			m.skillOff[s.Name] = true
+		}
+		m.skillSeen[s.Name] = true
+	}
+}
 
 // SetPluginReload wires a callback that re-scans skills/plugins after a /plugin
 // change and returns the refreshed list.
@@ -735,9 +753,10 @@ func (m Model) findSkill(slash string) (SkillItem, bool) {
 		return SkillItem{}, false
 	}
 	name := strings.TrimPrefix(slash, "/")
-	// Exact match on the (possibly fully-qualified) name.
+	// Exact match on the (possibly fully-qualified) name. A disabled skill (e.g.
+	// a foreign .claude skill not yet enabled) is not invocable.
 	for _, s := range m.skillItems {
-		if s.UserInvocable && s.Name == name {
+		if s.UserInvocable && s.Name == name && !m.skillOff[s.Name] {
 			return s, true
 		}
 	}
@@ -746,7 +765,7 @@ func (m Model) findSkill(slash string) (SkillItem, bool) {
 	var match SkillItem
 	count := 0
 	for _, s := range m.skillItems {
-		if s.UserInvocable && shortSkillName(s.Name) == name {
+		if s.UserInvocable && !m.skillOff[s.Name] && shortSkillName(s.Name) == name {
 			match, count = s, count+1
 		}
 	}
@@ -1025,8 +1044,13 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		if m.onWelcome != nil {
 			m.onWelcome(name)
 		}
-		m.append(startGlyph.Render("▸ ") + metaStyle.Render("welcome ") + crystalStyle.Render(name) +
-			metaStyle.Render("  · "+strings.Join(welcomeNames, " ")))
+		// On a fresh session the empty-state welcome re-renders with the new layout
+		// immediately — appending a confirmation line would hide it. Only note the
+		// change once a conversation has started (where the welcome isn't shown).
+		if len(m.lines) > 0 {
+			m.append(startGlyph.Render("▸ ") + metaStyle.Render("welcome ") + crystalStyle.Render(name) +
+				metaStyle.Render("  · "+strings.Join(welcomeNames, " ")))
+		}
 		return true, nil
 	case "/mouse":
 		m.input.Reset()
