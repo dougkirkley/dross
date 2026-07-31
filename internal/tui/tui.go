@@ -68,7 +68,9 @@ var (
 	goldStyle    lipgloss.Style
 	crystalStyle lipgloss.Style
 	violStyle    lipgloss.Style
-	drossBullet  lipgloss.Style
+	drossBullet  lipgloss.Style // violet orb: assistant messages, edits, asks
+	orbDone      lipgloss.Style // green orb: completed / review
+	orbTool      lipgloss.Style // cyan orb: tool actions
 	inputBox     lipgloss.Style
 )
 
@@ -109,6 +111,8 @@ func rebuildStyles() {
 	crystalStyle = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
 	violStyle = lipgloss.NewStyle().Foreground(holoViol)
 	drossBullet = lipgloss.NewStyle().Foreground(holoViol).Bold(true)
+	orbDone = lipgloss.NewStyle().Foreground(ok).Bold(true)
+	orbTool = lipgloss.NewStyle().Foreground(holoCyan).Bold(true)
 	inputBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(holoCyan).Padding(0, 1)
 	mdCached = nil // markdown renderer bakes in the palette; rebuild on theme change
 }
@@ -3030,7 +3034,7 @@ func (m *Model) applyEvent(e agent.Event) {
 		name, args, _ := strings.Cut(e.Data, " ")
 		if worker {
 			// Worker tool calls stay in the subagent feed, indented.
-			m.append(indent + crystalStyle.Render("◆ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
+			m.append(indent + orbTool.Render(drossOrbGlyph+" ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
 			break
 		}
 		// Surface a foreground bash command live (the working line shows it);
@@ -3073,7 +3077,7 @@ func (m *Model) applyEvent(e agent.Event) {
 		m.toolLineOf[m.groupLine] = m.groupFirstRec
 	case "tool-result":
 		if worker {
-			m.append(indent + doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
+			m.append(indent + resultStyle.Render("  └ ") + resultStyle.Render(truncate(oneLine(e.Data), 68)))
 			break
 		}
 		// Collapsed into the group summary; the full result is kept on the rec and
@@ -3129,21 +3133,21 @@ func (m *Model) applyEvent(e agent.Event) {
 		for i, l := range wrap(e.Data, width) {
 			label := "  "
 			if i == 0 {
-				label = checkStyle.Render("review ")
+				label = orbDone.Render(drossOrbGlyph) + " " + resultStyle.Render("review ")
 			}
 			m.append(label + agentText.Render(l))
 		}
 	case "ask":
 		width := m.width - 14
 		lines := wrap(e.Data, width)
-		m.append(agentLabel.Render(m.agentName) + " asks  " + agentText.Render(lines[0]))
+		m.append(drossBullet.Render(drossOrbGlyph) + " " + resultStyle.Render("asks ") + agentText.Render(lines[0]))
 		for _, l := range lines[1:] {
-			m.append("          " + agentText.Render(l))
+			m.append("  " + agentText.Render(l))
 		}
 	case "answer":
 		// The answer is shown immediately when the user hits enter; skip here.
 	case "checkpoint":
-		m.append(indent + checkStyle.Render("✓ "+e.Data))
+		m.append(indent + orbDone.Render(drossOrbGlyph) + " " + resultStyle.Render(e.Data))
 	case "error":
 		// Wrap the full error (don't truncate) so it's readable and selectable.
 		for i, l := range wrap(e.Data, m.width-4) {
@@ -3175,7 +3179,7 @@ func (m Model) toolGroupSummary() string {
 	if s != "" {
 		s = strings.ToUpper(s[:1]) + s[1:]
 	}
-	return metaStyle.Render(s) + metaStyle.Render("  · ctrl+o to expand")
+	return orbTool.Render(drossOrbGlyph) + " " + metaStyle.Render(s) + metaStyle.Render("  · ctrl+o to expand")
 }
 
 // toolPhrase describes n calls of a tool in Claude-style prose.
