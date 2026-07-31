@@ -65,6 +65,10 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	} {
 		h.Color = &acc
 		h.BackgroundColor = nil
+		// Drop glamour's literal "## " prefix so headings render as clean styled
+		// subtitles (bold accent), not with the raw markdown markers.
+		h.Prefix = ""
+		h.BlockPrefix = ""
 	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(cfg),
