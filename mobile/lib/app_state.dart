@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'models.dart';
 import 'util/file_pick.dart';
+import 'util/mash.dart';
 
 /// The active sidebar tab. Both tabs are backed by the same `dross serve`
 /// sessions; only the presentation differs (chat = conversational, code = full
@@ -291,15 +292,33 @@ class AppState extends ChangeNotifier {
 
   // --- prompts / queue ------------------------------------------------
 
-  Future<void> sendPrompt(String text) async {
+  /// Set when a prompt looked like a keyboard mash; the UI shows it and the next
+  /// send of the same text goes through.
+  String? mashWarning;
+  String _mashSeen = '';
+
+  /// Sends [text]. Returns false when nothing was sent (empty, no session, or
+  /// the keyboard-mash guard held it back) so callers can keep the composer text.
+  Future<bool> sendPrompt(String text) async {
     final s = current;
-    if (s == null || text.trim().isEmpty) return;
+    if (s == null || text.trim().isEmpty) return false;
+    // Keyboard-mash guard: a cat on the keyboard shouldn't cost a model turn.
+    // Warn once; sending the same text again goes through.
+    if (looksLikeMash(text) && _mashSeen != text.trim()) {
+      _mashSeen = text.trim();
+      mashWarning =
+          'That looks like a keyboard mash. Send again to run it anyway.';
+      notifyListeners();
+      return false;
+    }
+    mashWarning = null;
+    _mashSeen = '';
     final composed = _withRemoteAttachments(text.trim());
     remotePending.clear();
     if (s.isRunning) {
       queue.add(composed);
       notifyListeners();
-      return;
+      return true;
     }
     try {
       await _client.prompt(s.id, composed);
@@ -309,6 +328,7 @@ class AppState extends ChangeNotifier {
       error = e.toString();
       notifyListeners();
     }
+    return true;
   }
 
   Future<void> _drainQueue() async {

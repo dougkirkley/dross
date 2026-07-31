@@ -341,6 +341,7 @@ type Model struct {
 	version        string                      // shown in the welcome header (SetMeta)
 	workdir        string                      // shown in the welcome header (SetMeta)
 	configPath     string                      // config file path for /config (SetConfigPath)
+	mashWarn       string                      // prompt already flagged as a keyboard mash (enter again sends it)
 	mouseOn        bool                        // mouse capture (click-to-expand); off lets the terminal select text
 	checkpoint     func(context.Context) error // save a handoff brief on exit (SetCheckpoint)
 	quitting       bool                        // a checkpoint-then-quit is in flight
@@ -1837,6 +1838,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, cmd
 					}
 				}
+				// Keyboard-mash guard: a cat on the keyboard shouldn't cost a model
+				// turn. Warn once and keep the text; pressing enter again sends it.
+				if looksLikeMash(prompt) && m.mashWarn != prompt {
+					m.mashWarn = prompt
+					m.append(metaStyle.Render("that looks like a keyboard mash — press enter again to send it anyway"))
+					return m, nil
+				}
+				m.mashWarn = ""
 				if m.title == "" {
 					m.title = truncate(prompt, 40)
 				}

@@ -290,10 +290,13 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
-  void _send(BuildContext context) {
+  Future<void> _send(BuildContext context) async {
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
-    context.read<AppState>().sendPrompt(text);
+    // Keep the text in the composer if it wasn't actually sent (e.g. the
+    // keyboard-mash guard held it back), so a second tap sends the same thing.
+    final sent = await context.read<AppState>().sendPrompt(text);
+    if (!sent) _input.text = text;
   }
 }
