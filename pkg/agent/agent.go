@@ -30,6 +30,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -908,6 +909,40 @@ func (a *Agent) runPlugin(ctx context.Context, p PluginSpec, input json.RawMessa
 	return string(out), false
 }
 
+// dangerRules flags destructive shell commands that should never run
+// unattended. Not exhaustive — a guardrail against the obvious footguns, not a
+// sandbox (the workspace confinement is the real boundary).
+var dangerRules = []struct {
+	re  *regexp.Regexp
+	why string
+}{
+	{regexp.MustCompile(`(?i)\brm\s+-\w*[rf]\w*[rf]`), "rm -rf"},
+	{regexp.MustCompile(`(?i)\brm\s+.*(-r\b|--recursive).*(-f\b|--force)`), "rm recursive+force"},
+	{regexp.MustCompile(`(?i)\brm\s+.*(-f\b|--force).*(-r\b|--recursive)`), "rm recursive+force"},
+	{regexp.MustCompile(`(?i)\bgit\s+push\b.*(--force\b|--force-with-lease\b|\s-f\b)`), "git force push"},
+	{regexp.MustCompile(`(?i)\bgit\s+reset\s+--hard\b`), "git reset --hard"},
+	{regexp.MustCompile(`(?i)\bgit\s+clean\s+-\w*[fd]\w*[fd]`), "git clean -fd"},
+	{regexp.MustCompile(`(?i)\bchmod\s+(-R\s+)?0?777\b`), "chmod 777"},
+	{regexp.MustCompile(`(?i)\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b`), "pipe download to shell"},
+	{regexp.MustCompile(`(?i)\bdd\b[^\n]*\bof=`), "dd overwrite"},
+	{regexp.MustCompile(`(?i)\bmkfs\.?\w*\b`), "mkfs"},
+	{regexp.MustCompile(`:\s*\(\)\s*\{`), "fork bomb"},
+	{regexp.MustCompile(`>\s*/dev/(sd|nvme|disk|hd)`), "device overwrite"},
+	{regexp.MustCompile(`(?i)\b(shutdown|reboot|halt|poweroff|init\s+0)\b`), "power/shutdown"},
+	{regexp.MustCompile(`(?i)\brm\s+-\w*[rf].*(\s/\s|\s/$|\s~|\s\$HOME)`), "rm on / or home"},
+}
+
+// dangerousCmd reports whether a shell command matches a destructive pattern,
+// with a short reason for the denial/approval prompt.
+func dangerousCmd(cmd string) (string, bool) {
+	for _, r := range dangerRules {
+		if r.re.MatchString(cmd) {
+			return r.why, true
+		}
+	}
+	return "", false
+}
+
 // gate applies the tool filter, per-tool permission rules, then the permission
 // mode. It returns (denialMessage, false) to block a tool (fed back to the model
 // as the tool result), or ("", true) to allow it.
@@ -929,6 +964,20 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 			return "", true
 		}
 		// empty decision (no pattern matched) → fall through to mode gating
+	}
+	// Built-in guardrail: destructive shell commands always require approval,
+	// regardless of permission mode. Non-interactive sessions (no asker) deny
+	// them outright rather than silently running them.
+	if tc.Name == "bash" || tc.Name == "monitor" {
+		if why, bad := dangerousCmd(commandArg(tc)); bad {
+			if a.asker == nil {
+				return "blocked: refusing a destructive command (" + why + ") in a non-interactive session. Ask the user to run it themselves, or use a safer, scoped equivalent.", false
+			}
+			if !a.approve(tc) {
+				return "denied by the user.", false
+			}
+			return "", true
+		}
 	}
 	writes := tc.Name == "write" || tc.Name == "edit"
 	commands := tc.Name == "bash" || tc.Name == "monitor"

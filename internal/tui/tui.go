@@ -493,6 +493,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
 		streamStart:  -1, // not streaming until a text-delta arrives
+		modeIdx:      2,   // default to Accept edits (auto edits, ask before commands)
 		mouseOn:      true, // drag-to-select auto-copies; wheel scrolls
 		groupLine:    -1,   // no open tool-call group
 		sessions:    []session{{}},
