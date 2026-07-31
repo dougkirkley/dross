@@ -526,6 +526,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	in := provider.Input{Text: prompt}
 	if fresh {
 		in.Text = seedPrompt(a.resume, prompt) // resume brief only seeds a new session
+		// The first reply of a new (non-resume) code session opens with a fixed
+		// request-acknowledgement marker + one-line task summary.
+		if a.resume == "" && !a.cfg.Chat {
+			in.Text += "\n\n" + firstReplyDirective
+		}
 	}
 	// Stream assistant prose live (providers that support it call this as text
 	// arrives); the TUI renders a growing block, finalized by the "text" event.
@@ -634,6 +639,10 @@ func (a *Agent) friendlyErr(err error) error {
 	}
 	return err
 }
+
+// firstReplyDirective is appended to the first user turn of a new code session so
+// the reply opens with a fixed marker restating the request, before any work.
+const firstReplyDirective = `[system] This is the first message of the session. Begin your reply with the literal marker "[Information Requested]" followed on the same line by a brief one-line summary of the request above (what you're about to do). Then proceed. Use this marker only on this first reply.`
 
 func seedPrompt(resume, prompt string) string {
 	if resume == "" {
