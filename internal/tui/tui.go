@@ -693,9 +693,24 @@ func isBuiltinSlash(name string) bool {
 // resolution.
 func (m Model) userSlash() []slashCmd {
 	out := append([]slashCmd(nil), slashCommands...)
+	// Count short names so a plugin skill "plugin:skill" can also be invoked as
+	// "/skill" when that short name is unambiguous.
+	shortCount := map[string]int{}
 	for _, s := range m.skillItems {
-		if s.UserInvocable && !isBuiltinSlash("/"+s.Name) {
-			out = append(out, slashCmd{"/" + s.Name, s.Desc})
+		if s.UserInvocable {
+			shortCount[shortSkillName(s.Name)]++
+		}
+	}
+	for _, s := range m.skillItems {
+		if !s.UserInvocable || isBuiltinSlash("/"+s.Name) {
+			continue
+		}
+		out = append(out, slashCmd{"/" + s.Name, s.Desc})
+		// Add a short alias (plugin:skill -> skill) when unambiguous and not a
+		// built-in or a name a skill already uses verbatim.
+		short := shortSkillName(s.Name)
+		if short != s.Name && shortCount[short] == 1 && !isBuiltinSlash("/"+short) {
+			out = append(out, slashCmd{"/" + short, s.Desc})
 		}
 	}
 	return out
