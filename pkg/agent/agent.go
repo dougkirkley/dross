@@ -826,6 +826,15 @@ func commandArg(tc provider.ToolCall) string {
 	return ""
 }
 
+func pathArg(tc provider.ToolCall) string {
+	var in map[string]any
+	_ = json.Unmarshal(tc.Input, &in)
+	if p, ok := in["path"].(string); ok {
+		return p
+	}
+	return ""
+}
+
 // enabledTools returns the offered tool defs (built-ins + plugins) after
 // applying the config filter.
 func (a *Agent) enabledTools() []provider.ToolDef {
@@ -942,6 +951,51 @@ var dangerRules = []struct {
 	{regexp.MustCompile(`(?i)\brm\s+-\w*[rf].*(\s/\s|\s/$|\s~|\s\$HOME)`), "rm on / or home"},
 }
 
+// sensitivePathRE matches files whose contents are credentials, keys, shell
+// startup scripts, or the agent's own configuration — writing any of these is
+// gated behind explicit approval even in auto/accept-edits mode.
+var sensitivePathRE = regexp.MustCompile(`(?i)(` +
+	`(^|/)\.ssh/` + // SSH keys and config
+	`|(^|/)\.aws/(credentials|config)` +
+	`|(^|/)\.kube/config` +
+	`|(^|/)\.docker/config\.json` +
+	`|(^|/)\.claude(\.json|/)` + // Claude Code's own settings
+	`|(^|/)\.config/dross(/|$)` + // dross config (local)
+	`|(^|/)(holocron|dross)/config\.(json|ya?ml)` + // dross server/app config
+	`|(^|/)\.netrc$` +
+	`|(^|/)\.npmrc$` +
+	`|(^|/)\.git-credentials$` +
+	`|(^|/)\.pgpass$` +
+	`|(^|/)\.env(\.[\w.-]+)?$` + // .env, .env.local, ...
+	`|(^|/)\.gnupg/` +
+	`|(^|/)id_(rsa|dsa|ecdsa|ed25519)$` +
+	`|\.(pem|key|p12|pfx)$` +
+	`|(^|/)\.(bashrc|zshrc|zshenv|bash_profile|zprofile|profile)$` +
+	`|(^|/)etc/` + // system config
+	`)`)
+
+// shellWriteRE marks a shell command that writes/modifies (not merely reads) —
+// redirection, tee, or a mutating file verb. Combined with sensitivePathRE to
+// flag commands that alter a sensitive file.
+var shellWriteRE = regexp.MustCompile(`(?i)(>>?|\btee\b|\b(cp|mv|install|ln|touch|dd|chmod|chown)\b|\bsed\s+-i)`)
+
+// sensitiveWrite reports whether a tool call writes to a sensitive file, with a
+// short reason for the approval prompt.
+func sensitiveWrite(tc provider.ToolCall) (string, bool) {
+	switch tc.Name {
+	case "write", "edit":
+		if p := pathArg(tc); p != "" && sensitivePathRE.MatchString(p) {
+			return p, true
+		}
+	case "bash", "monitor":
+		cmd := commandArg(tc)
+		if sensitivePathRE.MatchString(cmd) && shellWriteRE.MatchString(cmd) {
+			return "shell command modifies a sensitive file", true
+		}
+	}
+	return "", false
+}
+
 // dangerousCmd reports whether a shell command matches a destructive pattern,
 // with a short reason for the denial/approval prompt.
 func dangerousCmd(cmd string) (string, bool) {
@@ -989,6 +1043,19 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 			}
 			return "", true
 		}
+	}
+	// Built-in guardrail: writing a sensitive file (credentials, keys, shell
+	// startup scripts, dross's/Claude's own config) always requires approval,
+	// regardless of permission mode — auto and accept-edits included. Non-
+	// interactive sessions deny outright rather than silently overwriting.
+	if why, bad := sensitiveWrite(tc); bad {
+		if a.asker == nil {
+			return "blocked: refusing to write a sensitive file (" + why + ") in a non-interactive session. Ask the user to make this change themselves.", false
+		}
+		if !a.approve(tc, false) { // no session bypass for sensitive writes
+			return "denied by the user.", false
+		}
+		return "", true
 	}
 	writes := tc.Name == "write" || tc.Name == "edit"
 	commands := tc.Name == "bash" || tc.Name == "monitor"
