@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"golang.org/x/oauth2"
 
@@ -34,7 +35,8 @@ func init() {
 			return p, nil
 		}
 		// No API key: fall back to the OAuth login (`dross login gemini`). The
-		// Gemini API accepts a Bearer token with an x-goog-user-project header.
+		// gemini-cli OAuth token can't call generativelanguage (scope error), so
+		// the OAuth path routes through the Code Assist endpoint instead (see Send).
 		if ts, ok := googleauth.TokenSource(context.Background()); ok {
 			p.ts = ts
 			p.project = firstEnv("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID")
@@ -55,15 +57,53 @@ func firstEnv(keys ...string) string {
 
 const defaultMaxTokens = 8192
 
+// codeAssistBase is Google's Code Assist endpoint. The gemini-cli OAuth client is
+// authorized for this API (not generativelanguage), so the OAuth path routes here.
+const codeAssistBase = "https://cloudcode-pa.googleapis.com/v1internal"
+
 type prov struct {
 	base    string
 	apiKey  string             // API-key auth (x-goog-api-key)
 	ts      oauth2.TokenSource // OAuth auth (Bearer) when no API key
-	project string             // x-goog-user-project for OAuth requests
+	project string             // GCP project for Code Assist (OAuth)
+	mu      sync.Mutex         // guards lazy project discovery
 	hc      *http.Client
 }
 
 func (p *prov) Name() string { return "gemini" }
+
+// ensureProject resolves the Code Assist project for OAuth: the configured one,
+// else auto-discovered via loadCodeAssist. Cached after first success.
+func (p *prov) ensureProject(ctx context.Context) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.project != "" {
+		return p.project, nil
+	}
+	tok, err := p.ts.Token()
+	if err != nil {
+		return "", fmt.Errorf("gemini: token refresh failed (re-run `dross login gemini`): %w", err)
+	}
+	body := []byte(`{"metadata":{"pluginType":"GEMINI"}}`)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, codeAssistBase+":loadCodeAssist", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	resp, err := p.hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var lc struct {
+		CloudaicompanionProject string `json:"cloudaicompanionProject"`
+	}
+	_ = json.Unmarshal(raw, &lc)
+	if lc.CloudaicompanionProject == "" {
+		return "", fmt.Errorf("gemini (OAuth): no Code Assist project — set GOOGLE_CLOUD_PROJECT to a project with the Gemini for Google Cloud API enabled")
+	}
+	p.project = lc.CloudaicompanionProject
+	return p.project, nil
+}
 
 func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 	maxTok := cfg.MaxTokens
@@ -127,6 +167,13 @@ type generationConfig struct {
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 }
 
+// caReq is the Code Assist envelope for an OAuth generateContent call.
+type caReq struct {
+	Model   string `json:"model"`
+	Project string `json:"project,omitempty"`
+	Request genReq `json:"request"`
+}
+
 type genResp struct {
 	Candidates []struct {
 		Content      content `json:"content"`
@@ -173,31 +220,48 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		return &provider.Response{StopReason: provider.StopEndTurn}, nil
 	}
 
-	reqBody, err := json.Marshal(genReq{
+	genReqObj := genReq{
 		SystemInstruction: s.sys,
 		Contents:          s.contents,
 		Tools:             s.tools,
 		GenerationConfig:  generationConfig{MaxOutputTokens: s.maxTok},
-	})
-	if err != nil {
-		return nil, err
 	}
-	url := s.prov.base + "/models/" + s.model + ":generateContent"
+
+	oauth := s.prov.ts != nil
+	var reqBody []byte
+	var url string
+	if oauth {
+		// OAuth token is only authorized for Code Assist, not generativelanguage.
+		// Wrap the request as Code Assist expects and target that endpoint.
+		project, err := s.prov.ensureProject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		reqBody, err = json.Marshal(caReq{Model: s.model, Project: project, Request: genReqObj})
+		if err != nil {
+			return nil, err
+		}
+		url = codeAssistBase + ":generateContent"
+	} else {
+		var err error
+		reqBody, err = json.Marshal(genReqObj)
+		if err != nil {
+			return nil, err
+		}
+		url = s.prov.base + "/models/" + s.model + ":generateContent"
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if s.prov.ts != nil {
-		// OAuth: Bearer token + the billing/quota project.
+	if oauth {
 		tok, err := s.prov.ts.Token()
 		if err != nil {
 			return nil, fmt.Errorf("gemini: token refresh failed (re-run `dross login gemini`): %w", err)
 		}
 		httpReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-		if s.prov.project != "" {
-			httpReq.Header.Set("x-goog-user-project", s.prov.project)
-		}
 	} else {
 		httpReq.Header.Set("x-goog-api-key", s.prov.apiKey) // key in header, not the URL
 	}
@@ -209,8 +273,19 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
+	// Code Assist wraps the GenerateContentResponse under a "response" key.
+	payload := raw
+	if oauth {
+		var wrap struct {
+			Response json.RawMessage `json:"response"`
+		}
+		if json.Unmarshal(raw, &wrap) == nil && len(wrap.Response) > 0 {
+			payload = wrap.Response
+		}
+	}
+
 	var gr genResp
-	if err := json.Unmarshal(raw, &gr); err != nil {
+	if err := json.Unmarshal(payload, &gr); err != nil {
 		return nil, fmt.Errorf("gemini: bad response (%d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if gr.Error != nil {
