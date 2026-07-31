@@ -1787,7 +1787,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A dim "worked for Ns" line closes out the run, so each prompt shows how
 		// long it took.
 		if !m.runStart.IsZero() {
-			m.append(metaStyle.Render("✻ " + fmtElapsed(time.Since(m.runStart))))
+			m.append(metaStyle.Render("◇ " + fmtElapsed(time.Since(m.runStart))))
 		}
 		// Fire the next queued message, if any.
 		if len(m.queue) > 0 {
@@ -2948,7 +2948,9 @@ func (m Model) footer() string {
 	// Shell-mode ("!"): gold border + prompt mark, so it's obvious the next
 	// Enter runs a shell command instead of prompting the agent.
 	bang := strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!")
-	mark, boxStyle := crystalStyle.Render("◈ "), inputBox
+	// A chevron caret marks the input line — distinct from the mode's ◆ glyph so
+	// the "type here" prompt and the status indicator don't read as the same mark.
+	mark, boxStyle := crystalStyle.Render("❯ "), inputBox
 	if bang {
 		mark, boxStyle = goldStyle.Render("! "), inputBox.BorderForeground(gold)
 	}
