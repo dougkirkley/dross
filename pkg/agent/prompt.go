@@ -99,15 +99,14 @@ stays in this session and is immediately on PATH — you keep access to all glob
 tools and env, but must never write outside the workspace.
 - Install with the normal commands; they already land in the sandbox: ` + "`go install`" + `,
   ` + "`npm install -g`" + `, ` + "`pip install --user`" + `, ` + "`cargo install`" + `.
-- A language toolchain/SDK (Go, Node, a compiler) is NOT installed with the
-  system package manager here (apt/apk/brew need root, which you do not have and
-  will not get). Instead download the official tarball and unpack it under
-  $DROSS_TOOLS — $DROSS_TOOLS/<name>/bin is already on PATH, so it works in your
-  next command. For example, to install Go (this host is linux/amd64):
-    curl -fsSL https://go.dev/dl/go1.23.5.linux-amd64.tar.gz | tar -C "$DROSS_TOOLS" -xz
-    go version   # now resolves to $DROSS_TOOLS/go/bin/go
-  Use the current Go version from https://go.dev/dl/ ; the same pattern (fetch
-  tarball -> extract to $DROSS_TOOLS) installs Node and other SDKs.
+- Go is already installed and on PATH (` + "`go version`" + `); use it directly.
+- Any OTHER language toolchain/SDK (Node, a compiler, a different Go version) is
+  NOT installed with the system package manager here (apt/apk/brew need root,
+  which you do not have and will not get). Instead download the official tarball
+  and unpack it under $DROSS_TOOLS — $DROSS_TOOLS/<name>/bin is already on PATH,
+  so it works in your next command. For example (this host is linux/amd64):
+    curl -fsSL https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz | tar -C "$DROSS_TOOLS" -xJ
+  The same pattern (fetch tarball -> extract to $DROSS_TOOLS) installs any SDK.
 - NEVER use sudo or doas, and never a system package manager (apt/apk/brew) or a
   path outside the workspace — you have no root, don't need it, and such changes
   won't persist. $DROSS_WORKSPACE is the workspace root; $DROSS_TOOLS holds SDKs.`

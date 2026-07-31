@@ -13,6 +13,11 @@ FROM alpine:latest
 # Sandboxed Code sessions run shell commands via the bash tool, so the runtime
 # needs bash (alpine ships only /bin/sh) plus git and certs for real work.
 RUN apk add --no-cache bash git ca-certificates curl xz
+# Preinstall the Go toolchain (matches the builder) so sandboxed Code sessions
+# have `go` on PATH without downloading it. GOPATH/GOBIN/GOCACHE are redirected
+# into each session's workspace by the sandbox, so installs still stay scoped.
+COPY --from=builder /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
 WORKDIR /app
 COPY --from=builder /app/dross .
 EXPOSE 8080
