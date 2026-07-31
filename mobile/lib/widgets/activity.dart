@@ -246,6 +246,16 @@ ActStep? _toolStep(String data) {
           label: 'Searched the web',
           detail: _argField(arg, 'query'));
     default:
+      // MCP tools are named "server__tool"; surface them as MCP calls.
+      final sep = name.indexOf('__');
+      if (sep > 0 && sep + 2 < name.length) {
+        final server = name.substring(0, sep);
+        final tool = name.substring(sep + 2);
+        return ActStep(
+            icon: Icons.hub_outlined,
+            label: 'Called $server (MCP): $tool',
+            detail: arg);
+      }
       return ActStep(
           icon: Icons.build_outlined, label: 'Used $name', detail: arg);
   }

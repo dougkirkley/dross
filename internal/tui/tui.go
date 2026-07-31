@@ -2223,7 +2223,7 @@ func (m *Model) trackWorker(kind, tag, rest string) {
 	case "tool":
 		name, args, _ := strings.Cut(rest, " ")
 		m.workerAct[tag] = workerToolLabel(name, args)
-		logLine = startGlyph.Render("▸ ") + toolName.Render(name) + " " + toolArgs.Render(truncate(args, 60))
+		logLine = startGlyph.Render("▸ ") + toolName.Render(prettyToolName(name)) + " " + toolArgs.Render(truncate(args, 60))
 	case "tool-result":
 		logLine = doneGlyph.Render("  ✓ ") + resultStyle.Render(truncate(oneLine(rest), 60))
 	case "edit":
@@ -2538,7 +2538,7 @@ func (m Model) renderToolView() string {
 		if i == m.toolSel {
 			cursor, style = promptMark.Render("› "), checkStyle
 		}
-		b.WriteString(cursor + style.Render(r.name) + " " + metaStyle.Render(truncate(r.args, 70)) + "\n")
+		b.WriteString(cursor + style.Render(prettyToolName(r.name)) + " " + metaStyle.Render(truncate(r.args, 70)) + "\n")
 		if i == m.toolSel {
 			// Expanded: full command then full output, wrapped to width.
 			w := m.width - 4
@@ -3107,7 +3107,7 @@ func (m *Model) applyEvent(e agent.Event) {
 		name, args, _ := strings.Cut(e.Data, " ")
 		if worker {
 			// Worker tool calls stay in the subagent feed, indented.
-			m.append(indent + orbTool.Render(drossOrbGlyph+" ") + toolName.Render(name) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
+			m.append(indent + orbTool.Render(drossOrbGlyph+" ") + toolName.Render(prettyToolName(name)) + " " + toolArgs.Render(truncate(toolArgLine(name, args), 80)))
 			break
 		}
 		// Surface a foreground bash command live (the working line shows it);
@@ -3272,11 +3272,33 @@ func toolPhrase(name string, n int) string {
 		return fmt.Sprintf("edited %d file%s", n, plural(n))
 	case "web_fetch":
 		return fmt.Sprintf("fetched %d URL%s", n, plural(n))
+	case "web_search":
+		return fmt.Sprintf("searched the web %d time%s", n, plural(n))
 	case "delegate":
 		return fmt.Sprintf("delegated %d task%s", n, plural(n))
 	default:
+		if server, _, ok := mcpToolParts(name); ok {
+			return fmt.Sprintf("called %s via MCP %d time%s", server, n, plural(n))
+		}
 		return fmt.Sprintf("%d %s call%s", n, name, plural(n))
 	}
+}
+
+// mcpToolParts splits an MCP tool id "server__tool" into its parts.
+func mcpToolParts(name string) (server, tool string, ok bool) {
+	if i := strings.Index(name, "__"); i > 0 && i+2 < len(name) {
+		return name[:i], name[i+2:], true
+	}
+	return "", "", false
+}
+
+// prettyToolName renders a tool id for display: MCP tools show as
+// "server (MCP): tool", others unchanged.
+func prettyToolName(name string) string {
+	if server, tool, ok := mcpToolParts(name); ok {
+		return server + " (MCP): " + tool
+	}
+	return name
 }
 
 // humanTokens renders a token count compactly (e.g. 1234 → "1.2k").
