@@ -1741,6 +1741,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// transcript, and cost/turns show in the footer. Any next-step
 			// suggestion came from the reply's [next] line (see applyEvent).
 		}
+		// A dim "worked for Ns" line closes out the run, so each prompt shows how
+		// long it took.
+		if !m.runStart.IsZero() {
+			m.append(metaStyle.Render("✻ " + fmtElapsed(time.Since(m.runStart))))
+		}
 		// Fire the next queued message, if any.
 		if len(m.queue) > 0 {
 			next := m.queue[0]
@@ -3237,6 +3242,15 @@ func humanTokens(n int64) string {
 		return fmt.Sprintf("%d", n)
 	}
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
+}
+
+// fmtElapsed renders a run duration as "worked for 9s" / "worked for 5m 16s".
+func fmtElapsed(d time.Duration) string {
+	s := int(d.Seconds() + 0.5)
+	if s < 60 {
+		return fmt.Sprintf("worked for %ds", s)
+	}
+	return fmt.Sprintf("worked for %dm %ds", s/60, s%60)
 }
 
 // contextWindow is the approximate token context window for a model and whether
