@@ -2,6 +2,21 @@ package tui
 
 import "testing"
 
+func TestHoistMarker(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"[Present and listening]\n\nBound and responsive.", "[Present and listening] Bound and responsive."},
+		{"[Analyzing] already has a headline.\n\nmore", "[Analyzing] already has a headline.\n\nmore"},
+		{"[Plan]\n\n- step one\n- step two", "[Plan]\n\n- step one\n- step two"}, // don't fold a list
+		{"no marker here\nsecond line", "no marker here\nsecond line"},
+		{"[Done]\ncode below\n```go\nx\n```", "[Done] code below\n```go\nx\n```"},
+	}
+	for _, c := range cases {
+		if got := hoistMarker(c.in); got != c.want {
+			t.Errorf("hoistMarker(%q)\n got: %q\nwant: %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestTagCodeFences(t *testing.T) {
 	cases := []struct {
 		name, in, want string

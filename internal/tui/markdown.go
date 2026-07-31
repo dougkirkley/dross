@@ -10,6 +10,34 @@ import (
 	"github.com/charmbracelet/glamour/styles"
 )
 
+// bareMarkerRE matches a first line that's only a bracketed status label, e.g.
+// "[Present and listening]" — a marker with no headline after it.
+var bareMarkerRE = regexp.MustCompile(`^\[[^\]]+\]$`)
+
+// hoistMarker pulls the first substantive line up onto a lone "[Label]" first
+// line, so the marker carries a real headline instead of standing alone. No-op
+// when the marker already has inline content or the next line is a markdown
+// block (heading, list, code, quote, table).
+func hoistMarker(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) < 2 || !bareMarkerRE.MatchString(strings.TrimSpace(lines[0])) {
+		return s
+	}
+	marker := strings.TrimSpace(lines[0])
+	for j := 1; j < len(lines); j++ {
+		next := strings.TrimSpace(lines[j])
+		if next == "" {
+			continue
+		}
+		if strings.IndexAny(next[:1], "#-*+>`|") == 0 {
+			return s // don't fold a markdown block onto the marker line
+		}
+		merged := append([]string{marker + " " + next}, lines[j+1:]...)
+		return strings.Join(merged, "\n")
+	}
+	return s
+}
+
 // renderMarkdown renders assistant markdown to styled terminal lines wrapped to
 // width, using glamour with a zero-margin dark style so output aligns flush with
 // the rest of the transcript instead of glamour's default indented block.

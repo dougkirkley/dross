@@ -3087,6 +3087,9 @@ func (m *Model) applyEvent(e agent.Event) {
 			if next != "" {
 				m.suggestion = next
 			}
+			// Fold a lone "[Label]" first line onto its headline so the marker is
+			// never a bare two-word line.
+			data = hoistMarker(data)
 			m.lastText = truncate(oneLine(data), 70)
 			m.lastReply = data // full text, for ctrl+y copy
 			m.bashCmd = ""     // a message means the foreground command finished

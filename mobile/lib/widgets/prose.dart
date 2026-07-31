@@ -11,10 +11,26 @@ class ProseText extends StatelessWidget {
   const ProseText(this.text, {super.key});
   final String text;
 
+  // _hoistMarker folds a lone "[Label]" first line onto its headline so the
+  // status marker never renders as a bare line above its content.
+  static String _hoistMarker(String s) {
+    final lines = s.split('\n');
+    if (lines.length < 2) return s;
+    final first = lines[0].trim();
+    if (!RegExp(r'^\[[^\]]+\]$').hasMatch(first)) return s;
+    for (var j = 1; j < lines.length; j++) {
+      final next = lines[j].trim();
+      if (next.isEmpty) continue;
+      if ('#-*+>`|'.contains(next[0])) return s; // don't fold a markdown block
+      return (['$first $next'] + lines.sublist(j + 1)).join('\n');
+    }
+    return s;
+  }
+
   @override
   Widget build(BuildContext context) {
     return MarkdownBody(
-      data: text,
+      data: _hoistMarker(text),
       // The chat wraps content in a SelectionArea, which handles selection.
       selectable: false,
       onTapLink: (label, href, title) async {
