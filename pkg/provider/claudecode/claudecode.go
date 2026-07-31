@@ -313,6 +313,12 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 			for _, b := range e.Message.Content {
 				if b.Type == "text" {
 					assistant.WriteString(b.Text)
+					// Stream prose live (the driven CLI emits it in chunks), but
+					// only when it's a normal reply — not the XML tool-call blocks
+					// the driven model emits for dross to parse.
+					if in.OnText != nil && s.driven && !strings.Contains(b.Text, "<function") && !strings.Contains(b.Text, "<invoke") {
+						in.OnText(b.Text)
+					}
 				}
 			}
 			usage.InputTokens += e.Message.Usage.InputTokens

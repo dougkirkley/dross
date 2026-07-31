@@ -71,7 +71,7 @@ type Config struct {
 // Event is emitted for each step of a run so callers can stream progress.
 type Event struct {
 	Agent string // Config.Name
-	Kind  string // "text" | "tool" | "tool-result" | "edit" | "usage" | "review" | "error" | "worker:*"
+	Kind  string // "text" | "text-delta" | "tool" | "tool-result" | "edit" | "usage" | "review" | "error" | "worker:*"
 	Data  string
 }
 
@@ -525,6 +525,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	if fresh {
 		in.Text = seedPrompt(a.resume, prompt) // resume brief only seeds a new session
 	}
+	// Stream assistant prose live (providers that support it call this as text
+	// arrives); the TUI renders a growing block, finalized by the "text" event.
+	in.OnText = func(chunk string) { a.emit("text-delta", chunk) }
 
 	done := false
 	limit := a.maxTurns()

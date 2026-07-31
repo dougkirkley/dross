@@ -295,6 +295,11 @@ type Model struct {
 	skillOff       map[string]bool           // session-disabled skills (by name)
 	onSkillsApply  func(off map[string]bool) // rebuild the agent with the new off-set
 
+	// Live streaming of assistant prose: streamStart is the m.lines index where
+	// the growing block begins (-1 = not streaming); streamBuf holds the raw text.
+	streamStart int
+	streamBuf   string
+
 	// /mcp management modal (mirrors the skills modal), with live status probing.
 	mcpViewOpen bool
 	mcpDetail   bool
@@ -487,6 +492,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		logoVariant:  1, // gradient fade (default)
 		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
 		phrases:      DefaultPhrases,
+		streamStart:  -1, // not streaming until a text-delta arrives
 		mouseOn:      true, // drag-to-select auto-copies; wheel scrolls
 		groupLine:    -1,   // no open tool-call group
 		sessions:    []session{{}},
@@ -1741,6 +1747,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		m.running = false
 		m.runCancel = nil
+		m.streamStart, m.streamBuf = -1, "" // clear any partial stream state
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
 				m.append(metaStyle.Render("⊘ interrupted"))
@@ -3048,8 +3055,28 @@ func (m *Model) applyEvent(e agent.Event) {
 		}
 	}
 	switch kind {
+	case "text-delta":
+		// Live-stream assistant prose: a growing plain block under the orb,
+		// finalized (markdown) by the "text" event. Main session only.
+		if worker || e.Data == "" {
+			break
+		}
+		if m.streamStart < 0 {
+			m.closeToolGroup()
+			m.turnGap()
+			m.streamStart = len(m.lines)
+			m.streamBuf = ""
+		}
+		m.streamBuf += e.Data
+		m.renderStream()
 	case "text":
 		data := e.Data
+		// If we were streaming this reply, drop the raw growing block; the final
+		// text is re-rendered with markdown just below.
+		if m.streamStart >= 0 {
+			m.lines = m.lines[:m.streamStart]
+			m.streamStart, m.streamBuf = -1, ""
+		}
 		if !worker {
 			// The model may end with a "[next] <prompt>" line proposing a follow-up.
 			// Pull it out (only when there's a real next step) to offer as a ghost
@@ -3303,6 +3330,32 @@ func (m *Model) append(line string) {
 	m.lines = append(m.lines, line)
 	m.vp.SetContent(strings.Join(m.lines, "\n"))
 	m.vp.GotoBottom()
+}
+
+// renderStream re-renders the live streaming prose block (plain, growing) under
+// the Dross orb, replacing the previous partial. The "text" event later swaps it
+// for the markdown-rendered final.
+func (m *Model) renderStream() {
+	if m.streamStart < 0 {
+		return
+	}
+	m.lines = m.lines[:m.streamStart]
+	width := m.width - 4
+	var wrapped []string
+	for _, para := range strings.Split(m.streamBuf, "\n") {
+		if para == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		wrapped = append(wrapped, wrap(para, width)...)
+	}
+	if len(wrapped) == 0 {
+		wrapped = []string{""}
+	}
+	m.append(drossBullet.Render(drossOrbGlyph) + " " + proseStyle.Render(wrapped[0]))
+	for _, l := range wrapped[1:] {
+		m.append("  " + proseStyle.Render(l))
+	}
 }
 
 func (m *Model) layout() {

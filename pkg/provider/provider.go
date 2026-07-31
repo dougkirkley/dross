@@ -49,6 +49,10 @@ type ToolResult struct {
 type Input struct {
 	Text        string
 	ToolResults []ToolResult
+	// OnText, if set, is called with incremental assistant-text chunks as they
+	// stream in, so callers can render prose live instead of waiting for the
+	// whole turn. Optional; providers that can't stream simply don't call it.
+	OnText func(string)
 }
 
 // Usage is per-turn token accounting, summed across a run for cost reporting.
