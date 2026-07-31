@@ -287,6 +287,7 @@ type Model struct {
 	quitting       bool                        // a checkpoint-then-quit is in flight
 	onTheme        func(string)                // persist the chosen theme (SetThemeSaver)
 	onWelcome      func(string)                // persist the welcome layout (SetWelcomeSaver)
+	onMode         func(string)                // apply a permission-mode change to the live agent (SetModeSaver)
 	mcp            func([]string) []string     // /mcp list|add|remove handler (SetMCPCommand)
 	skillItems     []SkillItem                 // discovered skills (for /skills + /name; SetSkillItems)
 	pluginReload   func() []SkillItem
@@ -635,6 +636,10 @@ func (m *Model) SetConfigPath(path string) { m.configPath = path }
 
 // SetThemeSaver wires a callback that persists the theme chosen via /theme.
 func (m *Model) SetThemeSaver(fn func(string)) { m.onTheme = fn }
+
+// SetModeSaver wires a callback that applies a permission-mode change to the
+// live agent immediately (so shift+tab takes effect on the current run).
+func (m *Model) SetModeSaver(fn func(string)) { m.onMode = fn }
 
 // SetMCPCommand wires the /mcp slash command (list/add/remove MCP servers). The
 // handler receives the args after "/mcp" and returns lines to print.
@@ -1532,6 +1537,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if !a.questions[a.tab].MultiSelect && !a.answered(a.tab) {
 						pick(a.cursor[a.tab]) // single-select: enter chooses the highlighted option
 					}
+					// A lone single-select question (e.g. a permission prompt)
+					// submits immediately — no Submit-tab round-trip.
+					if nq == 1 && !a.questions[0].MultiSelect {
+						m.submitAsk()
+						return m, nil
+					}
 					a.tab++ // advance to next tab (or Submit)
 					return m, nil
 				}
@@ -1548,6 +1559,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				if a.tab < nq && len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
 					pick(int(msg.String()[0] - '1'))
+					// Number key on a lone single-select question submits at once.
+					if nq == 1 && !a.questions[0].MultiSelect {
+						m.submitAsk()
+					}
 				}
 				return m, nil
 			}
@@ -1693,6 +1708,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "shift+tab":
 			m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
+			// Apply immediately to the live agent so it takes effect this run, not
+			// just the next one.
+			if m.onMode != nil {
+				m.onMode(modeLabels[m.modeIdx])
+			}
 			return m, nil
 		case "enter":
 			if m.pendingAsk != nil && m.pendingAsk.freeText && strings.TrimSpace(m.input.Value()) != "" {

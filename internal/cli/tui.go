@@ -246,6 +246,12 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
+			// Apply a mode switch to the live agent right away (not just next run).
+			mdl.SetModeSaver(func(mode string) {
+				if conv != nil {
+					conv.SetPermission(mode)
+				}
+			})
 			mdl.SetMCPCommand(mcpCommand(res.File, configFilePath(cfgPath), &mcpGen,
 				func() []config.MCPServer { return plugins.MCPServersAll(workdir) }))
 			mdl.SetMCPServers(func() []tui.MCPServerInfo {

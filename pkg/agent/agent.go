@@ -404,6 +404,7 @@ type Agent struct {
 	asker        AskFunc
 	permMode     PermMode
 	allowTools   map[string]bool       // if non-empty, only these tools are enabled
+	sessionAllow map[string]bool       // tools whitelisted via "don't ask again this session"
 	permRules    map[string]permRule   // per-tool allow/ask/deny overrides
 	plugins      map[string]PluginSpec // external command tools
 	skills       []SkillSpec           // model-invocable skills (progressive disclosure)
@@ -958,7 +959,7 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 		case ToolDeny:
 			return "the " + tc.Name + " tool is denied by configuration.", false
 		case ToolAsk:
-			if !a.approve(tc) {
+			if !a.approve(tc, true) {
 				return "denied by the user.", false
 			}
 			return "", true
@@ -973,7 +974,8 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 			if a.asker == nil {
 				return "blocked: refusing a destructive command (" + why + ") in a non-interactive session. Ask the user to run it themselves, or use a safer, scoped equivalent.", false
 			}
-			if !a.approve(tc) {
+			// Destructive commands always confirm — no session bypass.
+			if !a.approve(tc, false) {
 				return "denied by the user.", false
 			}
 			return "", true
@@ -984,34 +986,54 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 	if !writes && !commands {
 		return "", true // read, shell_output, delegate, publish, ask_user: never gated
 	}
+	// "Allow, don't ask again this session" whitelists the tool for the rest of
+	// the conversation, so the same class of action stops re-prompting.
+	if a.sessionAllow[tc.Name] {
+		return "", true
+	}
 	switch a.permMode {
 	case PermPlan:
 		return "blocked: plan mode is read-only — no edits or commands. Describe your plan and ask the user to switch modes to apply it.", false
 	case PermManual:
-		if !a.approve(tc) {
+		if !a.approve(tc, true) {
 			return "denied by the user.", false
 		}
 	case PermAcceptEdits:
-		if commands && !a.approve(tc) {
+		if commands && !a.approve(tc, true) {
 			return "denied by the user.", false
 		}
 	}
 	return "", true
 }
 
+const sessionAllowOpt = "Allow, don't ask again this session"
+
 // approve asks the user to allow a gated tool call. With no asker (non-
 // interactive), it allows by default so servers and one-shot runs aren't blocked.
-func (a *Agent) approve(tc provider.ToolCall) bool {
+// When allowSession is set, it offers a "don't ask again this session" option
+// that whitelists the tool for the rest of the conversation.
+func (a *Agent) approve(tc provider.ToolCall, allowSession bool) bool {
 	if a.asker == nil {
 		return true
+	}
+	opts := []string{"Allow", "Deny"}
+	if allowSession {
+		opts = []string{"Allow", sessionAllowOpt, "Deny"}
 	}
 	ans, err := a.asker(AskRequest{Questions: []AskQuestion{{
 		Header:   tc.Name,
 		Question: "Allow this " + tc.Name + "?\n" + gateSummary(tc),
-		Options:  []string{"Allow", "Deny"},
+		Options:  opts,
 	}}})
 	if err != nil {
 		return false
+	}
+	if ans == sessionAllowOpt {
+		if a.sessionAllow == nil {
+			a.sessionAllow = map[string]bool{}
+		}
+		a.sessionAllow[tc.Name] = true
+		return true
 	}
 	return strings.Contains(strings.ToLower(ans), "allow")
 }
