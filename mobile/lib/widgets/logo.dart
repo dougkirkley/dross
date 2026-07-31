@@ -66,13 +66,20 @@ List<Offset> _spline(List<Offset> pts, {int per = 14}) {
 /// offset perpendicular by a half-width easing from [wStart] to [wEnd]. This is
 /// what makes the tentacles read as one continuous limb instead of a chain of
 /// segments with visible kinks.
-Path _tentacle(List<Offset> pts, double wStart, double wEnd) {
+Path _tentacle(List<Offset> pts, double wStart, double wEnd,
+    {double bulge = 0}) {
   final c = _spline(pts);
   final n = c.length;
   final left = <Offset>[], right = <Offset>[];
   for (var i = 0; i < n; i++) {
     final t = i / (n - 1);
-    final w = wStart + (wEnd - wStart) * math.pow(t, 1.35);
+    var w = wStart + (wEnd - wStart) * math.pow(t, 1.35);
+    // Flexing swells the upper arm into a bicep: a bump centred just past the
+    // elbow, so the limb reads as muscle rather than a tapered slab.
+    if (bulge > 0) {
+      final d = (t - 0.62) / 0.20;
+      w += bulge * wStart * 0.85 * math.exp(-d * d);
+    }
     final a = c[math.max(i - 1, 0)], b = c[math.min(i + 1, n - 1)];
     final d = b - a;
     final len = d.distance == 0 ? 1.0 : d.distance;
@@ -90,32 +97,43 @@ Path _tentacle(List<Offset> pts, double wStart, double wEnd) {
   return path..close();
 }
 
-/// Centerline of the left tentacle in unit (0..1) coordinates: leaves the body,
-/// sweeps down and out, then hooks back up and inward into a curl. [curl] in
-/// 0..1 pulls the tip up and in — a flex.
-List<Offset> _leftTentacle(double w, double h, double curl) {
-  final pts = <Offset>[
-    const Offset(0.285, 0.541),
-    const Offset(0.200, 0.593),
-    const Offset(0.131, 0.674),
-    const Offset(0.115, 0.770),
-    const Offset(0.177, 0.837),
-    const Offset(0.262, 0.822),
-    const Offset(0.285, 0.756),
-    const Offset(0.254, 0.726),
-  ];
-  // Flexing lifts and tightens the outer half of the limb.
-  return [
-    for (var i = 0; i < pts.length; i++)
-      () {
-        final f = (i / (pts.length - 1)) * curl;
-        return Offset(
-          (pts[i].dx + 0.070 * f) * w,
-          (pts[i].dy - 0.130 * f) * h,
-        );
-      }()
-  ];
-}
+/// Left tentacle centreline at rest, in unit (0..1) coordinates: leaves the
+/// body, sweeps down and out, then hooks back up and inward into a curl.
+const _restArm = <Offset>[
+  Offset(0.285, 0.541),
+  Offset(0.200, 0.593),
+  Offset(0.131, 0.674),
+  Offset(0.115, 0.770),
+  Offset(0.177, 0.837),
+  Offset(0.262, 0.822),
+  Offset(0.285, 0.756),
+  Offset(0.254, 0.726),
+];
+
+/// Left tentacle centreline mid-flex: a double-bicep pose. The upper arm goes
+/// out to the side, the elbow bends hard, the forearm rises vertically, and the
+/// tip curls in beside the head like a clenched fist.
+/// The arms are drawn behind the body, so the pose has to stay outside the body
+/// silhouette (its left edge sits near x 0.155) or the flex vanishes behind it.
+const _flexArm = <Offset>[
+  Offset(0.300, 0.560), // attachment (hidden behind the body)
+  Offset(0.185, 0.628), // upper arm, out and down to the elbow
+  Offset(0.095, 0.648), // elbow
+  Offset(0.062, 0.618), // elbow corner — tight, so the spline breaks here
+  Offset(0.056, 0.548), // forearm rising vertically
+  Offset(0.058, 0.455),
+  Offset(0.104, 0.388), // fist, up beside the head
+  Offset(0.168, 0.396), // knuckles curled inward
+];
+
+/// Left tentacle centreline for a given [curl] (0 = resting, 1 = full flex).
+List<Offset> _leftTentacle(double w, double h, double curl) => [
+      for (var i = 0; i < _restArm.length; i++)
+        Offset(
+          (_restArm[i].dx + (_flexArm[i].dx - _restArm[i].dx) * curl) * w,
+          (_restArm[i].dy + (_flexArm[i].dy - _restArm[i].dy) * curl) * h,
+        )
+    ];
 
 class _DrossPainter extends CustomPainter {
   @override
@@ -157,10 +175,20 @@ void paintDross(Canvas canvas, Size size,
   // Tentacles first, so the body overlaps where they attach.
   final lPts = _leftTentacle(w, h, curl);
   final rPts = [for (final p in lPts) Offset(w - p.dx, p.dy)];
+  // Flexing slims the limb (a fat tube can't show an elbow at this size) and
+  // adds a bicep bump plus a clenched fist at the tip.
+  final wStart = w * (0.096 - 0.038 * curl);
+  final wEnd = w * (0.013 + 0.021 * curl);
   for (final pts in [lPts, rPts]) {
-    final t = _tentacle(pts, w * 0.096, w * 0.013);
+    final t = _tentacle(pts, wStart, wEnd, bulge: curl * 0.7);
     canvas.drawPath(t, outline);
     canvas.drawPath(t, body);
+    if (curl > 0.05) {
+      final fist = pts[6];
+      final r = w * 0.052 * curl;
+      canvas.drawCircle(fist, r, outline);
+      canvas.drawCircle(fist, r, body);
+    }
   }
 
   final bodyPath = Path()..addOval(bodyRect);
