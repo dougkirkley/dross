@@ -296,7 +296,7 @@ class _DrossSpinnerState extends State<DrossSpinner>
       vsync: this, duration: const Duration(milliseconds: 1600))
     ..repeat();
   late final AnimationController _flex = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 4200))
+      vsync: this, duration: const Duration(milliseconds: 6000))
     ..repeat();
   @override
   void dispose() {
@@ -354,13 +354,23 @@ class _OrbPainter extends CustomPainter {
       blink = math.sin(p * math.pi);
     }
 
-    // Flex: while active, BOTH tentacles curl up and inward on a beat, hold,
-    // then release. Idle Dross keeps its arms down.
+    // Flex: while active, BOTH tentacles hit a double-bicep pose. Ease in, HOLD
+    // the pose, then ease out — a plain sine peaks for an instant and reads as a
+    // twitch. Idle Dross keeps its arms down.
     double curl = 0;
-    const f0 = 0.10, f1 = 0.45;
+    const f0 = 0.08, f1 = 0.70;
     if (active && flex >= f0 && flex <= f1) {
-      final p = (flex - f0) / (f1 - f0);
-      curl = math.sin(p * math.pi); // ease up, hold, ease down
+      final p = (flex - f0) / (f1 - f0); // 0..1 across the flex window
+      const rise = 0.20, fall = 0.80; // hold occupies the middle 60%
+      double e;
+      if (p < rise) {
+        e = p / rise;
+      } else if (p > fall) {
+        e = (1 - p) / (1 - fall);
+      } else {
+        e = 1; // holding the pose
+      }
+      curl = e * e * (3 - 2 * e); // smoothstep the ramps
     }
 
     canvas.save();
