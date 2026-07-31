@@ -294,6 +294,13 @@ type Model struct {
 	skillSel       int
 	skillOff       map[string]bool           // session-disabled skills (by name)
 	onSkillsApply  func(off map[string]bool) // rebuild the agent with the new off-set
+
+	// /mcp management modal (mirrors the skills modal), with live status probing.
+	mcpViewOpen bool
+	mcpDetail   bool
+	mcpSel      int
+	mcpRows     []mcpRow
+	mcpProvider func() []MCPServerInfo
 	pluginViewOpen bool
 	pluginTab      int // 0 installed, 1 marketplaces, 2 browse
 	pluginSel      int
@@ -941,11 +948,16 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 	switch name {
 	case "/mcp":
 		m.input.Reset()
+		args := strings.Fields(text)[1:]
+		// Bare "/mcp" opens the management modal; subcommands stay text.
+		if len(args) == 0 && m.mcpProvider != nil {
+			return true, m.openMCPView()
+		}
 		if m.mcp == nil {
 			m.append(metaStyle.Render("mcp is not available here"))
 			return true, nil
 		}
-		for _, l := range m.mcp(strings.Fields(text)[1:]) {
+		for _, l := range m.mcp(args) {
 			m.append(l)
 		}
 		return true, nil
@@ -1219,6 +1231,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+			return m, nil
+		}
+		// MCP management modal captures keys.
+		if m.handleMCPKey(msg.String()) {
 			return m, nil
 		}
 		// Theme picker captures keys; moving the selection live-previews the theme.
@@ -1743,7 +1759,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		overBody := !m.toolViewOpen && !m.modelPickerOpen && !m.pickerOpen &&
 			!m.helpOpen && !m.skillsViewOpen && !m.pluginViewOpen && !m.themeViewOpen &&
-			m.pendingAsk == nil && m.workerFocus == ""
+			!m.mcpViewOpen && m.pendingAsk == nil && m.workerFocus == ""
 		switch msg.Button {
 		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
 			// Wheel scrolls the viewport; a scroll cancels any selection.
@@ -1804,6 +1820,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.pump())
 	case copyClearedMsg:
 		return m, nil // just re-render so the "copied" toast disappears
+	case mcpProbeMsg:
+		m.applyMCPProbe(msg)
+		return m, nil
 	case loginDoneMsg:
 		if msg.err != nil {
 			m.append(errStyle.Render("✗ login failed: " + msg.err.Error()))
@@ -1893,6 +1912,12 @@ func (m Model) View() string {
 		body = m.vp.View()
 	} else if m.skillsViewOpen {
 		body = m.skillsBox(bodyH)
+	} else if m.mcpViewOpen {
+		if m.mcpDetail {
+			body = m.mcpDetailBox(bodyH)
+		} else {
+			body = m.mcpBox(bodyH)
+		}
 	} else if m.pluginViewOpen {
 		body = m.pluginBox(bodyH)
 	} else if m.themeViewOpen {

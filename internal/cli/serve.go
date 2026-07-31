@@ -199,19 +199,24 @@ func mergedMCP(file *config.File, workdir string) []agent.MCPServerSpec {
 	return mcpSpecs(uniq)
 }
 
+// mcpSpec converts one configured MCP server to an agent spec.
+func mcpSpec(s config.MCPServer) agent.MCPServerSpec {
+	return agent.MCPServerSpec{
+		Name:      s.Name,
+		Transport: s.Transport,
+		URL:       s.URL,
+		Headers:   s.Headers,
+		Command:   s.Command,
+		Args:      s.Args,
+		Env:       s.Env,
+	}
+}
+
 // mcpSpecs converts configured MCP servers to agent specs.
 func mcpSpecs(in []config.MCPServer) []agent.MCPServerSpec {
 	out := make([]agent.MCPServerSpec, 0, len(in))
 	for _, s := range in {
-		out = append(out, agent.MCPServerSpec{
-			Name:      s.Name,
-			Transport: s.Transport,
-			URL:       s.URL,
-			Headers:   s.Headers,
-			Command:   s.Command,
-			Args:      s.Args,
-			Env:       s.Env,
-		})
+		out = append(out, mcpSpec(s))
 	}
 	return out
 }

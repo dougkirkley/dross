@@ -131,6 +131,19 @@ func connectMCP(ctx context.Context, spec MCPServerSpec) (*mcpConn, []provider.T
 	return &mcpConn{name: spec.Name, client: cli}, defs, nil
 }
 
+// ProbeMCP connects to a server, lists its tools, and disconnects — returning
+// the tool count. Used by the TUI /mcp view to show live connection status.
+func ProbeMCP(ctx context.Context, spec MCPServerSpec) (int, error) {
+	conn, defs, err := connectMCP(ctx, spec)
+	if err != nil {
+		return 0, err
+	}
+	if conn != nil && conn.client != nil {
+		_ = conn.client.Close()
+	}
+	return len(defs), nil
+}
+
 // callMCPTool invokes a tool on an MCP server and flattens its text content.
 func callMCPTool(ctx context.Context, cli *mcpclient.Client, tool string, input json.RawMessage) (string, bool) {
 	var args map[string]any

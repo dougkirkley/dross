@@ -248,6 +248,21 @@ func newTUICmd() *cobra.Command {
 			mdl.SetConfigPath(configFilePath(cfgPath))
 			mdl.SetMCPCommand(mcpCommand(res.File, configFilePath(cfgPath), &mcpGen,
 				func() []config.MCPServer { return plugins.MCPServersAll(workdir) }))
+			mdl.SetMCPServers(func() []tui.MCPServerInfo {
+				var out []tui.MCPServerInfo
+				seen := map[string]bool{}
+				for _, s := range res.File.MCP {
+					seen[s.Name] = true
+					out = append(out, tui.MCPServerInfo{Spec: mcpSpec(s), Source: "config", Editable: true})
+				}
+				for _, s := range plugins.MCPServersAll(workdir) {
+					if seen[s.Name] {
+						continue
+					}
+					out = append(out, tui.MCPServerInfo{Spec: mcpSpec(s), Source: "discovered"})
+				}
+				return out
+			})
 			if theme == "" && res.File.Theme != "" {
 				tui.SetTheme(res.File.Theme)
 			}
