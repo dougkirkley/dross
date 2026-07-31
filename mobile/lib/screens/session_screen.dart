@@ -22,13 +22,27 @@ class SessionScreen extends StatefulWidget {
 
 class _SessionScreenState extends State<SessionScreen> {
   final _input = TextEditingController();
+  final _inputFocus = FocusNode();
   final _scroll = ScrollController();
 
   @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  // Move [text] into the composer: set it with the cursor at the end and focus
+  // the field. Setting controller.text alone leaves the selection invalid and
+  // the field unfocused, which on web reads as "nothing happened".
+  void _moveToInput(String text) {
+    if (text.isEmpty) return;
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _inputFocus.requestFocus();
   }
 
   void _autoScroll() {
@@ -143,10 +157,15 @@ class _SessionScreenState extends State<SessionScreen> {
                   const Icon(Icons.schedule, size: 15, color: T.textDim),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(s.queue[i],
-                        style: T.meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () =>
+                          _moveToInput(context.read<AppState>().removeQueued(i)),
+                      child: Text(s.queue[i],
+                          style: T.meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
@@ -160,9 +179,8 @@ class _SessionScreenState extends State<SessionScreen> {
                     icon: const Icon(Icons.edit_outlined,
                         size: 18, color: T.textDim),
                     tooltip: 'Edit',
-                    onPressed: () {
-                      _input.text = context.read<AppState>().removeQueued(i);
-                    },
+                    onPressed: () =>
+                        _moveToInput(context.read<AppState>().removeQueued(i)),
                   ),
                 ]),
               ),
@@ -252,6 +270,7 @@ class _SessionScreenState extends State<SessionScreen> {
                 Expanded(
                   child: TextField(
                     controller: _input,
+                    focusNode: _inputFocus,
                     minLines: 1,
                     maxLines: 5,
                     style: T.body,
