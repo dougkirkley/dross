@@ -493,7 +493,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant:  1, // gradient fade (default)
-		welcomeStyle: 0, // clean: small Dross top-left, name beside it (default)
+		welcomeStyle: 2, // splash: centered orb + DROSS wordmark on a fresh session
 		phrases:      DefaultPhrases,
 		streamStart:  -1, // not streaming until a text-delta arrives
 		modeIdx:      2,   // default to Accept edits (auto edits, ask before commands)
@@ -1968,7 +1968,7 @@ func (m Model) View() string {
 	// Footer height is dynamic: the live subagent tree renders under the prompt
 	// while workers run, so size the body viewport around the actual footer.
 	footer := m.footer()
-	bodyH := m.height - 1 - lipgloss.Height(footer) // header is 1 line
+	bodyH := m.height - lipgloss.Height(m.header()) - lipgloss.Height(footer)
 	if bodyH < 1 {
 		bodyH = 1
 	}
@@ -2053,7 +2053,7 @@ func (m Model) View() string {
 //	1 boxed    — identity inside a rounded panel
 //	2 centered — the original big centered wordmark + tagline
 func (m Model) welcome() string {
-	bodyH := m.height - 1 - 4 // header + footer
+	bodyH := m.height - lipgloss.Height(m.header()) - 4 // header (2 lines) + footer
 	if m.welcomeStyle == 2 {
 		return m.welcomeCentered(bodyH)
 	}
@@ -2205,7 +2205,15 @@ func (m Model) header() string {
 	if m.model != "" {
 		left += metaStyle.Render("      " + m.model)
 	}
-	return headerBar.Width(m.width).Render(left)
+	bar := headerBar.Width(m.width).Render(left)
+	// A slim cyan→violet hairline under the bar frames the session (the
+	// framed-minimal direction) without boxing the transcript.
+	w := m.width
+	if w < 1 {
+		w = 1
+	}
+	rule := gradientText(strings.Repeat("─", w), holoLoop)
+	return bar + "\n" + rule
 }
 
 // statsSegment is the context meter (when the window is known) + running cost,
@@ -3431,7 +3439,7 @@ func (m *Model) renderStream() {
 }
 
 func (m *Model) layout() {
-	headerH, footerH := 1, 4
+	headerH, footerH := 2, 4 // header is a bar + a gradient hairline
 	m.vp = viewport.New(m.width, m.height-headerH-footerH)
 	m.vp.SetContent(strings.Join(m.lines, "\n"))
 	m.vp.GotoBottom()
