@@ -47,67 +47,69 @@ class _DrossPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final bodyC = Offset(w * 0.5, h * 0.38);
-    final bodyR = w * 0.28;
+    final bodyC = Offset(w * 0.5, h * 0.40);
+    final bodyR = w * 0.30;
 
-    // Two wavy tendril legs behind the body (longer + thinner than the body).
+    // Two thin curly tendril legs behind the body, splayed left and right.
     final legPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.085
+      ..strokeWidth = w * 0.06
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
-      ).createShader(Rect.fromLTWH(0, h * 0.55, w, h * 0.45));
+      ..color = const Color(0xFF7C3AED);
     final left = Path()
-      ..moveTo(w * 0.42, h * 0.58)
-      ..quadraticBezierTo(w * 0.28, h * 0.72, w * 0.38, h * 0.82)
-      ..quadraticBezierTo(w * 0.48, h * 0.92, w * 0.38, h * 0.99);
+      ..moveTo(w * 0.43, h * 0.66)
+      ..quadraticBezierTo(w * 0.26, h * 0.78, w * 0.34, h * 0.88)
+      ..quadraticBezierTo(w * 0.42, h * 0.96, w * 0.30, h * 0.99);
     final right = Path()
-      ..moveTo(w * 0.58, h * 0.58)
-      ..quadraticBezierTo(w * 0.72, h * 0.72, w * 0.62, h * 0.82)
-      ..quadraticBezierTo(w * 0.52, h * 0.92, w * 0.62, h * 0.99);
+      ..moveTo(w * 0.57, h * 0.66)
+      ..quadraticBezierTo(w * 0.76, h * 0.78, w * 0.66, h * 0.88)
+      ..quadraticBezierTo(w * 0.56, h * 0.97, w * 0.70, h * 1.00);
     canvas.drawPath(left, legPaint);
     canvas.drawPath(right, legPaint);
 
-    // Body: violet blob with a top-lit gradient.
+    // Body: a solid violet blob (flat, with only a whisper of top light).
     final body = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [Color(0xFFC4A5FF), Color(0xFF7C3AED)],
+        colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
       ).createShader(Rect.fromCircle(center: bodyC, radius: bodyR));
     canvas.drawCircle(bodyC, bodyR, body);
 
-    // Big single eye, right of centre, iris looking down.
-    final eyeC = Offset(w * 0.55, h * 0.38);
-    canvas.drawCircle(eyeC, w * 0.13, Paint()..color = _eyeWhite);
+    // One big eye, slightly left of centre; the iris looks off to the right.
+    final eyeC = Offset(w * 0.46, h * 0.38);
+    canvas.drawCircle(eyeC, w * 0.145, Paint()..color = _eyeWhite);
     canvas.drawCircle(
-        Offset(eyeC.dx + w * 0.02, eyeC.dy + w * 0.035), w * 0.085,
+        Offset(eyeC.dx + w * 0.055, eyeC.dy), w * 0.10,
         Paint()..color = _dark);
 
-    // Heavy brow drawn ON TOP of the eye as a lid — covers the upper third so it
-    // reads half-lidded and unimpressed, the way Dross looks at you.
+    // Heavy brow, arched OVER the top of the eye (raised, expressive) — a long
+    // curved stroke, not a lid.
     final brow = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.075
+      ..strokeWidth = w * 0.055
       ..strokeCap = StrokeCap.round
       ..color = _dark;
-    canvas.drawLine(
-        Offset(w * 0.40, h * 0.31), Offset(w * 0.66, h * 0.275), brow);
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * 0.29, h * 0.34)
+        ..quadraticBezierTo(w * 0.49, h * 0.19, w * 0.70, h * 0.29),
+      brow,
+    );
 
-    // Small mouth: a gentle smile low and centre-left of the eye.
+    // Wide, gentle smile low and centred under the eye.
     final mouth = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.042
+      ..strokeWidth = w * 0.05
       ..strokeCap = StrokeCap.round
       ..color = _dark;
-    final m = Path()
-      ..moveTo(w * 0.45, h * 0.56)
-      ..quadraticBezierTo(w * 0.52, h * 0.605, w * 0.61, h * 0.56);
-    canvas.drawPath(m, mouth);
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * 0.33, h * 0.53)
+        ..quadraticBezierTo(w * 0.50, h * 0.62, w * 0.67, h * 0.53),
+      mouth,
+    );
   }
 
   @override
