@@ -493,7 +493,7 @@ func New(agentName, model, provider string, run RunFunc) Model {
 		run:         run,
 		msgs:        make(chan tea.Msg, 256),
 		logoVariant:  1, // gradient fade (default)
-		welcomeStyle: 2, // splash: centered orb + DROSS wordmark on a fresh session
+		welcomeStyle: 0, // clean: Dross mascot + wordmark, dir, model (default)
 		phrases:      DefaultPhrases,
 		streamStart:  -1, // not streaming until a text-delta arrives
 		modeIdx:      2,   // default to Accept edits (auto edits, ask before commands)
@@ -2054,9 +2054,6 @@ func (m Model) View() string {
 //	2 centered — the original big centered wordmark + tagline
 func (m Model) welcome() string {
 	bodyH := m.height - lipgloss.Height(m.header()) - 4 // header (2 lines) + footer
-	if m.welcomeStyle == 2 {
-		return m.welcomeCentered(bodyH)
-	}
 	var rows []string
 	if m.welcomeStyle == 1 { // boxed
 		inner := lipgloss.JoinVertical(lipgloss.Left, m.wLogo(), "", m.wDir(), m.wModel())
@@ -2071,7 +2068,7 @@ func (m Model) welcome() string {
 
 // welcomeNames are the selectable empty-state layouts, index-aligned with
 // welcomeStyle.
-var welcomeNames = []string{"clean", "boxed", "centered"}
+var welcomeNames = []string{"clean", "boxed"}
 
 // welcomeIndex maps a layout name to its welcomeStyle index, or -1 if unknown.
 func welcomeIndex(name string) int {
@@ -2118,17 +2115,6 @@ func (m Model) themeBox(bodyH int) string {
 
 // welcomeCentered is the original splash: the big wordmark centered with a
 // shimmering tagline beneath it.
-func (m Model) welcomeCentered(bodyH int) string {
-	phase := float64(m.shimmer) * 0.03
-	// The compact mascot (not the full-size art, which dwarfs the screen) over the
-	// block wordmark and tagline.
-	mascot := mascotColored(phase)
-	word := blockWordmark(phase)
-	tagline := gradientTextAt("a pluggable multi-model coding agent", holoLoop, phase*0.7)
-	block := lipgloss.JoinVertical(lipgloss.Center, mascot, "", word, "", tagline)
-	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, block)
-}
-
 func (m Model) wLogo() string {
 	logo := renderLogoAt(m.logoVariant, float64(m.shimmer)*0.03)
 	if m.version != "" {
