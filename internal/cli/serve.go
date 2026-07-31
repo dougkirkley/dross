@@ -14,6 +14,7 @@ import (
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
 	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/internal/plugins"
 	"github.com/dougkirkley/dross/pkg/agent"
 	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/server"
@@ -113,7 +114,7 @@ func newServeCmd() *cobra.Command {
 				}
 			}
 			mgr.SetModels(res.File.Models)
-			mgr.SetMCP(mcpSpecs(res.File.MCP))
+			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetRepo(repoLabel(workdir))
 			srv := server.New(storage.NewSessionStore(sp), mgr, authr, arts)
 
@@ -178,6 +179,24 @@ func repoLabel(workdir string) string {
 		abs = workdir
 	}
 	return filepath.Base(abs)
+}
+
+// mergedMCP combines configured MCP servers (which win on a name clash) with
+// those discovered in mcp/ directories (project/user/plugins), deduped by name,
+// and returns agent specs.
+func mergedMCP(file *config.File, workdir string) []agent.MCPServerSpec {
+	combined := append([]config.MCPServer{}, file.MCP...)
+	combined = append(combined, plugins.MCPServersAll(workdir)...)
+	seen := map[string]bool{}
+	uniq := combined[:0]
+	for _, s := range combined {
+		if s.Name == "" || seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		uniq = append(uniq, s)
+	}
+	return mcpSpecs(uniq)
 }
 
 // mcpSpecs converts configured MCP servers to agent specs.

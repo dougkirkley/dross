@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/dross/internal/catalog"
+	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/plugins"
 	"github.com/dougkirkley/dross/internal/relay"
 	"github.com/dougkirkley/dross/internal/session"
@@ -210,8 +211,8 @@ func newTUICmd() *cobra.Command {
 						}
 						opts = append(opts, agent.WithPluginTools(specs))
 					}
-					if len(res.File.MCP) > 0 {
-						opts = append(opts, agent.WithMCPServers(mcpSpecs(res.File.MCP)))
+					if specs := mergedMCP(res.File, workdir); len(specs) > 0 {
+						opts = append(opts, agent.WithMCPServers(specs))
 					}
 					if len(res.File.Permission) > 0 {
 						rules := make(map[string]agent.PermRuleSpec, len(res.File.Permission))
@@ -245,7 +246,8 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
-			mdl.SetMCPCommand(mcpCommand(res.File, configFilePath(cfgPath), &mcpGen))
+			mdl.SetMCPCommand(mcpCommand(res.File, configFilePath(cfgPath), &mcpGen,
+				func() []config.MCPServer { return plugins.MCPServersAll(workdir) }))
 			if theme == "" && res.File.Theme != "" {
 				tui.SetTheme(res.File.Theme)
 			}

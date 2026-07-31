@@ -183,11 +183,24 @@ func defaultConfigPath() string {
 	return "dross.json"
 }
 
+// fmtMCP formats one MCP server for the /mcp list output.
+func fmtMCP(s config.MCPServer) string {
+	t := s.Transport
+	if t == "" {
+		t = "http"
+	}
+	loc := s.URL
+	if t == "stdio" {
+		loc = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
+	}
+	return fmt.Sprintf("%s  (%s)  %s", s.Name, t, loc)
+}
+
 // mcpCommand backs the TUI /mcp slash command: list, add, or remove MCP servers,
 // persisting to the config file and bumping gen so the agent rebuilds (and
 // reconnects) on the next prompt. Deliberately TUI/config-only — MCP servers are
 // never addable from the mobile app.
-func mcpCommand(file *config.File, cfgPath string, gen *int) func(args []string) []string {
+func mcpCommand(file *config.File, cfgPath string, gen *int, discover func() []config.MCPServer) func(args []string) []string {
 	save := func() []string {
 		if err := setConfigKey(cfgPath, "mcp", file.MCP); err != nil {
 			return []string{"save failed: " + err.Error()}
@@ -197,20 +210,30 @@ func mcpCommand(file *config.File, cfgPath string, gen *int) func(args []string)
 	}
 	return func(args []string) []string {
 		if len(args) == 0 || args[0] == "list" {
+			var out []string
 			if len(file.MCP) == 0 {
-				return []string{"no MCP servers · add one: /mcp add <name> <url>"}
+				out = append(out, "no configured MCP servers · add one: /mcp add <name> <url>")
+			} else {
+				out = append(out, "configured (editable):")
+				for _, s := range file.MCP {
+					out = append(out, "  "+fmtMCP(s))
+				}
 			}
-			out := []string{"MCP servers:"}
-			for _, s := range file.MCP {
-				t := s.Transport
-				if t == "" {
-					t = "http"
+			if discover != nil {
+				names := map[string]bool{}
+				for _, s := range file.MCP {
+					names[s.Name] = true
 				}
-				loc := s.URL
-				if t == "stdio" {
-					loc = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
+				var disc []string
+				for _, s := range discover() {
+					if !names[s.Name] {
+						disc = append(disc, "  "+fmtMCP(s))
+					}
 				}
-				out = append(out, fmt.Sprintf("  %s  (%s)  %s", s.Name, t, loc))
+				if len(disc) > 0 {
+					out = append(out, "discovered (mcp/ dirs, read-only):")
+					out = append(out, disc...)
+				}
 			}
 			return out
 		}

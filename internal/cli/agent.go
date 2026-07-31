@@ -113,6 +113,9 @@ func newAgentCmd() *cobra.Command {
 			}
 			cfgPath, _ := cmd.Flags().GetString("config")
 			opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+			if specs := mergedMCP(pc.File, workdir); len(specs) > 0 {
+				opts = append(opts, agent.WithMCPServers(specs))
+			}
 
 			ag, err := agent.New(agent.Config{
 				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style), MaxTurns: pc.File.MaxTurns,
@@ -120,6 +123,7 @@ func newAgentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer ag.Close()
 			res, err := ag.Run(context.Background(), prompt)
 			if err != nil {
 				return fmt.Errorf("run: %w", err)
