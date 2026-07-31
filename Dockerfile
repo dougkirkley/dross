@@ -12,7 +12,7 @@ RUN rm -rf internal/web/dist && cp -r mobile/build/web internal/web/dist \
 FROM alpine:latest
 # Sandboxed Code sessions run shell commands via the bash tool, so the runtime
 # needs bash (alpine ships only /bin/sh) plus git and certs for real work.
-RUN apk add --no-cache bash git ca-certificates
+RUN apk add --no-cache bash git ca-certificates curl xz
 WORKDIR /app
 COPY --from=builder /app/dross .
 EXPOSE 8080
