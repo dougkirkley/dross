@@ -36,6 +36,7 @@ func NewRootCmd() *cobra.Command {
 		newCompactStatsCmd(),
 		newRCCmd(),
 		newPluginCmd(),
+		newMCPCmd(),
 	)
 	return root
 }
