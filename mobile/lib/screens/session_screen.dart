@@ -290,8 +290,17 @@ class _SessionScreenState extends State<SessionScreen> {
                         child: Container(
                           width: 40,
                           height: 40,
-                          decoration: const BoxDecoration(
-                              color: T.accent, shape: BoxShape.circle),
+                          decoration: BoxDecoration(
+                            gradient: T.auroraGrad,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: T.violet.withValues(alpha: .5),
+                                blurRadius: 16,
+                                spreadRadius: -2,
+                              ),
+                            ],
+                          ),
                           child: Icon(running ? Icons.add : Icons.arrow_upward,
                               size: 20, color: T.bg),
                         ),

@@ -1,34 +1,46 @@
 import 'package:flutter/material.dart';
 
-/// Dross mobile design tokens. The layout language follows Claude's phone app
-/// — flat warm near-black surfaces, hairline borders, serif assistant prose,
-/// dark right-aligned user bubbles, pill controls — but keeps dross's own
-/// Carolina-blue accent where Claude uses coral, for brand identity.
+/// Dross mobile design tokens — the "Aetheric" identity: the bound spirit made
+/// visible. Void-black surfaces with a cool blue-violet cast, an iridescent
+/// violet -> cyan -> magenta aurora for anything alive (orb, send, active
+/// state), and hairlines that glow faintly instead of merely dividing.
 class T {
-  // Surfaces (warm near-black, no Material elevation).
-  static const bg = Color(0xFF0E0E0E);
-  static const surface = Color(0xFF191919); // cards, input
-  static const surfaceAlt = Color(0xFF222222); // user bubble, chips
+  // Surfaces (void black with a faint violet cast, no Material elevation).
+  static const bg = Color(0xFF07070F); // void
+  static const surface = Color(0xFF0E0E1A); // cards, input panel
+  static const surfaceAlt = Color(0xFF191830); // user bubble, chips (violet cast)
 
-  // Conversation surfaces: the message area reads as a soft gray, the input
-  // field sits darker (near-black) for contrast.
-  static const chatBg = Color(0xFF1A1A1A);
-  static const inputBg = Color(0xFF0C0C0C);
-  static const border = Color(0xFF2A2A2A); // hairline
-  static const borderFaint = Color(0xFF1E1E1E);
+  // Conversation surfaces: the message area lifts slightly off the void, the
+  // input field sits darker for contrast.
+  static const chatBg = Color(0xFF0A0A14);
+  static const inputBg = Color(0xFF08080F);
+  static const border = Color(0xFF241E3B); // violet-tinted hairline
+  static const borderFaint = Color(0xFF161426);
 
   // Text.
-  static const text = Color(0xFFECEAE4); // warm off-white
-  static const textDim = Color(0xFF9A9A93);
-  static const textFaint = Color(0xFF6A6A64);
+  static const text = Color(0xFFECE9FB); // cool off-white
+  static const textDim = Color(0xFF7D7BA3);
+  static const textFaint = Color(0xFF55547A);
 
-  // Accent — dross Carolina blue.
-  static const accent = Color(0xFF4B9CD3);
-  static const accentHi = Color(0xFF8FC7E8);
+  // Accent — aetheric violet, with cyan as the second aurora pole.
+  static const accent = Color(0xFFA78BFA);
+  static const accentHi = Color(0xFF22D3EE);
+  static const bloom = Color(0xFFE879F9); // magenta aurora tail
+  static const violet = Color(0xFF8B5CF6);
+
+  // The living gradient: used for the orb, the send control, active frames,
+  // and glowing hairlines.
+  static const aurora = <Color>[violet, accentHi, bloom];
+  static const LinearGradient auroraGrad = LinearGradient(
+    colors: aurora,
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+  static const LinearGradient auroraLine = LinearGradient(colors: aurora);
 
   // Status / semantic.
-  static const ok = Color(0xFF6BBF73);
-  static const danger = Color(0xFFE06C75);
+  static const ok = Color(0xFF34D399);
+  static const danger = Color(0xFFFB7185);
 
   // Light pill (the "New session/chat" FAB is near-white with dark text).
   static const pill = Color(0xFFF3F1EC);
@@ -104,6 +116,27 @@ class T {
       textSelectionTheme: const TextSelectionThemeData(cursorColor: accent),
     );
   }
+}
+
+/// A 1px hairline that glows with the aurora gradient, fading at both edges.
+/// The signature Aetheric divider — used under headers and around live frames.
+class GradientHairline extends StatelessWidget {
+  const GradientHairline({super.key, this.height = 1});
+  final double height;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        height: height,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [
+            Colors.transparent,
+            T.violet,
+            T.accentHi,
+            T.bloom,
+            Colors.transparent,
+          ]),
+        ),
+      );
 }
 
 /// A circular hairline-outlined icon button, as used in the Claude app headers
@@ -212,28 +245,33 @@ class FlatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          SizedBox(width: 44, child: leading),
-          Expanded(
-            child: Column(
-              children: [
-                Text(title,
-                    style: T.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center),
-                if (subtitle != null)
-                  Text(subtitle!,
-                      style: T.meta, textAlign: TextAlign.center),
-              ],
-            ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              SizedBox(width: 44, child: leading),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(title,
+                        style: T.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center),
+                    if (subtitle != null)
+                      Text(subtitle!,
+                          style: T.meta, textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+              SizedBox(width: 44, child: trailing),
+            ],
           ),
-          SizedBox(width: 44, child: trailing),
-        ],
-      ),
+        ),
+        const GradientHairline(),
+      ],
     );
   }
 }

@@ -29,20 +29,20 @@ import (
 // Palette colors. Overridable via config (see ApplyColors); rebuildStyles
 // re-derives every style below from them.
 var (
-	accent   = lipgloss.Color("#4B9CD3") // Carolina blue
-	accentHi = lipgloss.Color("#8FC7E8") // lighter blue
-	fg       = lipgloss.Color("#E6E6E6")
-	prose    = lipgloss.Color("#F6F5F1") // assistant prose: bright white
-	muted    = lipgloss.Color("#6B7280")
-	dim      = lipgloss.Color("#4B5158")
-	bad      = lipgloss.Color("#E06C75")
-	ok       = lipgloss.Color("#6BBF73") // something completed
-	base     = lipgloss.Color("#0C0F12") // near-black
-	panel    = lipgloss.Color("#15181C") // gray panel
+	accent   = lipgloss.Color("#A78BFA") // aetheric violet
+	accentHi = lipgloss.Color("#22D3EE") // aurora cyan (highlights, cost)
+	fg       = lipgloss.Color("#ECE9FB") // cool off-white
+	prose    = lipgloss.Color("#F2F0FF") // assistant prose: bright cool white
+	muted    = lipgloss.Color("#7D7BA3") // violet-gray
+	dim      = lipgloss.Color("#55547A")
+	bad      = lipgloss.Color("#FB7185")
+	ok       = lipgloss.Color("#34D399") // something completed
+	base     = lipgloss.Color("#07070F") // void
+	panel    = lipgloss.Color("#0E0E1A") // violet-cast panel
 	gold     = lipgloss.Color("#E6B450") // shell-mode ("!") accent
-	worker   = lipgloss.Color("#5C8AA6") // subagent tag
-	holoCyan = lipgloss.Color("#5CE1E6") // holographic gradient start
-	holoViol = lipgloss.Color("#A78BFA") // holographic gradient end
+	worker   = lipgloss.Color("#8B5CF6") // subagent tag
+	holoCyan = lipgloss.Color("#22D3EE") // holographic gradient start
+	holoViol = lipgloss.Color("#8B5CF6") // holographic gradient end
 
 	logoStyle    lipgloss.Style
 	metaStyle    lipgloss.Style

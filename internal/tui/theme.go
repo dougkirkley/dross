@@ -15,8 +15,11 @@ type themeDef struct {
 	ramp     []string // gradient stops, start → end
 }
 
-// themes are the selectable variants (/theme). "crystal" is the default.
+// themes are the selectable variants (/theme). "aetheric" is the default: the
+// spirit made visible, an iridescent violet -> cyan -> magenta aurora on void.
 var themes = []themeDef{
+	{"aetheric", "#A78BFA", "#22D3EE", "#22D3EE", "#8B5CF6", "#07070F",
+		[]string{"#22D3EE", "#6E9BF0", "#A78BFA", "#8B5CF6", "#E879F9"}},
 	{"crystal", "#4B9CD3", "#8FC7E8", "#5CE1E6", "#A78BFA", "#0C0F12",
 		[]string{"#5CE1E6", "#4FB8E8", "#6E9BF0", "#A78BFA", "#E06CE6"}},
 	{"ember", "#E6934B", "#F0B87A", "#FF9E5C", "#E0566C", "#17110D",
