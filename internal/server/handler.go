@@ -42,8 +42,8 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.mgr.list()})
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.mgr.list(auth.Identity(r))})
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -54,14 +54,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sess := s.mgr.create(req)
+	sess := s.mgr.create(req, auth.Identity(r))
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }
 
 // handlePatchSession updates mutable session fields (currently the model), which
 // takes effect on the next prompt.
 func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -81,7 +81,7 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteSession drops a session and cancels any in-flight run.
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if !s.mgr.remove(r.PathValue("id")) {
+	if !s.mgr.remove(r.PathValue("id"), auth.Identity(r)) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -100,7 +100,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 // handlePrompt starts a run and returns immediately (202). The run continues
 // server-side; clients watch via /events or /stream.
 func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -120,7 +120,7 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -132,7 +132,7 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 // handleEvents returns event history (optionally after ?after=SEQ) for lossless
 // reconnect.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -145,7 +145,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // the subscribe point (respecting ?after= / Last-Event-ID), then streams live —
 // so no event is missed or duplicated across a reconnect.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.mgr.get(r.PathValue("id"))
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return

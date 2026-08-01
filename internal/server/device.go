@@ -149,7 +149,7 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 
 // deviceEvent appends an event streamed from a device into its mirror session.
 func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
-	s, ok := m.get(sessionID)
+	s, ok := m.getAny(sessionID)
 	if !ok || s.device != device {
 		return
 	}

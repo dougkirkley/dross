@@ -39,6 +39,11 @@ type Session struct {
 	Style       string `json:"style,omitempty"`
 	Chat        bool   `json:"chat,omitempty"` // chat session: no file/shell tools
 
+	// owner is the authenticated identity that created the session. Sessions
+	// carry the user's prompts, workspace contents and agent output, so they are
+	// only ever visible to the identity that owns them.
+	owner string
+
 	mu        sync.Mutex
 	workdir   string
 	repo      string // owner/repo (or dir name) label for the session card
@@ -231,7 +236,7 @@ type CreateReq struct {
 	Chat        bool   `json:"chat"` // chat session: web/context only, no file or shell tools
 }
 
-func (m *Manager) create(req CreateReq) *Session {
+func (m *Manager) create(req CreateReq, owner string) *Session {
 	model := req.Model
 	if model == "" {
 		model = m.model
@@ -253,6 +258,7 @@ func (m *Manager) create(req CreateReq) *Session {
 		WorkerModel: req.WorkerModel,
 		Style:       req.Style,
 		Chat:        req.Chat,
+		owner:       owner,
 		workdir:     workdir,
 		repo:        m.repo,
 		updated:     time.Now(),
@@ -264,18 +270,42 @@ func (m *Manager) create(req CreateReq) *Session {
 	return s
 }
 
-func (m *Manager) get(id string) (*Session, bool) {
+// get returns the session only if owner may see it. An unowned session (created
+// before ownership existed, or by an unauthenticated server) is visible to all,
+// so enabling auth cannot strand existing work.
+func (m *Manager) get(id, owner string) (*Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok || !s.visibleTo(owner) {
+		return nil, false
+	}
+	return s, true
+}
+
+// getAny looks a session up without an ownership check. Only for internal
+// plumbing (the device relay), never for a request handler.
+func (m *Manager) getAny(id string) (*Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.sessions[id]
 	return s, ok
 }
 
+// visibleTo reports whether owner may access this session.
+func (s *Session) visibleTo(owner string) bool {
+	return s.owner == "" || owner == "" || strings.EqualFold(s.owner, owner)
+}
+
 // remove cancels any running prompt and drops the session from the manager.
 // Returns false if the id was unknown.
-func (m *Manager) remove(id string) bool {
+func (m *Manager) remove(id, owner string) bool {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
+	if ok && !s.visibleTo(owner) {
+		m.mu.Unlock()
+		return false // indistinguishable from "unknown id"
+	}
 	if ok {
 		delete(m.sessions, id)
 	}
@@ -292,11 +322,14 @@ func (m *Manager) remove(id string) bool {
 	return ok
 }
 
-func (m *Manager) list() []sessionView {
+func (m *Manager) list(owner string) []sessionView {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]sessionView, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if !s.visibleTo(owner) {
+			continue
+		}
 		out = append(out, s.snapshot())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
