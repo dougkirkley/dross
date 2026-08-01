@@ -67,3 +67,21 @@ func TestDeletedSessionsStayDeleted(t *testing.T) {
 		t.Errorf("restored %d sessions; a deleted one came back", n)
 	}
 }
+
+// A session created but not yet prompted is still the user's session.
+func TestEmptySessionIsPersisted(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	m.SetStore(storage.NewSessionStore(dir))
+	s := m.create(CreateReq{}, "doug@example.com")
+	m.flush()
+
+	m2 := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	m2.SetStore(storage.NewSessionStore(dir))
+	if n, _ := m2.Restore(); n != 1 {
+		t.Fatalf("restored %d; want the empty session", n)
+	}
+	if _, ok := m2.get(s.ID, "doug@example.com"); !ok {
+		t.Error("empty session lost")
+	}
+}

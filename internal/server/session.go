@@ -290,6 +290,9 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
+	// Persist immediately: a session with no events yet is still a session, and
+	// only marking on emit would lose one created just before a restart.
+	m.markDirty(s.ID)
 	return s
 }
 
