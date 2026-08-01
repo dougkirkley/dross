@@ -145,6 +145,29 @@ func WithPermission(mode string) Option {
 	return func(a *Agent) { a.permMode = PermMode(strings.ToLower(strings.TrimSpace(mode))) }
 }
 
+// withInheritedGating copies the lead's permission state onto a sub-agent, so
+// delegation cannot be used to escape it. The internal (already normalized)
+// values are copied rather than re-derived through the public options, which
+// would lose the per-pattern rules.
+func withInheritedGating(lead *Agent) Option {
+	return func(sub *Agent) {
+		sub.permMode = lead.permMode
+		sub.asker = lead.asker
+		if len(lead.allowTools) > 0 {
+			sub.allowTools = make(map[string]bool, len(lead.allowTools))
+			for k, v := range lead.allowTools {
+				sub.allowTools[k] = v
+			}
+		}
+		if len(lead.permRules) > 0 {
+			sub.permRules = make(map[string]permRule, len(lead.permRules))
+			for k, v := range lead.permRules {
+				sub.permRules[k] = v
+			}
+		}
+	}
+}
+
 // WithConversation keeps the provider session alive across Run calls, so the
 // agent remembers prior turns (a persistent conversation). Without it, each Run
 // starts fresh — the default for one-shot and server use.
@@ -1358,6 +1381,10 @@ func (a *Agent) delegateOne(ctx context.Context, task, name string) (*Result, st
 	if a.worker == nil {
 		return nil, "delegation is not configured for this agent", true
 	}
+	// A worker must not be able to do what its lead cannot. Previously only
+	// Sandbox was passed, so the sub-agent came up with no permission mode, no
+	// tool filter and no asker — delegate("...run bash...") escaped plan mode
+	// and every deny rule.
 	sub, err := New(Config{
 		Name:     a.cfg.Name + "/" + name,
 		Identity: workerIdentity,
@@ -1366,7 +1393,7 @@ func (a *Agent) delegateOne(ctx context.Context, task, name string) (*Result, st
 		Sandbox:  a.cfg.Sandbox, // share the parent's sandboxed env
 	}, a.worker.prov, WithEventHook(func(e Event) {
 		a.emit("worker:"+e.Kind, name+workerTagSep+e.Data)
-	}))
+	}), withInheritedGating(a))
 	if err != nil {
 		return nil, err.Error(), true
 	}

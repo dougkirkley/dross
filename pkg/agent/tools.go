@@ -349,7 +349,10 @@ func (w *workspace) initSandbox() error {
 
 	// Inherit the whole parent env, then append overrides. exec uses the last
 	// value for a duplicate key, so these win while everything else carries over.
-	env := append(os.Environ(),
+	// Inherit the host environment (so global tooling keeps working) minus
+	// anything that looks like a credential: the model can run `env`, and the
+	// provider keys this process holds are not the shell's business.
+	env := append(withoutSecrets(os.Environ()),
 		"HOME="+home,
 		"PATH="+path,
 		"DROSS_WORKSPACE="+w.root,
@@ -367,6 +370,31 @@ func (w *workspace) initSandbox() error {
 	)
 	w.env = env
 	return nil
+}
+
+// secretEnvRE matches environment variable names that carry credentials. A
+// denylist rather than an allowlist: sandboxed sessions are meant to inherit the
+// host's environment and binaries, so the goal is to strip secrets, not to
+// curate a minimal env.
+var secretEnvRE = regexp.MustCompile(`(?i)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|SESSION|COOKIE|LICENSE)`)
+
+// envNameAllowed keeps a few names the pattern would otherwise catch but which
+// carry no secret and break tooling when missing.
+var envNameAllowed = map[string]bool{
+	"KEYBOARD": true, "AUTHOR": true, "GIT_AUTHOR_NAME": true, "GIT_AUTHOR_EMAIL": true,
+}
+
+// withoutSecrets drops credential-bearing variables from an environment slice.
+func withoutSecrets(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok && !envNameAllowed[strings.ToUpper(name)] && secretEnvRE.MatchString(name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // sudoRE matches a `sudo` (or `doas`) invocation: at the start of the command
@@ -552,7 +580,39 @@ func (w *workspace) resolve(p string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q escapes the workspace", p)
 	}
+	// The lexical check above is not enough: a symlink inside the workspace can
+	// point anywhere, and every file call would follow it. A repo can carry one,
+	// so this needs no shell access to plant. Resolve what exists and re-check.
+	if err := w.checkNoEscapeViaSymlink(abs); err != nil {
+		return "", err
+	}
 	return abs, nil
+}
+
+// checkNoEscapeViaSymlink verifies that abs, with symlinks resolved, is still
+// inside the workspace. The final element may not exist yet (a file being
+// created), so the deepest existing ancestor is what gets resolved.
+func (w *workspace) checkNoEscapeViaSymlink(abs string) error {
+	realRoot, err := filepath.EvalSymlinks(w.root)
+	if err != nil {
+		realRoot = w.root // root itself missing; the lexical check stands
+	}
+	probe := abs
+	for {
+		real, err := filepath.EvalSymlinks(probe)
+		if err == nil {
+			rel, rerr := filepath.Rel(realRoot, real)
+			if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("path escapes the workspace via a symlink")
+			}
+			return nil
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return nil // walked to the filesystem root without finding anything
+		}
+		probe = parent
+	}
 }
 
 const maxReadBytes = 256 * 1024

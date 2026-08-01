@@ -284,7 +284,11 @@ func (s *Server) handleArtifactShared(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r) // unshared and wrong-token look identical
 		return
 	}
-	writeBlob(w, data, m.Mime, m.Filename, "public, max-age=31536000, immutable")
+	// Short TTL, not immutable: the token is in the path, so a year-long shared
+	// cache entry would keep serving the file after the link was revoked —
+	// making "unshare" a lie. Five minutes still absorbs the burst of a link
+	// being opened by several people at once.
+	writeBlob(w, data, m.Mime, m.Filename, "public, max-age=300")
 }
 
 // handleArtifactShare mints a public link for an artifact.
@@ -358,7 +362,38 @@ func resolveInside(root, p string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q escapes the workspace", p)
 	}
+	// A lexical check alone lets a symlink inside the workspace point anywhere:
+	// publishing it would read the target and hand it back as a URL. The agent
+	// can plant one, so resolve links before trusting the path.
+	if err := noSymlinkEscape(rootAbs, abs); err != nil {
+		return "", err
+	}
 	return abs, nil
+}
+
+// noSymlinkEscape reports an error if abs, with symlinks resolved, leaves root.
+// The leaf may not exist yet, so the deepest existing ancestor is resolved.
+func noSymlinkEscape(root, abs string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	probe := abs
+	for {
+		real, err := filepath.EvalSymlinks(probe)
+		if err == nil {
+			rel, rerr := filepath.Rel(realRoot, real)
+			if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("path escapes the workspace via a symlink")
+			}
+			return nil
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return nil
+		}
+		probe = parent
+	}
 }
 
 // detectMime prefers the extension, falling back to content sniffing.

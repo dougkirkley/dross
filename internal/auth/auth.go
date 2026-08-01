@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -239,6 +240,18 @@ func (a *Authenticator) verifyEmail(ctx context.Context, v *oidc.IDTokenVerifier
 
 // --- OIDC login flow ------------------------------------------------------
 
+// flowState is the signed, short-lived record of an in-flight login. It is JSON
+// rather than pipe-joined: a value containing the separator (next is
+// user-influenced) could otherwise inject later fields.
+type flowState struct {
+	State    string `json:"s"`
+	Nonce    string `json:"n"`
+	Verifier string `json:"v"`
+	Next     string `json:"x"`
+	Mode     string `json:"m"`
+	AppState string `json:"a,omitempty"` // client's own state, echoed back to it
+}
+
 // Login starts the OIDC authorization-code flow (with PKCE).
 func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 	if a.oauth == nil {
@@ -262,8 +275,18 @@ func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Stash state|nonce|verifier|next|mode in a short-lived signed cookie.
-	a.setCookie(w, stateCookie, a.sign(strings.Join([]string{state, nonce, verifier, next, mode}, "|")), 10*time.Minute)
+	fs := flowState{
+		State: state, Nonce: nonce, Verifier: verifier, Next: next, Mode: mode,
+		// A native client passes its own state so it can reject a callback it
+		// did not initiate.
+		AppState: r.URL.Query().Get("state"),
+	}
+	blob, err := json.Marshal(fs)
+	if err != nil {
+		http.Error(w, "login failed", http.StatusInternalServerError)
+		return
+	}
+	a.setCookie(w, stateCookie, a.sign(string(blob)), 10*time.Minute)
 
 	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
 	// After signing out, ask the provider to actually re-authenticate rather
@@ -295,12 +318,13 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad state", http.StatusBadRequest)
 		return
 	}
-	parts := strings.SplitN(val, "|", 5)
-	if len(parts) != 5 || r.URL.Query().Get("state") != parts[0] {
+	var fs flowState
+	if err := json.Unmarshal([]byte(val), &fs); err != nil || fs.State == "" ||
+		r.URL.Query().Get("state") != fs.State {
 		http.Error(w, "state mismatch", http.StatusBadRequest)
 		return
 	}
-	nonce, verifier, next, mode := parts[1], parts[2], parts[3], parts[4]
+	nonce, verifier, next, mode, appState := fs.Nonce, fs.Verifier, fs.Next, fs.Mode, fs.AppState
 
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
@@ -339,7 +363,14 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 	// Native app clients get the session via a custom-scheme redirect; CLI/TUI
 	// tools via a loopback redirect; browsers get a session cookie.
 	if mode == "app" {
-		http.Redirect(w, r, appCallbackScheme+"?session="+url.QueryEscape(session), http.StatusFound)
+		// Echo the client's state so the app can reject a callback it did not
+		// start. Without it any app registering dross:// (or a web page, since
+		// the scheme is BROWSABLE) can inject a session token of its choosing.
+		cb := appCallbackScheme + "?session=" + url.QueryEscape(session)
+		if appState != "" {
+			cb += "&state=" + url.QueryEscape(appState)
+		}
+		http.Redirect(w, r, cb, http.StatusFound)
 		return
 	}
 	if red, ok := strings.CutPrefix(mode, "cli|"); ok && loopbackURL(red) {

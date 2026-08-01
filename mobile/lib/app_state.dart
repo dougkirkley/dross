@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
@@ -21,6 +23,8 @@ enum AppMode { chat, code }
 /// The app has no local settings beyond the server URL.
 class AppState extends ChangeNotifier {
   final _secure = const FlutterSecureStorage();
+  // Cryptographically secure: this seeds the OAuth state.
+  final _rng = Random.secure();
 
   String baseUrl = '';
   String token = '';
@@ -156,11 +160,19 @@ class AppState extends ChangeNotifier {
       return null;
     }
     try {
+      // Bind the callback to this attempt. The dross:// scheme is BROWSABLE and
+      // any installed app can claim it, so without a state to check, a hostile
+      // caller could hand us a session token of its choosing and we would adopt
+      // its account.
+      final state = base64Url.encode(
+          List<int>.generate(24, (_) => _rng.nextInt(256)));
       final result = await FlutterWebAuth2.authenticate(
-        url: '$baseUrl/auth/login?mode=app',
+        url: '$baseUrl/auth/login?mode=app&state=${Uri.encodeQueryComponent(state)}',
         callbackUrlScheme: 'dross',
       );
-      final session = Uri.parse(result).queryParameters['session'];
+      final params = Uri.parse(result).queryParameters;
+      if (params['state'] != state) return 'Sign-in rejected: state mismatch';
+      final session = params['session'];
       if (session == null || session.isEmpty) return 'No session returned';
       token = session;
       _signedOut = false;
