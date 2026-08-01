@@ -27,7 +27,7 @@ func newServeCmd() *cobra.Command {
 		provName, baseURL, apiKey                                      string
 		workerProv, workerBaseURL, workerKey                           string
 		authIssuer, authClientID, authSecret, authRedirect, authEmails string
-		authCFTeam, authCFAud, authToken, authCookieSecret             string
+		authCFTeam, authCFAud, authCookieSecret                         string
 		authInsecure                                                   bool
 		artifactDir, publicURL                                         string
 		serviceToken, serviceIdentity                                  string
@@ -69,7 +69,7 @@ func newServeCmd() *cobra.Command {
 			authr, err := auth.New(context.Background(), auth.Config{
 				Issuer: authIssuer, ClientID: authClientID, ClientSecret: authSecret,
 				RedirectURL: authRedirect, CFTeamDomain: authCFTeam, CFAudience: authCFAud,
-				StaticToken: authToken, AllowedEmails: emails, CookieSecret: cookieSecret,
+				AllowedEmails: emails, CookieSecret: cookieSecret,
 				ServiceToken: serviceToken, ServiceIdentity: serviceIdentity,
 				AllowInsecureCookies: authInsecure,
 			})
@@ -149,7 +149,6 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&authEmails, "auth-allowed-emails", "", "comma-separated email allowlist")
 	f.StringVar(&authCFTeam, "auth-cf-team", "", "Cloudflare Access team domain")
 	f.StringVar(&authCFAud, "auth-cf-aud", "", "Cloudflare Access application AUD")
-	f.StringVar(&authToken, "auth-token", "", "static API bearer token (bypasses the allowlist; prefer --service-token)")
 	f.StringVar(&serviceToken, "service-token", "", "machine bearer token, authenticated as --service-identity and subject to the allowlist")
 	f.StringVar(&serviceIdentity, "service-identity", "service@dross", "identity the service token authenticates as")
 	f.StringVar(&authCookieSecret, "auth-cookie-secret", "", "hex key signing session cookies")

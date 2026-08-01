@@ -206,7 +206,7 @@ func TestPromptValidation(t *testing.T) {
 
 // TestAuthWiring proves /api/health stays open while other /api routes are gated.
 func TestAuthWiring(t *testing.T) {
-	a, err := auth.New(context.Background(), auth.Config{StaticToken: "tok"})
+	a, err := auth.New(context.Background(), auth.Config{ServiceToken: "tok", ServiceIdentity: "service@dross"})
 	if err != nil {
 		t.Fatal(err)
 	}

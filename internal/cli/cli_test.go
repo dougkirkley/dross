@@ -64,7 +64,7 @@ func TestUnknownCommand(t *testing.T) {
 // TestFlagsParse checks a representative command binds its flags without error.
 func TestFlagsParse(t *testing.T) {
 	cmd := newServeCmd()
-	if err := cmd.ParseFlags([]string{"--addr", ":9999", "--auth-token", "x", "--model", "m"}); err != nil {
+	if err := cmd.ParseFlags([]string{"--addr", ":9999", "--service-token", "x", "--model", "m"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if got, _ := cmd.Flags().GetString("addr"); got != ":9999" {

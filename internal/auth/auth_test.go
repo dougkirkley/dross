@@ -12,8 +12,9 @@ import (
 func testAuth(t *testing.T, emails ...string) *Authenticator {
 	t.Helper()
 	a, err := New(context.Background(), Config{
-		StaticToken:   "sekret",
-		AllowedEmails: emails,
+		ServiceToken:    "sekret",
+		ServiceIdentity: "service@dross",
+		AllowedEmails:   emails,
 		CookieSecret:  []byte("0123456789abcdef0123456789abcdef"),
 	})
 	if err != nil || a == nil {
@@ -49,23 +50,38 @@ func TestSessionCookie(t *testing.T) {
 	}
 }
 
-// TestStaticTokenBypassesAllowlist proves the static token authenticates and is
-// exempt from the email allowlist, while an unknown OIDC email would not be.
-func TestStaticTokenBypassesAllowlist(t *testing.T) {
-	a := testAuth(t, "only@allowed.com") // allowlist set
+// TestServiceTokenRespectsAllowlist proves the machine credential is an
+// identity rather than a bypass: it authenticates, but only when its identity
+// is on the allowlist. The old static token skipped that check entirely.
+func TestServiceTokenRespectsAllowlist(t *testing.T) {
+	a := testAuth(t, "only@allowed.com", "service@dross")
 
 	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(Identity(r)))
 	}))
 
-	// Right token → 200 even though "api-token" is not in the allowlist.
+	// Right token, identity allowlisted → 200 as that identity.
 	r := httptest.NewRequest("GET", "/api/sessions", nil)
 	r.Header.Set("Authorization", "Bearer sekret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != http.StatusOK || w.Body.String() != "api-token" {
-		t.Fatalf("static token: code=%d body=%q", w.Code, w.Body.String())
+	if w.Code != http.StatusOK || w.Body.String() != "service@dross" {
+		t.Fatalf("service token: code=%d body=%q", w.Code, w.Body.String())
+	}
+
+	// Same token, identity NOT allowlisted → 403. This is the whole point of
+	// replacing the bypassing static token.
+	b := testAuth(t, "only@allowed.com")
+	hb := b.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rb := httptest.NewRequest("GET", "/api/sessions", nil)
+	rb.Header.Set("Authorization", "Bearer sekret")
+	wb := httptest.NewRecorder()
+	hb.ServeHTTP(wb, rb)
+	if wb.Code != http.StatusForbidden {
+		t.Fatalf("unlisted service identity: want 403, got %d", wb.Code)
 	}
 
 	// No creds → 401.
