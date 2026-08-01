@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,10 +16,10 @@ import (
 	"github.com/dougkirkley/dross/internal/auth"
 	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/plugins"
-	"github.com/dougkirkley/dross/pkg/agent"
-	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/server"
 	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func newServeCmd() *cobra.Command {
@@ -27,7 +28,7 @@ func newServeCmd() *cobra.Command {
 		provName, baseURL, apiKey                                      string
 		workerProv, workerBaseURL, workerKey                           string
 		authIssuer, authClientID, authSecret, authRedirect, authEmails string
-		authCFTeam, authCFAud, authCookieSecret                         string
+		authCFTeam, authCFAud, authCookieSecret                        string
 		authInsecure                                                   bool
 		artifactDir, publicURL                                         string
 		serviceToken, serviceIdentity                                  string
@@ -118,7 +119,34 @@ func newServeCmd() *cobra.Command {
 			mgr.SetModels(res.File.Models)
 			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetRepo(repoLabel(workdir))
-			srv := server.New(storage.NewSessionStore(sp), mgr, authr, arts)
+			// Who may sign in is decided upstream by the identity provider's own
+			// policy. dross records accounts rather than gating on them: the first
+			// successful sign-in registers the user.
+			users, err := server.NewUsers(filepath.Dir(sp))
+			if err != nil {
+				return fmt.Errorf("user registry: %w", err)
+			}
+			if authr != nil {
+				authr.OnSignIn(func(email, name string) {
+					if u, isNew := users.SignIn(email, name); isNew {
+						fmt.Fprintf(cmd.OutOrStdout(), "registered new user %s\n", u.Email)
+					}
+				})
+			}
+
+			sessionStore := storage.NewSessionStore(sp)
+			srv := server.New(sessionStore, mgr, authr, arts)
+
+			// Sessions outlive the process: restore what was there, then mirror
+			// changes to disk so a deploy doesn't discard the user's work.
+			mgr.SetStore(sessionStore)
+			restored, err := mgr.Restore()
+			if err != nil {
+				return fmt.Errorf("restore sessions: %w", err)
+			}
+			persistCtx, stopPersist := context.WithCancel(cmd.Context())
+			defer stopPersist()
+			go mgr.Persist(persistCtx, 2*time.Second)
 
 			state := "OPEN (no auth)"
 			if srv.AuthEnabled() {
@@ -126,10 +154,23 @@ func newServeCmd() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "dross serve on %s (provider %s, model %s, workspace %s) — %s\n", addr, provName, model, workdir, state)
+			if restored > 0 {
+				fmt.Fprintf(out, "restored %d session(s) from disk\n", restored)
+			}
 			if !srv.AuthEnabled() {
 				fmt.Fprintln(out, "WARNING: no auth configured; do not expose beyond LAN/localhost")
 			}
-			return http.ListenAndServe(addr, srv)
+			// Explicit server: the zero-value one has no timeouts, so a stalled
+			// client can hold a connection (and a goroutine) open indefinitely.
+			// WriteTimeout stays 0 — SSE streams are long-lived by design.
+			hs := &http.Server{
+				Addr:              addr,
+				Handler:           srv,
+				ReadHeaderTimeout: 10 * time.Second,
+				IdleTimeout:       120 * time.Second,
+				MaxHeaderBytes:    1 << 16,
+			}
+			return hs.ListenAndServe()
 		},
 	}
 	f := cmd.Flags()
@@ -146,7 +187,7 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&authClientID, "auth-client-id", "", "OIDC client id (audience)")
 	f.StringVar(&authSecret, "auth-client-secret", "", "OIDC client secret")
 	f.StringVar(&authRedirect, "auth-redirect-url", "", "OIDC callback URL")
-	f.StringVar(&authEmails, "auth-allowed-emails", "", "comma-separated email allowlist")
+	f.StringVar(&authEmails, "auth-allowed-emails", "", "optional extra email allowlist; normally left empty so the identity provider (e.g. Cloudflare Access) is the only gate")
 	f.StringVar(&authCFTeam, "auth-cf-team", "", "Cloudflare Access team domain")
 	f.StringVar(&authCFAud, "auth-cf-aud", "", "Cloudflare Access application AUD")
 	f.StringVar(&serviceToken, "service-token", "", "machine bearer token, authenticated as --service-identity and subject to the allowlist")

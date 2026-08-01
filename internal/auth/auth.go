@@ -68,6 +68,7 @@ type Authenticator struct {
 	verifier   *oidc.IDTokenVerifier
 	cfVerifier *oidc.IDTokenVerifier
 	allowed    map[string]bool
+	onSignIn   func(email, name string)
 	cookieKey  []byte
 	insecure   bool
 }
@@ -127,6 +128,10 @@ func (a *Authenticator) IsServiceIdentity(email string) bool {
 	id := strings.TrimSpace(a.cfg.ServiceIdentity)
 	return id != "" && strings.EqualFold(email, id)
 }
+
+// OnSignIn registers a callback fired after a verified, permitted login — the
+// hook a user registry hangs off.
+func (a *Authenticator) OnSignIn(fn func(email, name string)) { a.onSignIn = fn }
 
 type ctxKey struct{}
 
@@ -310,6 +315,7 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	var claims struct {
 		Email string `json:"email"`
+		Name  string `json:"name"`
 	}
 	_ = idTok.Claims(&claims)
 	if claims.Email == "" {
@@ -319,6 +325,12 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 	if len(a.allowed) > 0 && !a.allowed[strings.ToLower(claims.Email)] {
 		http.Error(w, "forbidden: "+claims.Email+" is not on the allowlist", http.StatusForbidden)
 		return
+	}
+
+	// The identity is verified and permitted: register the account. First
+	// sign-in is the sign-up; there is no separate registration step.
+	if a.onSignIn != nil {
+		a.onSignIn(claims.Email, claims.Name)
 	}
 
 	a.clearCookie(w, stateCookie)

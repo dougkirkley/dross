@@ -17,6 +17,7 @@ import (
 	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/relay"
+	"github.com/dougkirkley/dross/internal/storage"
 )
 
 // Event is one step of a session, with a per-session monotonic Seq so clients
@@ -56,7 +57,8 @@ type Session struct {
 	events    []Event
 	subs      map[chan Event]struct{}
 	cancel    context.CancelFunc
-	device    string // owning device id ("" = runs in this pod)
+	mgr       *Manager // back-reference, for marking the session dirty
+	device    string   // owning device id ("" = runs in this pod)
 	connected bool   // for device sessions: is that device currently linked
 }
 
@@ -107,13 +109,21 @@ func (s *Session) emit(kind, data string) {
 		default: // slow subscriber; history covers the gap on reconnect
 		}
 	}
+	mgr := s.mgr
 	s.mu.Unlock()
+	if mgr != nil {
+		mgr.markDirty(s.ID)
+	}
 }
 
 func (s *Session) setStatus(st string) {
 	s.mu.Lock()
 	s.status = st
+	mgr := s.mgr
 	s.mu.Unlock()
+	if mgr != nil {
+		mgr.markDirty(s.ID)
+	}
 }
 
 // setModel changes the model used for subsequent prompts.
@@ -127,7 +137,11 @@ func (s *Session) setModel(model string) {
 func (s *Session) addCost(c float64) {
 	s.mu.Lock()
 	s.cost += c
+	mgr := s.mgr
 	s.mu.Unlock()
+	if mgr != nil {
+		mgr.markDirty(s.ID)
+	}
 }
 
 // subscribe registers a live channel and returns it plus the current max seq, so
@@ -191,9 +205,17 @@ type Manager struct {
 	hub       *deviceHub             // linked devices (session relay)
 	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
 
+	// store persists sessions across restarts; nil disables persistence.
+	store   *storage.SessionStore
+	dirtyMu sync.Mutex
+	dirty   map[string]bool
+
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
+
+// SetStore enables session persistence.
+func (m *Manager) SetStore(st *storage.SessionStore) { m.store = st }
 
 // SetModels sets the allowed model list surfaced at /api/models.
 func (m *Manager) SetModels(models []string) { m.models = models }
@@ -259,6 +281,7 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 		Style:       req.Style,
 		Chat:        req.Chat,
 		owner:       owner,
+		mgr:         m,
 		workdir:     workdir,
 		repo:        m.repo,
 		updated:     time.Now(),
@@ -311,6 +334,7 @@ func (m *Manager) remove(id, owner string) bool {
 	}
 	m.mu.Unlock()
 	if ok {
+		m.forget(id)  // don't let a restart resurrect a deleted session
 		s.interrupt() // stop any in-flight run
 		// Clean up the session's sandbox dir (only when it's a per-session
 		// subdir under the base workdir, never the base itself).
