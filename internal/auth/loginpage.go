@@ -135,3 +135,67 @@ func serveLoginPage(w http.ResponseWriter, loginURL string) {
 		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'")
 	_ = loginPage.Execute(w, struct{ LoginURL string }{loginURL})
 }
+
+// signedOutPage is shown after logout instead of the identity provider's own
+// "you have been signed out" screen. The provider's logout URL is loaded in a
+// hidden frame so its session still ends, but the user never leaves dross.
+var signedOutPage = template.Must(template.New("signedout").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signed out · Dross</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: grid; place-items: center;
+    background:
+      radial-gradient(900px 520px at 70% -10%, rgba(139,92,246,.20), transparent 60%),
+      radial-gradient(700px 420px at 10% 10%, rgba(34,211,238,.10), transparent 55%),
+      #07070F;
+    color: #ECE9FB;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: min(92vw, 380px); padding: 40px 32px 32px;
+    background: #0E0E1A; border: 1px solid #241E3B; border-radius: 18px;
+    text-align: center;
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: -.02em; font-weight: 650; }
+  p { margin: 0 0 28px; color: #7D7BA3; font-size: 14.5px; }
+  .btn {
+    display: block; width: 100%; padding: 13px 16px; border-radius: 12px;
+    background: #F4F1FC; color: #12101F; font-size: 15px; font-weight: 600;
+    text-decoration: none;
+  }
+  .btn:focus-visible { outline: 2px solid #A78BFA; outline-offset: 3px; }
+  .hairline {
+    height: 1px; margin: 26px 0 0;
+    background: linear-gradient(90deg, transparent, #8B5CF6, #22D3EE, #E879F9, transparent);
+    opacity: .55;
+  }
+  iframe { display: none; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <h1>Signed out</h1>
+    <p>Your session has ended.</p>
+    <a class="btn" href="/">Sign in again</a>
+    <div class="hairline"></div>
+  </main>
+  {{if .IdPLogoutURL}}<iframe src="{{.IdPLogoutURL}}" title="" aria-hidden="true" tabindex="-1"></iframe>{{end}}
+</body>
+</html>`))
+
+// serveSignedOutPage renders dross's own post-logout screen.
+func serveSignedOutPage(w http.ResponseWriter, idpLogout string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	// Frames the provider's logout endpoint, so allow that one origin only.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; frame-src https://*.cloudflareaccess.com; form-action 'self'")
+	_ = signedOutPage.Execute(w, struct{ IdPLogoutURL string }{idpLogout})
+}
