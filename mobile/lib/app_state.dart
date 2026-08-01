@@ -24,8 +24,9 @@ class AppState extends ChangeNotifier {
   String baseUrl = '';
   String token = '';
 
-  /// Which sidebar tab is showing (Chat vs Code). UI-only.
-  AppMode mode = AppMode.code;
+  /// Which sidebar tab is showing (Chat vs Code). UI-only. Chat is the landing
+  /// tab: it's the lighter surface to open on, and code sessions are one tap away.
+  AppMode mode = AppMode.chat;
   void setMode(AppMode m) {
     if (mode == m) return;
     mode = m;
