@@ -20,6 +20,9 @@ import (
 	"github.com/dougkirkley/dross/internal/storage"
 )
 
+// maxSessionEvents bounds retained history per session.
+const maxSessionEvents = 5000
+
 // Event is one step of a session, with a per-session monotonic Seq so clients
 // can reconnect losslessly (fetch history, then tail live, dedupe by Seq).
 type Event struct {
@@ -98,6 +101,14 @@ func (s *Session) emit(kind, data string) {
 	s.seq++
 	e := Event{Seq: s.seq, Kind: kind, Data: data, Time: time.Now()}
 	s.events = append(s.events, e)
+	// Bound the history. A long-running session would otherwise grow without
+	// limit, and every reconnect re-serializes the whole slice. Seq stays
+	// monotonic, so clients reconnecting with ?after= still work; they just
+	// cannot replay beyond the window.
+	if len(s.events) > maxSessionEvents {
+		drop := len(s.events) - maxSessionEvents
+		s.events = append([]Event(nil), s.events[drop:]...)
+	}
 	s.updated = e.Time
 	// Keep a short preview of the latest human/agent message for the list card.
 	if (kind == "prompt" || kind == "text") && strings.TrimSpace(data) != "" {
@@ -264,12 +275,18 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 		model = m.model
 	}
 	id := "ses_" + randomID()
-	// Each session gets its own sandbox workspace under the base workdir, so
-	// sessions can't see or clobber each other's files.
+	// Each session gets its own workspace under the base workdir. This scopes
+	// the file tools (workspace.resolve refuses to leave the session root) but
+	// it is NOT isolation: bash gets a cwd, not a jail, so `cd ..` still reads a
+	// sibling session's files. Every session runs as the same uid, so unix
+	// permissions cannot separate them either — real isolation needs a mount
+	// namespace or a container per session, which the pod cannot create now that
+	// it runs unprivileged with capabilities dropped. Acceptable while the
+	// registered users trust each other; revisit before opening signup.
 	workdir := m.workdir
 	if m.workdir != "" {
 		d := filepath.Join(m.workdir, id)
-		if err := os.MkdirAll(d, 0o755); err == nil {
+		if err := os.MkdirAll(d, 0o700); err == nil {
 			workdir = d
 		}
 	}

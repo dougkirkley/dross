@@ -196,10 +196,17 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 // handleUpload ingests a file into the workspace so the agent can use it. It
 // lands under uploads/<name> in the server workspace and the path is returned.
+// maxUploadBytes caps a single upload. Generous for screenshots, logs and small
+// archives; small enough that a runaway client cannot fill the volume.
+const maxUploadBytes = 256 << 20 // 256 MiB
+
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	// Cap the request: without this one authenticated POST can fill the volume,
+	// and r.FormFile spills anything past its in-memory budget to /tmp.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	file, header, err := r.FormFile("asset")
 	if err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		http.Error(w, "invalid or oversized upload", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -217,7 +224,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer out.Close()
-	io.Copy(out, file)
+	// A short write must not be reported as success — the agent would then act
+	// on a truncated file.
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		_ = os.Remove(abs)
+		http.Error(w, "upload failed", http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": rel, "filename": name, "status": "uploaded"})
 }
 

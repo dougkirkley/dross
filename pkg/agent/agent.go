@@ -1083,9 +1083,9 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 		return "", true
 	}
 	writes := tc.Name == "write" || tc.Name == "edit"
-	commands := tc.Name == "bash" || tc.Name == "monitor"
+	commands := tc.Name == "bash" || tc.Name == "monitor" || a.isExternalTool(tc.Name)
 	if !writes && !commands {
-		return "", true // read, shell_output, delegate, publish, ask_user: never gated
+		return "", true // read, shell_output, delegate, ask_user: never gated
 	}
 	// "Allow, don't ask again this session" whitelists the tool for the rest of
 	// the conversation, so the same class of action stops re-prompting.
@@ -1105,6 +1105,21 @@ func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 		}
 	}
 	return "", true
+}
+
+// isExternalTool reports whether a tool comes from a plugin, an MCP server, or
+// a host registration rather than the built-in set. Their effects are unknown to
+// us — an MCP server can write files or call APIs — so they are gated like
+// commands. Otherwise plan mode's "read-only" promise is false for any session
+// with MCP servers configured, which is exactly how the server runs.
+func (a *Agent) isExternalTool(name string) bool {
+	if _, ok := a.plugins[name]; ok {
+		return true
+	}
+	if _, ok := a.extraTools[name]; ok {
+		return true
+	}
+	return false
 }
 
 const sessionAllowOpt = "Allow, don't ask again this session"
@@ -1129,14 +1144,22 @@ func (a *Agent) approve(tc provider.ToolCall, allowSession bool) bool {
 	if err != nil {
 		return false
 	}
-	if ans == sessionAllowOpt {
+	// Match the offered option exactly. A substring test read "Deny — that is
+	// not allowed" as approval, so any asker that can return free text (a user
+	// typing a reason, or a client that echoes prose) could auto-approve a
+	// destructive command. Anything unrecognised is a refusal.
+	switch strings.TrimSpace(ans) {
+	case sessionAllowOpt:
 		if a.sessionAllow == nil {
 			a.sessionAllow = map[string]bool{}
 		}
 		a.sessionAllow[tc.Name] = true
 		return true
+	case "Allow":
+		return true
+	default:
+		return false
 	}
-	return strings.Contains(strings.ToLower(ans), "allow")
 }
 
 // gateSummary is a preview of what a tool call will do, shown in the approval
