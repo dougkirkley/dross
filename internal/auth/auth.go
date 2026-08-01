@@ -325,7 +325,33 @@ func loopbackURL(u string) bool {
 // Logout clears the session cookie.
 func (a *Authenticator) Logout(w http.ResponseWriter, r *http.Request) {
 	a.clearCookie(w, sessionCookie)
+	// Clearing our own cookie is not a logout the user can feel: the identity
+	// provider still holds a session, so the next sign-in bounces straight back
+	// through without a prompt. End the upstream session too, so logging out
+	// really means logging out.
+	if u := a.idpLogoutURL(); u != "" {
+		http.Redirect(w, r, u, http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// idpLogoutURL is the identity provider's logout endpoint, or "" if there isn't
+// one to call. Cloudflare Access exposes /cdn-cgi/access/logout on the team
+// domain, which we can derive from either the configured team domain or the
+// issuer (Access issuers live under the same host).
+func (a *Authenticator) idpLogoutURL() string {
+	host := strings.TrimRight(a.cfg.CFTeamDomain, "/")
+	if host == "" && a.cfg.Issuer != "" {
+		if u, err := url.Parse(a.cfg.Issuer); err == nil &&
+			strings.HasSuffix(u.Hostname(), ".cloudflareaccess.com") {
+			host = u.Scheme + "://" + u.Host
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return host + "/cdn-cgi/access/logout"
 }
 
 // --- signed cookies -------------------------------------------------------
