@@ -1,11 +1,11 @@
 {
-    "name": "dross",
-    "short_name": "dross",
+    "name": "Dross",
+    "short_name": "Dross",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#07070F",
+    "theme_color": "#07070F",
+    "description": "Cost-aware, multi-model AI coding agent.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
