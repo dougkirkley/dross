@@ -20,6 +20,15 @@ COPY --from=builder /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 WORKDIR /app
 COPY --from=builder /app/dross .
+
+# Run as a normal user. The agent executes model-chosen shell commands, so root
+# in the container is one container-escape away from being root on the node —
+# and it makes the sudo guard load-bearing instead of belt-and-braces. Writable
+# state (workspace, artifacts, data, /tmp) comes from mounted volumes, so the
+# root filesystem can stay read-only.
+RUN addgroup -g 10001 dross && adduser -D -u 10001 -G dross dross \
+    && chown -R dross:dross /app
+USER 10001:10001
 EXPOSE 8080
 # serve binds all interfaces so the gateway can reach it; hosts UI + API.
 ENTRYPOINT ["./dross", "serve", "--addr", ":8080"]
