@@ -105,6 +105,13 @@ func (s *Server) buildHandler() http.Handler {
 	root.HandleFunc("POST /auth/logout", s.auth.Logout)
 	root.HandleFunc("GET /auth/logout", s.auth.Logout)
 	root.HandleFunc("GET /api/health", s.handleHealth) // more specific than /api/ → wins, unauth
+	// PWA install assets stay public. Safari (and Chrome) fetch the manifest and
+	// icons without the session cookie when adding to the home screen; behind
+	// auth they 401 and the installed app falls back to a screenshot instead of
+	// the real icon. None of these leak anything — they're static branding.
+	for _, p := range []string{"GET /manifest.json", "GET /favicon.png", "GET /icons/"} {
+		root.Handle(p, rootFallback)
+	}
 	root.Handle("/api/", s.auth.Middleware(api))
 	// Gate the UI too: an unauthenticated browser hitting "/" is redirected to
 	// the OIDC login (Google), so signing in unlocks the whole app. /auth/*,

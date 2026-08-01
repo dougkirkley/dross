@@ -225,6 +225,19 @@ func TestAuthWiring(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("sessions with token: want 200, got %d", w.Code)
 	}
+
+	// PWA install assets must stay reachable without auth: the browser fetches
+	// them uncredentialed when adding to the home screen, and a 401 silently
+	// yields a screenshot instead of the app icon.
+	for _, p := range []string{"/manifest.json", "/favicon.png", "/icons/Icon-192.png"} {
+		if w := do(t, srv, "GET", p, ""); w.Code == http.StatusUnauthorized {
+			t.Errorf("%s must be public for PWA install, got 401", p)
+		}
+	}
+	// The app itself still requires signing in.
+	if w := do(t, srv, "GET", "/", ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("UI no-auth: want 401, got %d", w.Code)
+	}
 }
 
 // TestArtifacts covers publish (workspace file → capability URL) and the
