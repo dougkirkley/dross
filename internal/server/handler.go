@@ -196,9 +196,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 // handleUpload ingests a file into the workspace so the agent can use it. It
 // lands under uploads/<name> in the server workspace and the path is returned.
-// maxUploadBytes caps a single upload. Generous for screenshots, logs and small
-// archives; small enough that a runaway client cannot fill the volume.
-const maxUploadBytes = 256 << 20 // 256 MiB
+// maxUploadBytes caps a single upload. It has to stay well under the
+// container's memory limit: multipart parsing buffers, and a cap larger than
+// the pod can hold turns a big upload into an OOM kill — a denial of service
+// caused by the very limit meant to prevent one.
+const maxUploadBytes = 32 << 20 // 32 MiB
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Cap the request: without this one authenticated POST can fill the volume,
