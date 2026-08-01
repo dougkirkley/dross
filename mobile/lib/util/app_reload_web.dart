@@ -18,6 +18,9 @@ external JSPromise<JSBoolean> _cacheDelete(JSString key);
 @JS('location.reload')
 external void _reload();
 
+@JS('location.assign')
+external void _assign(JSString url);
+
 extension type _Registration(JSObject _) implements JSObject {
   external JSPromise<JSBoolean> unregister();
 }
@@ -40,4 +43,11 @@ Future<void> reloadApp() async {
     // Cache Storage unavailable; fall through to the reload.
   }
   _reload();
+}
+
+/// Leaves the app for [url] as a real document navigation, so the server sees
+/// the request (and any Set-Cookie it returns takes effect). Used for sign-out,
+/// which must clear the server session rather than only local state.
+Future<void> navigateTo(String url) async {
+  _assign(url.toJS);
 }

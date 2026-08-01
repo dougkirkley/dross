@@ -109,6 +109,12 @@ class DrossClient {
     _check(r);
   }
 
+  /// Ends the server-side session. The response is a redirect to the identity
+  /// provider's logout; we only care that the server saw the request.
+  Future<void> logout() async {
+    await _http.post(_uri('auth/logout'), headers: _headers);
+  }
+
   Future<void> interrupt(String id) async {
     final r = await _http.post(_uri('api/sessions/$id/interrupt'), headers: _headers);
     _check(r);

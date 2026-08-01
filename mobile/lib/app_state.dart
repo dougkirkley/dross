@@ -127,6 +127,21 @@ class AppState extends ChangeNotifier {
     detach();
     sessions = [];
     notifyListeners();
+    // Clearing local state is not a sign-out: on web the session cookie (and
+    // the identity provider's own session) would survive, so signing back in
+    // returns instantly without authenticating. Hand off to the server's logout
+    // endpoint, which clears the cookie and ends the upstream session.
+    if (kIsWeb && baseUrl.isNotEmpty) {
+      await navigateTo('$baseUrl/auth/logout');
+      return;
+    }
+    // Native holds a bearer token rather than a cookie; dropping it above is
+    // enough, but tell the server anyway so the session is not left dangling.
+    try {
+      await _client.logout();
+    } catch (_) {
+      // Offline sign-out still succeeds locally.
+    }
   }
 
   /// Runs the server's Google SSO flow and stores the returned session token. On
