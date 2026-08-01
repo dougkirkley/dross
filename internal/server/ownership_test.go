@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dougkirkley/dross/internal/storage"
@@ -50,5 +52,46 @@ func TestUnauthenticatedServerSharesSessions(t *testing.T) {
 	}
 	if got := m.list(""); len(got) != 1 {
 		t.Errorf("list = %d; want 1", len(got))
+	}
+}
+
+// Deleting a session must take its workspace with it: those files are the
+// user's data, and on a persistent volume an orphaned sandbox would linger
+// forever and eventually fill the disk.
+func TestDeleteRemovesTheWorkspace(t *testing.T) {
+	base := t.TempDir()
+	m := NewManager(&fakeProvider{}, nil, "m", base)
+	s := m.create(CreateReq{}, "doug@example.com")
+
+	if s.workdir == "" || s.workdir == base {
+		t.Fatalf("expected a per-session workdir, got %q", s.workdir)
+	}
+	if err := os.WriteFile(filepath.Join(s.workdir, "secret.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if !m.remove(s.ID, "doug@example.com") {
+		t.Fatal("remove failed")
+	}
+	if _, err := os.Stat(s.workdir); !os.IsNotExist(err) {
+		t.Errorf("workspace %s still exists after delete (err=%v)", s.workdir, err)
+	}
+	// The shared base must survive — only the session's own subdir goes.
+	if _, err := os.Stat(base); err != nil {
+		t.Errorf("base workdir was removed: %v", err)
+	}
+}
+
+// A refused delete must not touch the owner's files.
+func TestRefusedDeleteKeepsTheWorkspace(t *testing.T) {
+	base := t.TempDir()
+	m := NewManager(&fakeProvider{}, nil, "m", base)
+	s := m.create(CreateReq{}, "owner@example.com")
+
+	if m.remove(s.ID, "intruder@example.com") {
+		t.Fatal("foreign delete succeeded")
+	}
+	if _, err := os.Stat(s.workdir); err != nil {
+		t.Errorf("workspace destroyed by a refused delete: %v", err)
 	}
 }
