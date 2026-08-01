@@ -35,6 +35,7 @@ func NewRootCmd() *cobra.Command {
 		newLoginCmd(),
 		newCompactStatsCmd(),
 		newRCCmd(),
+		newControllerCmd(),
 		newPluginCmd(),
 		newMCPCmd(),
 	)
