@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2/textlogger"
@@ -50,8 +51,15 @@ func run(metricsAddr, probeAddr, sessionNamespace, storageClass string) error {
 	// extra dependency for the same structured output.
 	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
 
+	// Only the three groups the reconciler touches: Sessions, the StatefulSets
+	// it creates for them, and the pods it reads status from. Registering the
+	// full client-go scheme would work too, but every registered kind is a kind
+	// the cache is willing to watch.
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
+		return err
+	}
+	if err := appsv1.AddToScheme(scheme); err != nil {
 		return err
 	}
 	if err := dross.AddToScheme(scheme); err != nil {
