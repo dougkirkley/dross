@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dougkirkley/dross/pkg/agent"
-	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/relay"
 	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // maxSessionEvents bounds retained history per session.
@@ -62,7 +62,7 @@ type Session struct {
 	cancel    context.CancelFunc
 	mgr       *Manager // back-reference, for marking the session dirty
 	device    string   // owning device id ("" = runs in this pod)
-	connected bool   // for device sessions: is that device currently linked
+	connected bool     // for device sessions: is that device currently linked
 }
 
 // Status/Cost snapshots (locked reads for the JSON views).
@@ -124,6 +124,17 @@ func (s *Session) emit(kind, data string) {
 	s.mu.Unlock()
 	if mgr != nil {
 		mgr.markDirty(s.ID)
+	}
+}
+
+// markDevice records that this session's work happens on a linked device (its
+// own pod), so prompts are relayed there instead of run in this process.
+func (s *Session) markDevice(id string) {
+	s.mu.Lock()
+	s.device = id
+	s.mu.Unlock()
+	if s.mgr != nil {
+		s.mgr.markDirty(s.ID)
 	}
 }
 
@@ -216,6 +227,10 @@ type Manager struct {
 	hub       *deviceHub             // linked devices (session relay)
 	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
 
+	// pods provisions a workload per session; nil keeps sessions in-process,
+	// which is what a Docker or local deployment does.
+	pods *PodSessions
+
 	// store persists sessions across restarts; nil disables persistence.
 	store   *storage.SessionStore
 	dirtyMu sync.Mutex
@@ -224,6 +239,9 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
+
+// SetPodSessions runs each new session in its own pod instead of in-process.
+func (m *Manager) SetPodSessions(p *PodSessions) { m.pods = p }
 
 // SetStore enables session persistence.
 func (m *Manager) SetStore(st *storage.SessionStore) { m.store = st }

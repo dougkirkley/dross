@@ -15,8 +15,8 @@ import (
 
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
-	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func testArts(t *testing.T) *artifact.Store {

@@ -55,6 +55,17 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := s.mgr.create(req, auth.Identity(r))
+	// In pod mode the agent runs in its own workload, which attaches back over
+	// the relay as a device named for the session. Provision it before replying,
+	// so a client that immediately prompts finds something to prompt.
+	if s.mgr.pods != nil {
+		if err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model); err != nil {
+			s.mgr.remove(sess.ID, sess.owner) // don't leave a session with no worker
+			http.Error(w, "could not start session: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sess.markDevice(sess.ID)
+	}
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }
 
@@ -81,9 +92,20 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteSession drops a session and cancels any in-flight run.
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if !s.mgr.remove(r.PathValue("id"), auth.Identity(r)) {
+	id := r.PathValue("id")
+	// Ownership is enforced by remove(), so it has to come first: tearing the
+	// workload down beforehand would let any authenticated caller destroy
+	// another owner's session, and its workspace volume with it, by guessing
+	// an id — and still be told the session was not found.
+	if !s.mgr.remove(id, auth.Identity(r)) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
+	}
+	if s.mgr.pods != nil {
+		// Best effort: a failure here must not block removing the session, or a
+		// transient API error would strand it in the list forever. The operator
+		// reconciles the leftover away on the next pass.
+		_ = s.mgr.pods.Delete(r.Context(), id)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
