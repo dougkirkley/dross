@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"time"
 )
 
@@ -137,6 +138,12 @@ func (m *Manager) Restore() (int, error) {
 			status: "idle", cost: p.Cost, seq: p.Seq, events: p.Events,
 			device: p.Device,
 			mgr:    m,
+		}
+		// The workspace should still be there, but a session must not come back
+		// broken if the volume was replaced — recreate the directory so tools
+		// have somewhere to work.
+		if s.workdir != "" {
+			_ = os.MkdirAll(s.workdir, 0o755)
 		}
 		m.mu.Lock()
 		m.sessions[s.ID] = s
