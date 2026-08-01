@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'models.dart';
 import 'util/file_pick.dart';
+import 'util/app_reload.dart';
 import 'util/mash.dart';
 
 /// The active sidebar tab. Both tabs are backed by the same `dross serve`
@@ -157,6 +158,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Pull-to-refresh handler for list/entry screens.
+  ///
+  /// On web this reloads the app itself: an installed PWA keeps serving the
+  /// cached bundle, so re-fetching data alone would never surface a new build —
+  /// which is the whole reason to pull. On native there is no bundle to
+  /// refetch, so it just re-reads state.
+  Future<void> refreshApp() async {
+    if (kIsWeb) {
+      await reloadApp(); // clears the service-worker cache, then reloads
+      return;
+    }
+    await load();
+  }
+
   // --- sessions -------------------------------------------------------
 
   Future<void> refreshSessions() async {
@@ -280,6 +295,29 @@ class AppState extends ChangeNotifier {
       onError: (_) {},
       cancelOnError: false,
     );
+  }
+
+  /// Pull-to-refresh for a conversation: re-fetch the session and its full
+  /// event log, then restart the stream. Cheaper than detach/attach because the
+  /// screen keeps its scroll position while the list is rebuilt.
+  Future<void> reloadCurrent() async {
+    final s = current;
+    if (s == null) return;
+    try {
+      final fresh = await _client.getSession(s.id);
+      final evs = await _client.events(s.id);
+      current = fresh;
+      events
+        ..clear()
+        ..addAll(evs);
+      notifyListeners();
+      await _sub?.cancel();
+      _sub = null;
+      _startStream();
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
   }
 
   Future<void> _refreshCurrent() async {

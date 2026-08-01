@@ -68,19 +68,30 @@ class _ChatScreenState extends State<ChatScreen> {
                     onTap: () => Navigator.pop(context)),
               ),
               Expanded(
-                child: msgs.isEmpty && !running
-                    ? _greeting(sess)
-                    : ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                        // The orb trails the conversation: lively while Dross is
-                        // answering, calm (just blinking) once it's done.
-                        itemCount: msgs.length + 1,
-                        itemBuilder: (_, i) {
-                          if (i >= msgs.length) return _spinner(running, s);
-                          return _message(msgs[i]);
-                        },
-                      ),
+                child: RefreshIndicator(
+                  onRefresh: () => context.read<AppState>().reloadCurrent(),
+                  color: T.accent,
+                  backgroundColor: T.surface,
+                  child: msgs.isEmpty && !running
+                      // The greeting isn't scrollable on its own, so give it
+                      // scroll physics or there's nothing to pull on.
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [_greeting(sess)],
+                        )
+                      : ListView.builder(
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                          // The orb trails the conversation: lively while Dross
+                          // is answering, calm (just blinking) once it's done.
+                          itemCount: msgs.length + 1,
+                          itemBuilder: (_, i) {
+                            if (i >= msgs.length) return _spinner(running, s);
+                            return _message(msgs[i]);
+                          },
+                        ),
+                ),
               ),
               _inputBar(context, s, running),
             ],

@@ -39,7 +39,20 @@ class _SignInScreenState extends State<SignInScreen> {
     return Scaffold(
       backgroundColor: T.bg,
       body: SafeArea(
-        child: Center(
+        // Pull-to-refresh re-checks the server and any existing session, so a
+        // stale sign-in screen (server was down, token just issued elsewhere)
+        // can be retried with a swipe instead of a restart.
+        child: RefreshIndicator(
+          onRefresh: () => context.read<AppState>().refreshApp(),
+          color: T.accent,
+          backgroundColor: T.surface,
+          child: LayoutBuilder(
+            builder: (context, box) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: box.maxHeight),
+                  child: Center(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(36, 0, 36, 40),
             child: Column(
@@ -65,6 +78,11 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 16),
                   Text(_error!, style: const TextStyle(color: T.danger), textAlign: TextAlign.center),
                 ],
+              ],
+            ),
+          ),
+                  ),
+                ),
               ],
             ),
           ),

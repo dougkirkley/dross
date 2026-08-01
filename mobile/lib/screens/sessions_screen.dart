@@ -60,7 +60,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                   : RefreshIndicator(
                       color: T.accent,
                       backgroundColor: T.surface,
-                      onRefresh: s.refreshSessions,
+                      onRefresh: s.refreshApp,
                       child: _body(context, s),
                     ),
             ),
@@ -79,6 +79,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _body(BuildContext context, AppState s) {
     final list = widget.chat ? s.chatSessions : s.codeSessions;
     return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
         children: [
           const Text('Devices', style: T.meta),

@@ -54,7 +54,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         elevation: 0,
         title: const Text('Settings', style: T.title),
       ),
-      body: ListView(
+      body: RefreshIndicator(
+        onRefresh: () => context.read<AppState>().refreshApp(),
+        color: T.accent,
+        backgroundColor: T.surface,
+        child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
         children: [
           const Text('Server', style: T.meta),
@@ -100,6 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         ],
+        ),
       ),
     );
   }

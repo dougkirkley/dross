@@ -49,13 +49,24 @@ class _ChatsScreenState extends State<ChatsScreen> {
             Expanded(
               child: !s.sessionsLoaded
                   ? const Center(child: DrossSpinner(size: 40))
-                  : chats.isEmpty
-                  ? _empty()
                   : RefreshIndicator(
                       color: T.accent,
                       backgroundColor: T.surface,
-                      onRefresh: s.refreshSessions,
-                      child: ListView.separated(
+                      onRefresh: s.refreshApp,
+                      child: chats.isEmpty
+                      // The empty state is exactly when a refresh is wanted, so
+                      // give it scroll physics rather than leaving it inert.
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(
+                                height:
+                                    MediaQuery.of(context).size.height * 0.65,
+                                child: _empty()),
+                          ],
+                        )
+                      : ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
                         itemCount: chats.length,
                         separatorBuilder: (_, __) =>

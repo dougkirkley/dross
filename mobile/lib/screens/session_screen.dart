@@ -85,7 +85,11 @@ class _SessionScreenState extends State<SessionScreen> {
                   if (sess?.isRunning ?? false) _runningRow(s),
                   if (runningShells > 0) _tasksLink(context, shells, runningShells),
                 ];
-                return ListView.builder(
+                return RefreshIndicator(
+                  onRefresh: () => context.read<AppState>().reloadCurrent(),
+                  color: T.accent,
+                  backgroundColor: T.surface,
+                  child: ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                   itemCount: timeline.length + trailing.length,
@@ -95,6 +99,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     if (item is Activity) return ActivityBlock(item);
                     return _eventRow(item as Event);
                   },
+                  ),
                 );
               }),
             ),
