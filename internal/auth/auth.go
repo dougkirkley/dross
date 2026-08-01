@@ -150,6 +150,13 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "forbidden: "+email+" is not on the allowlist", http.StatusForbidden)
 			return
 		}
+		// Anything behind auth must never be stored by a shared cache. Without
+		// this a CDN happily caches a signed-in user's response and serves it to
+		// anonymous clients — Cloudflare's default rules did exactly that to the
+		// app bundle. Handlers may override with something stricter.
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Add("Vary", "Authorization")
+		w.Header().Add("Vary", "Cookie")
 		ctx := context.WithValue(r.Context(), ctxKey{}, email)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
