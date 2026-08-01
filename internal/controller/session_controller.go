@@ -6,12 +6,19 @@
 // Session goes away, so no delete path in dross can leak one. The StatefulSet
 // keeps the session alive across a crash or a node reboot, and gives it back the
 // same volume — a bare pod has no controller behind it and simply stays dead.
+//
+// Reconcile is written as subreconcilers: a list of phases, each of which
+// either says "carry on" or ends the pass with a result. The phases are
+// independently readable and independently testable, and adding one — a
+// finalizer, a Service, a network policy — is an entry in the list rather than
+// another branch threaded through one long function.
 package controller
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/opdev/subreconciler"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,45 +43,69 @@ type SessionReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
-// Reconcile ensures the workload for a Session exists, and reports back what it
-// is doing.
+// Reconcile runs the phases in order and stops at the first one that wants to
+// end the pass.
 func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	lg := log.FromContext(ctx)
-
-	var s dross.Session
-	if err := r.Get(ctx, req.NamespacedName, &s); err != nil {
-		// Gone: ownerReferences have already taken the pod and volume with it.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	phases := []subreconciler.FnWithRequest{
+		r.sessionPresent,
+		r.ensureStatefulSet,
+		r.reflectStatus,
 	}
-	if !s.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil // deleting; garbage collection handles the children
-	}
-
-	set, err := r.ensureStatefulSet(ctx, &s)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("statefulset: %w", err)
-	}
-
-	if err := r.updateStatus(ctx, &s, set); err != nil {
-		// A conflict just means someone else wrote first; the watch will re-run.
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{Requeue: true}, nil
+	for _, phase := range phases {
+		if res, err := phase(ctx, req); subreconciler.ShouldHaltOrRequeue(res, err) {
+			return subreconciler.Evaluate(res, err)
 		}
-		return ctrl.Result{}, err
 	}
-	lg.V(1).Info("reconciled", "session", s.Spec.SessionID, "phase", s.Status.Phase)
-	return ctrl.Result{}, nil
+	return subreconciler.Evaluate(subreconciler.DoNotRequeue())
 }
 
-func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, s *dross.Session) (*appsv1.StatefulSet, error) {
-	var have appsv1.StatefulSet
-	err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Name}, &have)
-	if err == nil {
-		return &have, nil
-	}
-	if !apierrors.IsNotFound(err) {
+// load fetches the Session a phase is working on.
+//
+// Every phase loads it again rather than passing one copy along. A phase may
+// write to the Session, so a copy read at the top of the pass is stale by the
+// time a later phase uses it, and writing it back would clobber what the
+// earlier phase stored.
+func (r *SessionReconciler) load(ctx context.Context, req ctrl.Request) (*dross.Session, error) {
+	var s dross.Session
+	if err := r.Get(ctx, req.NamespacedName, &s); err != nil {
 		return nil, err
 	}
+	return &s, nil
+}
+
+// sessionPresent ends the pass when there is nothing to reconcile: the Session
+// is gone, or it is being deleted and garbage collection owns the cleanup.
+func (r *SessionReconciler) sessionPresent(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
+	s, err := r.load(ctx, req)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// ownerReferences have already taken the workload and its volume.
+			return subreconciler.DoNotRequeue()
+		}
+		return subreconciler.RequeueWithError(err)
+	}
+	if !s.DeletionTimestamp.IsZero() {
+		return subreconciler.DoNotRequeue()
+	}
+	return subreconciler.ContinueReconciling()
+}
+
+// ensureStatefulSet creates the workload for a Session if it does not exist.
+func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
+	s, err := r.load(ctx, req)
+	if err != nil {
+		return subreconciler.RequeueWithError(client.IgnoreNotFound(err))
+	}
+
+	var have appsv1.StatefulSet
+	err = r.Get(ctx, req.NamespacedName, &have)
+	if err == nil {
+		return subreconciler.ContinueReconciling()
+	}
+	if !apierrors.IsNotFound(err) {
+		return subreconciler.RequeueWithError(fmt.Errorf("statefulset: %w", err))
+	}
+
 	set := statefulSetFor(s)
 	if set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName == nil && r.StorageClass != "" {
 		set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &r.StorageClass
@@ -82,30 +113,47 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, s *dross.Sess
 	// Owned by the Session, so deleting the Session reclaims the workload and,
 	// through the retention policy, its volume.
 	if err := ctrl.SetControllerReference(s, set, r.Scheme()); err != nil {
-		return nil, err
+		return subreconciler.RequeueWithError(err)
 	}
 	if err := r.Create(ctx, set); err != nil {
-		return nil, err
+		if apierrors.IsAlreadyExists(err) {
+			// Raced with our own cache; the next pass sees it.
+			return subreconciler.Requeue()
+		}
+		return subreconciler.RequeueWithError(fmt.Errorf("statefulset: %w", err))
 	}
-	return set, nil
+	log.FromContext(ctx).Info("created workload", "session", s.Spec.SessionID)
+	return subreconciler.ContinueReconciling()
 }
 
-func (r *SessionReconciler) updateStatus(ctx context.Context, s *dross.Session, set *appsv1.StatefulSet) error {
-	phase, message, podName := "", "", ""
-	if set != nil {
-		podName = set.Name + "-0" // StatefulSet ordinal naming: stable across restarts
-		switch {
-		case set.Status.ReadyReplicas > 0:
-			phase = "Running"
-		case set.Spec.Replicas != nil && *set.Spec.Replicas == 0:
-			phase = "Paused"
-		default:
-			phase = "Pending"
-			message = podMessage(ctx, r, s)
-		}
+// reflectStatus copies the workload's readiness onto the Session.
+func (r *SessionReconciler) reflectStatus(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
+	s, err := r.load(ctx, req)
+	if err != nil {
+		return subreconciler.RequeueWithError(client.IgnoreNotFound(err))
 	}
+	var set appsv1.StatefulSet
+	if err := r.Get(ctx, req.NamespacedName, &set); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The previous phase only just created it; come back for the status.
+			return subreconciler.Requeue()
+		}
+		return subreconciler.RequeueWithError(err)
+	}
+
+	phase, message := "Pending", ""
+	switch {
+	case set.Status.ReadyReplicas > 0:
+		phase = "Running"
+	case set.Spec.Replicas != nil && *set.Spec.Replicas == 0:
+		phase = "Paused"
+	default:
+		message = podMessage(ctx, r, s)
+	}
+	podName := set.Name + "-0" // StatefulSet ordinal naming: stable across restarts
+
 	if s.Status.Phase == phase && s.Status.PodName == podName && s.Status.Message == message {
-		return nil // nothing changed; don't write
+		return subreconciler.ContinueReconciling() // nothing changed; don't write
 	}
 	s.Status.Phase, s.Status.PodName, s.Status.Message = phase, podName, message
 	cond := metav1.Condition{
@@ -119,7 +167,16 @@ func (r *SessionReconciler) updateStatus(ctx context.Context, s *dross.Session, 
 		cond.Status, cond.Reason, cond.Message = metav1.ConditionTrue, "Running", ""
 	}
 	setCondition(&s.Status.Conditions, cond)
-	return r.Status().Update(ctx, s)
+
+	if err := r.Status().Update(ctx, s); err != nil {
+		if apierrors.IsConflict(err) {
+			// Someone else wrote first; re-read and try again.
+			return subreconciler.Requeue()
+		}
+		return subreconciler.RequeueWithError(err)
+	}
+	log.FromContext(ctx).V(1).Info("reconciled", "session", s.Spec.SessionID, "phase", phase)
+	return subreconciler.ContinueReconciling()
 }
 
 // podMessage surfaces why a session is not running yet — an image pull failure

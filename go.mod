@@ -18,11 +18,13 @@ require (
 	github.com/landlock-lsm/go-landlock v0.9.0
 	github.com/mark3labs/mcp-go v0.57.0
 	github.com/muesli/termenv v0.16.0
+	github.com/opdev/subreconciler v0.0.3
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.2
 	golang.org/x/oauth2 v0.36.0
 	k8s.io/api v0.36.0
 	k8s.io/apimachinery v0.36.0
+	k8s.io/client-go v0.36.0
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/controller-runtime v0.24.1
 )
@@ -123,7 +125,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.36.0 // indirect
-	k8s.io/client-go v0.36.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect

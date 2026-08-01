@@ -163,3 +163,52 @@ func TestStatusMirrorsTheWorkload(t *testing.T) {
 		t.Error("Ready condition not set once the pod is running")
 	}
 }
+
+// A Session that no longer exists must end the pass quietly: its workload is
+// already being garbage-collected through ownerReferences, and recreating one
+// here would resurrect a session the server deleted.
+func TestReconcileOnMissingSessionCreatesNothing(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(scheme(t)).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: "dross-sessions", Name: "dross-gone"}
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if res.Requeue {
+		t.Error("requeued for a session that does not exist")
+	}
+	var sets appsv1.StatefulSetList
+	if err := c.List(context.Background(), &sets); err != nil {
+		t.Fatal(err)
+	}
+	if len(sets.Items) != 0 {
+		t.Errorf("created %d statefulsets for a missing session; want 0", len(sets.Items))
+	}
+}
+
+// Once a Session is being deleted, the controller must keep its hands off:
+// creating a workload during teardown would leak one past the collection of
+// its owner.
+func TestReconcileDuringDeletionCreatesNothing(t *testing.T) {
+	s := newSession()
+	now := metav1.Now()
+	s.DeletionTimestamp = &now
+	s.Finalizers = []string{"dross.sh/test"} // the fake client requires one to hold a deleted object
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).WithObjects(s).WithStatusSubresource(s).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: s.Namespace, Name: s.Name}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	var sets appsv1.StatefulSetList
+	if err := c.List(context.Background(), &sets); err != nil {
+		t.Fatal(err)
+	}
+	if len(sets.Items) != 0 {
+		t.Errorf("created %d statefulsets while deleting; want 0", len(sets.Items))
+	}
+}
