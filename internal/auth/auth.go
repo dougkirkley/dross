@@ -234,7 +234,16 @@ func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 	// Stash state|nonce|verifier|next|mode in a short-lived signed cookie.
 	a.setCookie(w, stateCookie, a.sign(strings.Join([]string{state, nonce, verifier, next, mode}, "|")), 10*time.Minute)
 
-	url := a.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	// After signing out, ask the provider to actually re-authenticate rather
+	// than silently reissuing from its own still-valid session. Standard OIDC
+	// parameters; a provider that ignores them just behaves as before.
+	if r.URL.Query().Get("reauth") == "1" {
+		opts = append(opts,
+			oauth2.SetAuthURLParam("prompt", "login"),
+			oauth2.SetAuthURLParam("max_age", "0"))
+	}
+	url := a.oauth.AuthCodeURL(state, opts...)
 	http.Redirect(w, r, url, http.StatusFound)
 }
 

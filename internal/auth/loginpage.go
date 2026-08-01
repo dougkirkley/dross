@@ -183,7 +183,7 @@ var signedOutPage = template.Must(template.New("signedout").Parse(`<!doctype htm
   <main class="card">
     <h1>Signed out</h1>
     <p>Your session has ended.</p>
-    <a class="btn" href="/">Sign in again</a>
+    <a class="btn" href="/auth/login?reauth=1">Sign in again</a>
     <div class="hairline"></div>
   </main>
   {{if .IdPLogoutURL}}<iframe src="{{.IdPLogoutURL}}" title="" aria-hidden="true" tabindex="-1"></iframe>{{end}}
