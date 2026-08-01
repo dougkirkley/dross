@@ -228,7 +228,11 @@ class _SessionScreenState extends State<SessionScreen> {
         content = _mono('✗ ${e.data}', T.danger);
         break;
       case 'done':
-        content = _mono('done · ${e.data}', T.textFaint);
+        // A run stopped by the user closes as "cancelled" — a normal ending,
+        // not "done · <cost>" and not an error.
+        content = e.data == 'cancelled'
+            ? _mono('⊘ cancelled', T.textFaint)
+            : _mono('done · ${e.data}', T.textFaint);
         break;
       default:
         content = _mono(e.data, T.textDim);

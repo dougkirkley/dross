@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -384,6 +385,17 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		defer ag.Close() // release MCP connections when the turn ends
 		res, err := ag.Run(ctx, prompt)
 		if err != nil {
+			// Interrupting cancels the run's context. That's the user pressing
+			// Stop, not a failure, so close the turn normally rather than
+			// surfacing "context canceled" as an error.
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				if res != nil {
+					s.addCost(res.Cost())
+				}
+				s.setStatus("idle")
+				s.emit("done", "cancelled")
+				return
+			}
 			// Set status before emitting so a client that re-fetches on the event
 			// sees the final state, not a stale "running".
 			s.setStatus("error")
