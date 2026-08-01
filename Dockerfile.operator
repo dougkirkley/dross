@@ -1,0 +1,20 @@
+# The dross operator: a separate, minimal image.
+#
+# This is the component permitted to create pods, so it ships with nothing it
+# does not need — no shell, no package manager, no Go toolchain, no web bundle.
+# A static binary on a distroless base means there is no interactive surface
+# inside the container at all if it is ever compromised.
+FROM golang:1.26.5-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY api/ api/
+COPY internal/controller/ internal/controller/
+COPY cmd/dross-operator/ cmd/dross-operator/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/dross-operator ./cmd/dross-operator
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/dross-operator /dross-operator
+# Matches the runAsUser in the deployment; distroless nonroot is uid 65532.
+USER 65532:65532
+ENTRYPOINT ["/dross-operator"]

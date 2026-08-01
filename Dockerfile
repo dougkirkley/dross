@@ -30,5 +30,8 @@ RUN addgroup -g 10001 dross && adduser -D -u 10001 -G dross dross \
     && chown -R dross:dross /app
 USER 10001:10001
 EXPOSE 8080
-# serve binds all interfaces so the gateway can reach it; hosts UI + API.
-ENTRYPOINT ["./dross", "serve", "--addr", ":8080"]
+# The binary is the entrypoint, not one subcommand of it: the same image also
+# runs `dross operator`. Serving stays the default via CMD, which a deployment
+# overrides by supplying its own args.
+ENTRYPOINT ["/app/dross"]
+CMD ["serve", "--addr", ":8080"]
