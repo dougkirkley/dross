@@ -69,7 +69,8 @@ func (a *Agent) startBackground(ctx context.Context, command string) (string, bo
 	a.shellMu.Unlock()
 
 	s := &shell{id: id, command: command, start: time.Now()}
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	argv := a.ws.sandboxArgv([]string{"bash", "-c", command}, a.sandboxWarn)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = a.ws.root
 	if a.ws.env != nil {
 		cmd.Env = a.ws.env
@@ -186,7 +187,8 @@ func (a *Agent) runForegroundBash(ctx context.Context, command string) (string, 
 	}
 
 	s := &shell{command: command, start: time.Now()}
-	cmd := exec.CommandContext(childCtx, "bash", "-c", command)
+	argv := a.ws.sandboxArgv([]string{"bash", "-c", command}, a.sandboxWarn)
+	cmd := exec.CommandContext(childCtx, argv[0], argv[1:]...)
 	cmd.Dir = a.ws.root
 	if a.ws.env != nil {
 		cmd.Env = a.ws.env

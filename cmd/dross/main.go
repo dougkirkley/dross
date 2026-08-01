@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/dougkirkley/dross/pkg/agent"
 	"os"
 
 	"github.com/dougkirkley/dross/internal/cli"
@@ -25,6 +26,13 @@ import (
 )
 
 func main() {
+	// Sandbox mode: the agent re-executes this binary to confine a shell command
+	// with Landlock before exec'ing it. Must run before any flag parsing, and it
+	// does not return on success.
+	if err := agent.MaybeRunSandbox(); err != nil {
+		fmt.Fprintln(os.Stderr, "sandbox:", err)
+		os.Exit(1)
+	}
 	if err := cli.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

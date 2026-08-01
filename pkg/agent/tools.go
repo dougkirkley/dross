@@ -806,7 +806,8 @@ func (w *workspace) monitor(command string, interval, timeout time.Duration) (st
 	checks := 0
 	for {
 		checks++
-		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		argv := w.sandboxArgv([]string{"bash", "-c", command}, nil)
+		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		cmd.Dir = w.root
 		if w.env != nil {
 			cmd.Env = w.env
@@ -841,7 +842,8 @@ func (w *workspace) runBash(command string) (string, error) {
 	ctx, cancel := contextWithTimeout(bashTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	argv := w.sandboxArgv([]string{"bash", "-c", command}, nil)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = w.root
 	if w.env != nil {
 		cmd.Env = w.env
