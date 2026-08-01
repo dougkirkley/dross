@@ -293,12 +293,14 @@ func (a *Agent) SetPermission(mode string) {
 }
 func (a *Agent) ResetConversation() { a.sess = nil }
 
-// PublishFunc stores a file and returns a shareable URL for it.
+// PublishFunc stores a file and returns a link to it. The link is private (it
+// requires the caller's normal authentication); making an artifact publicly
+// reachable is a separate, explicit user action, never the agent's to take.
 type PublishFunc func(name string, data []byte, mime string) (url string, err error)
 
-// WithPublish gives the agent a `publish` tool: it shares a workspace file
-// (screenshot, gif, report) via fn and hands the resulting URL back to the
-// model, which can surface it to the user.
+// WithPublish gives the agent a `publish` tool: it stores a workspace file
+// (screenshot, gif, report) via fn and hands the resulting private URL back to
+// the model, which can surface it to the user.
 func WithPublish(fn PublishFunc) Option {
 	return func(a *Agent) { a.publish = fn }
 }

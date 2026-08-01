@@ -256,8 +256,8 @@ func (s *Server) handleArtifactPublish(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleArtifactGet serves a published blob. Unauthenticated by design — the id
-// is the capability. Inline so images/gifs render in a browser.
+// handleArtifactGet serves a published blob to a signed-in user. This route is
+// behind the normal auth middleware; the public path is handleArtifactShared.
 func (s *Server) handleArtifactGet(w http.ResponseWriter, r *http.Request) {
 	if s.arts == nil {
 		http.NotFound(w, r)
@@ -268,9 +268,63 @@ func (s *Server) handleArtifactGet(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", m.Mime)
-	w.Header().Set("Content-Disposition", "inline; filename=\""+m.Filename+"\"")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Private: must not be cached by shared proxies.
+	writeBlob(w, data, m.Mime, m.Filename, "private, max-age=300")
+}
+
+// handleArtifactShared serves an artifact that has been explicitly shared, to
+// anyone holding the token. No account required — this is the share mechanism.
+func (s *Server) handleArtifactShared(w http.ResponseWriter, r *http.Request) {
+	if s.arts == nil {
+		http.NotFound(w, r)
+		return
+	}
+	data, m, err := s.arts.GetShared(r.PathValue("id"), r.PathValue("token"))
+	if err != nil {
+		http.NotFound(w, r) // unshared and wrong-token look identical
+		return
+	}
+	writeBlob(w, data, m.Mime, m.Filename, "public, max-age=31536000, immutable")
+}
+
+// handleArtifactShare mints a public link for an artifact.
+func (s *Server) handleArtifactShare(w http.ResponseWriter, r *http.Request) {
+	if s.arts == nil {
+		http.Error(w, "artifacts not configured", http.StatusNotImplemented)
+		return
+	}
+	m, err := s.arts.Share(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"url": s.arts.ShareURL(m), "id": m.ID, "filename": m.Filename,
+	})
+}
+
+// handleArtifactUnshare revokes the public link; the artifact stays viewable to
+// signed-in users.
+func (s *Server) handleArtifactUnshare(w http.ResponseWriter, r *http.Request) {
+	if s.arts == nil {
+		http.Error(w, "artifacts not configured", http.StatusNotImplemented)
+		return
+	}
+	if err := s.arts.Unshare(r.PathValue("id")); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
+}
+
+// writeBlob sends an artifact inline so images/gifs render in a browser.
+func writeBlob(w http.ResponseWriter, data []byte, mime, filename, cache string) {
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition", "inline; filename=\""+filename+"\"")
+	w.Header().Set("Cache-Control", cache)
+	// Never let a browser sniff a stored blob into something executable.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; sandbox")
 	w.Write(data)
 }
 

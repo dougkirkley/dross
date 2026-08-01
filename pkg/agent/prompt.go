@@ -249,7 +249,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 	if hasPublish {
 		defs = append(defs, provider.ToolDef{
 			Name:        "publish",
-			Description: "Share a workspace file at a public URL and get the link back. Use for screenshots, images, gifs, or reports the user wants to see or share.",
+			Description: "Publish a workspace file and get a link back. Use for screenshots, images, gifs, or reports the user wants to view. The link is private — only the signed-in user can open it. Do not describe it as public or shareable; the user can create a public share link themselves if they want one.",
 			Properties:  map[string]any{"path": strProp("Workspace-relative path to the file to publish.")},
 			Required:    []string{"path"},
 		})

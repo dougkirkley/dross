@@ -249,13 +249,50 @@ func TestArtifacts(t *testing.T) {
 		t.Fatalf("publish resp = %v", pub)
 	}
 
-	// Fetch the capability URL — unauth, correct bytes and type.
+	// Fetch the private URL (this server has no auth configured) — correct
+	// bytes and type.
 	w = do(t, srv, "GET", pub["url"], "")
 	if w.Code != http.StatusOK || w.Body.String() != "\x89PNG\r\n\x1a\nfake" {
 		t.Fatalf("get: code=%d body=%q", w.Code, w.Body.String())
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
 		t.Fatalf("content-type = %q", ct)
+	}
+
+	// Not shared yet: a guessed share URL must not serve the blob.
+	if w := do(t, srv, "GET", "/s/"+pub["id"]+"/"+strings.Repeat("a", 32), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("unshared fetch = %d, want 404", w.Code)
+	}
+
+	// Share it, then the public link works without auth.
+	w = do(t, srv, "POST", "/api/artifacts/"+pub["id"]+"/share", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("share: %d", w.Code)
+	}
+	var sh map[string]string
+	json.Unmarshal(w.Body.Bytes(), &sh)
+	if !strings.HasPrefix(sh["url"], "/s/"+pub["id"]+"/") {
+		t.Fatalf("share resp = %v", sh)
+	}
+	if w := do(t, srv, "GET", sh["url"], ""); w.Code != http.StatusOK ||
+		w.Body.String() != "\x89PNG\r\n\x1a\nfake" {
+		t.Fatalf("shared get: code=%d", w.Code)
+	}
+
+	// A wrong token on a shared artifact is still refused.
+	if w := do(t, srv, "GET", "/s/"+pub["id"]+"/"+strings.Repeat("b", 32), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("bad token = %d, want 404", w.Code)
+	}
+
+	// Revoking kills the public link but keeps the artifact.
+	if w := do(t, srv, "DELETE", "/api/artifacts/"+pub["id"]+"/share", ""); w.Code != http.StatusOK {
+		t.Fatalf("unshare: %d", w.Code)
+	}
+	if w := do(t, srv, "GET", sh["url"], ""); w.Code != http.StatusNotFound {
+		t.Fatalf("revoked link = %d, want 404", w.Code)
+	}
+	if w := do(t, srv, "GET", pub["url"], ""); w.Code != http.StatusOK {
+		t.Fatalf("private view after unshare = %d", w.Code)
 	}
 
 	// Traversal is rejected.

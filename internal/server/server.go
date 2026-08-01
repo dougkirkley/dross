@@ -68,17 +68,21 @@ func (s *Server) apiMux() *http.ServeMux {
 
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/artifacts", s.handleArtifactPublish)
+	mux.HandleFunc("POST /api/artifacts/{id}/share", s.handleArtifactShare)
+	mux.HandleFunc("DELETE /api/artifacts/{id}/share", s.handleArtifactUnshare)
 
 	mux.HandleFunc("GET /api/device/connect", s.handleDeviceConnect) // relay WS
 	return mux
 }
 
-// buildHandler wires auth around the API. Health and artifact capability URLs
-// stay open (the artifact id is the credential); everything else is gated.
+// buildHandler wires auth around the API. Health and explicitly shared
+// artifacts (/s/{id}/{token}) stay open; everything else is gated — including
+// /a/{id}, so an artifact is private until it is deliberately shared.
 func (s *Server) buildHandler() http.Handler {
 	api := s.apiMux()
 	root := http.NewServeMux()
-	root.HandleFunc("GET /a/{id}", s.handleArtifactGet) // capability URL — unauth by design
+	// Only a minted share token opens an artifact to the world.
+	root.HandleFunc("GET /s/{id}/{token}", s.handleArtifactShared)
 
 	// "/" serves the embedded Flutter client when a real build is bundled;
 	// otherwise fall back to the API mux (so a UI-less binary still 404s cleanly
@@ -89,10 +93,13 @@ func (s *Server) buildHandler() http.Handler {
 	}
 
 	if s.auth == nil {
+		root.HandleFunc("GET /a/{id}", s.handleArtifactGet)
 		root.Handle("/api/", api)
 		root.Handle("/", rootFallback)
 		return root
 	}
+	// Private artifact view: same gate as the rest of the app.
+	root.Handle("GET /a/{id}", s.auth.Middleware(http.HandlerFunc(s.handleArtifactGet)))
 	root.HandleFunc("GET /auth/login", s.auth.Login)
 	root.HandleFunc("GET /auth/callback", s.auth.Callback)
 	root.HandleFunc("POST /auth/logout", s.auth.Logout)
@@ -101,7 +108,7 @@ func (s *Server) buildHandler() http.Handler {
 	root.Handle("/api/", s.auth.Middleware(api))
 	// Gate the UI too: an unauthenticated browser hitting "/" is redirected to
 	// the OIDC login (Google), so signing in unlocks the whole app. /auth/*,
-	// health, and artifact capability URLs (/a/{id}) stay public above.
+	// health, and shared-artifact links (/s/{id}/{token}) stay public above.
 	root.Handle("/", s.auth.Middleware(rootFallback))
 	return root
 }
