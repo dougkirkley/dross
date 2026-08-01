@@ -8,14 +8,14 @@ import (
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
 )
 
-// podFor builds the pod that runs one session.
+// podTemplateFor builds the pod template that runs one session.
 //
 // The pod executes model-chosen code, so it is the least trusted thing in the
 // cluster and is specced accordingly: unprivileged, no capabilities, read-only
 // root, and no service-account token — it has no business talking to the API
 // server. It dials out to the relay instead of listening, so nothing needs to
 // reach it either.
-func podFor(s *dross.Session) *corev1.Pod {
+func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	run := int64(10001)
 	yes := true
 	no := false
@@ -67,10 +67,10 @@ func podFor(s *dross.Session) *corev1.Pod {
 		},
 	}
 
+	// "workspace" is intentionally absent: it is supplied by the StatefulSet's
+	// volumeClaimTemplate, which is what gives a session the same volume back
+	// after a restart or a node reboot.
 	volumes := []corev1.Volume{
-		{Name: "workspace", VolumeSource: corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: s.Name},
-		}},
 		{Name: "tmp", VolumeSource: corev1.VolumeSource{
 			EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptrQty("1Gi")},
 		}},
@@ -90,16 +90,14 @@ func podFor(s *dross.Session) *corev1.Pod {
 		}})
 	}
 
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: s.Namespace,
-			Name:      s.Name,
-			Labels:    labelsFor(s),
-		},
+	return corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Labels: labelsFor(s)},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: &no,
-			RestartPolicy:                corev1.RestartPolicyNever,
-			EnableServiceLinks:           &no,
+			// Always: a session survives a crash or a node reboot; the
+			// StatefulSet brings it back with the same name and volume.
+			RestartPolicy:      corev1.RestartPolicyAlways,
+			EnableServiceLinks: &no,
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:   &yes,
 				RunAsUser:      &run,

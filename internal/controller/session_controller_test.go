@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +19,9 @@ func scheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	if err := corev1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := appsv1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	if err := dross.AddToScheme(s); err != nil {
@@ -36,9 +40,9 @@ func newSession() *dross.Session {
 	}
 }
 
-// Reconciling a Session must produce exactly one pod and one volume, both owned
-// by it so deletion garbage-collects them.
-func TestReconcileCreatesOwnedPodAndVolume(t *testing.T) {
+// Reconciling a Session must produce a StatefulSet owned by it, so deletion
+// garbage-collects the workload and its volume.
+func TestReconcileCreatesOwnedStatefulSet(t *testing.T) {
 	s := newSession()
 	sc := scheme(t)
 	c := fake.NewClientBuilder().WithScheme(sc).
@@ -50,25 +54,34 @@ func TestReconcileCreatesOwnedPodAndVolume(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	var pod corev1.Pod
-	if err := c.Get(context.Background(), key, &pod); err != nil {
-		t.Fatalf("pod not created: %v", err)
-	}
-	var pvc corev1.PersistentVolumeClaim
-	if err := c.Get(context.Background(), key, &pvc); err != nil {
-		t.Fatalf("volume not created: %v", err)
+	var set appsv1.StatefulSet
+	if err := c.Get(context.Background(), key, &set); err != nil {
+		t.Fatalf("statefulset not created: %v", err)
 	}
 
 	// Ownership is what makes cleanup impossible to leak.
-	for _, o := range []metav1.Object{&pod, &pvc} {
-		refs := o.GetOwnerReferences()
-		if len(refs) != 1 || refs[0].Kind != "Session" || refs[0].UID != "u-1" {
-			t.Errorf("%T is not owned by its Session: %+v", o, refs)
-		}
+	refs := set.GetOwnerReferences()
+	if len(refs) != 1 || refs[0].Kind != "Session" || refs[0].UID != "u-1" {
+		t.Errorf("statefulset is not owned by its Session: %+v", refs)
+	}
+
+	// The workspace comes from a volumeClaimTemplate — that is what survives a
+	// restart — and is reclaimed when the session is deleted.
+	if len(set.Spec.VolumeClaimTemplates) != 1 ||
+		set.Spec.VolumeClaimTemplates[0].Name != "workspace" {
+		t.Fatalf("expected a workspace volumeClaimTemplate, got %+v", set.Spec.VolumeClaimTemplates)
+	}
+	if p := set.Spec.PersistentVolumeClaimRetentionPolicy; p == nil ||
+		p.WhenDeleted != appsv1.DeletePersistentVolumeClaimRetentionPolicyType {
+		t.Error("volume must be reclaimed when the session is deleted, or every session leaks a disk")
+	}
+	// Restarting is the whole point of using a StatefulSet.
+	if got := set.Spec.Template.Spec.RestartPolicy; got != corev1.RestartPolicyAlways {
+		t.Errorf("restart policy = %q; a session must come back after a crash", got)
 	}
 
 	// The credential comes from a Secret, never the pod spec.
-	env := pod.Spec.Containers[0].Env
+	env := set.Spec.Template.Spec.Containers[0].Env
 	var fromSecret bool
 	for _, e := range env {
 		if e.Name == "DROSS_TOKEN" && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
@@ -81,7 +94,7 @@ func TestReconcileCreatesOwnedPodAndVolume(t *testing.T) {
 	if !fromSecret {
 		t.Error("device token is not sourced from a Secret")
 	}
-	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+	if a := set.Spec.Template.Spec.AutomountServiceAccountToken; a == nil || *a {
 		t.Error("session pod must not receive a service-account token")
 	}
 }
@@ -99,18 +112,18 @@ func TestReconcileIsIdempotent(t *testing.T) {
 			t.Fatalf("reconcile %d: %v", i, err)
 		}
 	}
-	var pods corev1.PodList
-	if err := c.List(context.Background(), &pods); err != nil {
+	var sets appsv1.StatefulSetList
+	if err := c.List(context.Background(), &sets); err != nil {
 		t.Fatal(err)
 	}
-	if len(pods.Items) != 1 {
-		t.Errorf("created %d pods; want exactly 1", len(pods.Items))
+	if len(sets.Items) != 1 {
+		t.Errorf("created %d statefulsets; want exactly 1", len(sets.Items))
 	}
 }
 
-// Pod phase must surface on the Session, so the API can report it without
-// polling pods itself.
-func TestStatusMirrorsThePod(t *testing.T) {
+// Readiness must surface on the Session, so the API can report it without
+// watching workloads itself.
+func TestStatusMirrorsTheWorkload(t *testing.T) {
 	s := newSession()
 	sc := scheme(t)
 	c := fake.NewClientBuilder().WithScheme(sc).WithObjects(s).WithStatusSubresource(s).Build()
@@ -120,13 +133,13 @@ func TestStatusMirrorsThePod(t *testing.T) {
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
-	// Pretend the kubelet started it.
-	var pod corev1.Pod
-	if err := c.Get(context.Background(), key, &pod); err != nil {
+	// Pretend the StatefulSet controller brought the pod up.
+	var set appsv1.StatefulSet
+	if err := c.Get(context.Background(), key, &set); err != nil {
 		t.Fatal(err)
 	}
-	pod.Status.Phase = corev1.PodRunning
-	if err := c.Status().Update(context.Background(), &pod); err != nil {
+	set.Status.ReadyReplicas = 1
+	if err := c.Status().Update(context.Background(), &set); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
@@ -137,8 +150,8 @@ func TestStatusMirrorsThePod(t *testing.T) {
 	if err := c.Get(context.Background(), key, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status.Phase != "Running" || got.Status.PodName != s.Name {
-		t.Errorf("status = %+v; want Running/%s", got.Status, s.Name)
+	if got.Status.Phase != "Running" || got.Status.PodName != s.Name+"-0" {
+		t.Errorf("status = %+v; want Running/%s-0", got.Status, s.Name)
 	}
 	var ready bool
 	for _, cond := range got.Status.Conditions {

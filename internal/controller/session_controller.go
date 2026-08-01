@@ -1,19 +1,20 @@
-// Package controller reconciles Session resources into running pods.
+// Package controller reconciles Session resources into running workloads.
 //
-// The loop is deliberately dumb: for a Session, make sure a volume and a pod
-// exist, then copy the pod's phase onto the Session's status. Everything harder
-// is delegated to Kubernetes — ownerReferences garbage-collect the pod and
-// volume when the Session goes away, so no delete path in dross can leak them,
-// and the watch re-runs the loop whenever reality drifts from the spec.
+// The loop is deliberately dumb: for a Session, make sure a StatefulSet exists,
+// then copy its readiness onto the Session's status. Everything harder is
+// delegated to Kubernetes. ownerReferences garbage-collect the workload when the
+// Session goes away, so no delete path in dross can leak one. The StatefulSet
+// keeps the session alive across a crash or a node reboot, and gives it back the
+// same volume — a bare pod has no controller behind it and simply stays dead.
 package controller
 
 import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,10 +33,11 @@ type SessionReconciler struct {
 
 // +kubebuilder:rbac:groups=dross.sh,resources=sessions,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=dross.sh,resources=sessions/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=pods;persistentvolumeclaims,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
-// Reconcile ensures the pod and volume for a Session exist, and reports back
-// what the pod is doing.
+// Reconcile ensures the workload for a Session exists, and reports back what it
+// is doing.
 func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	lg := log.FromContext(ctx)
 
@@ -48,15 +50,12 @@ func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil // deleting; garbage collection handles the children
 	}
 
-	if err := r.ensurePVC(ctx, &s); err != nil {
-		return ctrl.Result{}, fmt.Errorf("volume: %w", err)
-	}
-	pod, err := r.ensurePod(ctx, &s)
+	set, err := r.ensureStatefulSet(ctx, &s)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("pod: %w", err)
+		return ctrl.Result{}, fmt.Errorf("statefulset: %w", err)
 	}
 
-	if err := r.updateStatus(ctx, &s, pod); err != nil {
+	if err := r.updateStatus(ctx, &s, set); err != nil {
 		// A conflict just means someone else wrote first; the watch will re-run.
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{Requeue: true}, nil
@@ -67,44 +66,8 @@ func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *SessionReconciler) ensurePVC(ctx context.Context, s *dross.Session) error {
-	var have corev1.PersistentVolumeClaim
-	err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Name}, &have)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
-	size := s.Spec.Storage
-	if size == "" {
-		size = "5Gi"
-	}
-	qty, err := resource.ParseQuantity(size)
-	if err != nil {
-		return fmt.Errorf("storage %q: %w", size, err)
-	}
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Namespace: s.Namespace, Name: s.Name, Labels: labelsFor(s)},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: qty},
-			},
-		},
-	}
-	if r.StorageClass != "" {
-		pvc.Spec.StorageClassName = &r.StorageClass
-	}
-	// Owned by the Session, so deleting the Session reclaims the volume.
-	if err := ctrl.SetControllerReference(s, pvc, r.Scheme()); err != nil {
-		return err
-	}
-	return r.Create(ctx, pvc)
-}
-
-func (r *SessionReconciler) ensurePod(ctx context.Context, s *dross.Session) (*corev1.Pod, error) {
-	var have corev1.Pod
+func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, s *dross.Session) (*appsv1.StatefulSet, error) {
+	var have appsv1.StatefulSet
 	err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Name}, &have)
 	if err == nil {
 		return &have, nil
@@ -112,60 +75,77 @@ func (r *SessionReconciler) ensurePod(ctx context.Context, s *dross.Session) (*c
 	if !apierrors.IsNotFound(err) {
 		return nil, err
 	}
-	// A finished session is not restarted: restartPolicy is Never, so a
-	// Succeeded or Failed pod is a terminal state, not drift to heal.
-	if s.Status.Phase == string(corev1.PodSucceeded) || s.Status.Phase == string(corev1.PodFailed) {
-		return nil, nil
+	set := statefulSetFor(s)
+	if set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName == nil && r.StorageClass != "" {
+		set.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &r.StorageClass
 	}
-	pod := podFor(s)
-	if err := ctrl.SetControllerReference(s, pod, r.Scheme()); err != nil {
+	// Owned by the Session, so deleting the Session reclaims the workload and,
+	// through the retention policy, its volume.
+	if err := ctrl.SetControllerReference(s, set, r.Scheme()); err != nil {
 		return nil, err
 	}
-	if err := r.Create(ctx, pod); err != nil {
+	if err := r.Create(ctx, set); err != nil {
 		return nil, err
 	}
-	return pod, nil
+	return set, nil
 }
 
-func (r *SessionReconciler) updateStatus(ctx context.Context, s *dross.Session, pod *corev1.Pod) error {
+func (r *SessionReconciler) updateStatus(ctx context.Context, s *dross.Session, set *appsv1.StatefulSet) error {
 	phase, message, podName := "", "", ""
-	if pod != nil {
-		phase, podName = string(pod.Status.Phase), pod.Name
-		// Surface why a pod is stuck, so the cause shows without reading events.
-		for _, cs := range pod.Status.ContainerStatuses {
-			if w := cs.State.Waiting; w != nil && w.Reason != "" {
-				message = w.Reason
-				if w.Message != "" {
-					message += ": " + w.Message
-				}
-			}
+	if set != nil {
+		podName = set.Name + "-0" // StatefulSet ordinal naming: stable across restarts
+		switch {
+		case set.Status.ReadyReplicas > 0:
+			phase = "Running"
+		case set.Spec.Replicas != nil && *set.Spec.Replicas == 0:
+			phase = "Paused"
+		default:
+			phase = "Pending"
+			message = podMessage(ctx, r, s)
 		}
 	}
 	if s.Status.Phase == phase && s.Status.PodName == podName && s.Status.Message == message {
 		return nil // nothing changed; don't write
 	}
 	s.Status.Phase, s.Status.PodName, s.Status.Message = phase, podName, message
-	meta := metav1.Condition{
+	cond := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionFalse,
-		Reason:             "PodNotRunning",
+		Reason:             "NotRunning",
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
 	}
-	if phase == string(corev1.PodRunning) {
-		meta.Status, meta.Reason, meta.Message = metav1.ConditionTrue, "PodRunning", ""
+	if phase == "Running" {
+		cond.Status, cond.Reason, cond.Message = metav1.ConditionTrue, "Running", ""
 	}
-	setCondition(&s.Status.Conditions, meta)
+	setCondition(&s.Status.Conditions, cond)
 	return r.Status().Update(ctx, s)
 }
 
-// SetupWithManager registers the controller and tells it to watch the pods it
-// owns, so a pod dying re-runs the loop immediately rather than on resync.
+// podMessage surfaces why a session is not running yet — an image pull failure
+// or an unschedulable pod — so the cause shows without digging through events.
+func podMessage(ctx context.Context, r *SessionReconciler, s *dross.Session) string {
+	var pod corev1.Pod
+	if err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Name + "-0"}, &pod); err != nil {
+		return ""
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if w := cs.State.Waiting; w != nil && w.Reason != "" {
+			if w.Message != "" {
+				return w.Reason + ": " + w.Message
+			}
+			return w.Reason
+		}
+	}
+	return ""
+}
+
+// SetupWithManager registers the controller and watches the StatefulSets it
+// owns, so a change re-runs the loop immediately rather than on resync.
 func (r *SessionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dross.Session{}).
-		Owns(&corev1.Pod{}).
-		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&appsv1.StatefulSet{}).
 		Complete(r)
 }
 

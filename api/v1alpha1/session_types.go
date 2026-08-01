@@ -45,6 +45,9 @@ type SessionSpec struct {
 	// Storage is the size of the session's workspace volume (e.g. "5Gi").
 	Storage string `json:"storage,omitempty"`
 
+	// StorageClass for the workspace volume; empty uses the cluster default.
+	StorageClass string `json:"storageClass,omitempty"`
+
 	// CPULimit and MemoryLimit bound the session, so one cannot starve another.
 	CPULimit    string `json:"cpuLimit,omitempty"`
 	MemoryLimit string `json:"memoryLimit,omitempty"`
