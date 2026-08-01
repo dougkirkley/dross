@@ -84,6 +84,9 @@ func New(ctx context.Context, cfg Config) (*Authenticator, error) {
 	if !cfg.enabled() {
 		return nil, nil
 	}
+	if cfg.ServiceToken != "" && strings.TrimSpace(cfg.ServiceIdentity) == "" {
+		return nil, fmt.Errorf("service token requires a service identity")
+	}
 	a := &Authenticator{cfg: cfg, allowed: map[string]bool{}}
 	for _, e := range cfg.AllowedEmails {
 		a.allowed[strings.ToLower(strings.TrimSpace(e))] = true
@@ -116,6 +119,13 @@ func New(ctx context.Context, cfg Config) (*Authenticator, error) {
 		a.cfVerifier = p.Verifier(&oidc.Config{ClientID: cfg.CFAudience})
 	}
 	return a, nil
+}
+
+// IsServiceIdentity reports whether email is the machine credential's identity,
+// so callers can refuse it where a human is required.
+func (a *Authenticator) IsServiceIdentity(email string) bool {
+	id := strings.TrimSpace(a.cfg.ServiceIdentity)
+	return id != "" && strings.EqualFold(email, id)
 }
 
 type ctxKey struct{}
@@ -165,7 +175,12 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 // identify resolves an identity. exempt is reserved for credentials that skip
 // the allowlist; nothing does today.
 func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok bool) {
-	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	// Require the scheme: TrimPrefix would return the whole header when absent,
+	// making a bare (or Basic) Authorization value count as a bearer token.
+	bearer, hasBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !hasBearer {
+		bearer = ""
+	}
 
 	// 1. Service token: a machine credential with a real identity, so the
 	// allowlist still applies and revoking the identity revokes the access.
@@ -451,10 +466,18 @@ func wantsHTML(r *http.Request) bool {
 // safeNext keeps only local, single-slash-rooted paths to prevent open-redirect
 // (rejects "//evil.com", "https://…", empty → "/").
 func safeNext(next string) string {
-	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+	// Must be a purely local reference. Rejecting only "//" is not enough:
+	// browsers treat "\" as "/" in the authority position, so "/\evil.com"
+	// navigates off-site. Control characters can smuggle a second header line.
+	if next == "" || strings.ContainsAny(next, "\\\r\n") {
 		return "/"
 	}
-	return next
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" ||
+		!strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") {
+		return "/"
+	}
+	return u.RequestURI()
 }
 
 func randomBytes(n int) []byte {

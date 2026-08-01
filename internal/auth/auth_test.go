@@ -154,3 +154,41 @@ func TestSafeNext(t *testing.T) {
 		}
 	}
 }
+
+// Regression: browsers treat "\" as "/" in the authority position, so a next
+// parameter of "/\evil.com" navigated off-site after login.
+func TestSafeNextRejectsBackslashAuthority(t *testing.T) {
+	for _, bad := range []string{`/\evil.com`, `/\/evil.com`, "//evil.com", "https://evil.com",
+		"/ok\r\nX-Injected: 1", `\\evil.com`} {
+		if got := safeNext(bad); got != "/" {
+			t.Errorf("safeNext(%q) = %q; want /", bad, got)
+		}
+	}
+	for _, ok := range []string{"/", "/sessions", "/a/b?c=d"} {
+		if got := safeNext(ok); got != ok {
+			t.Errorf("safeNext(%q) = %q; want unchanged", ok, got)
+		}
+	}
+}
+
+// A credential must carry the Bearer scheme; TrimPrefix used to accept a bare
+// Authorization value as a token.
+func TestAuthorizationRequiresBearerScheme(t *testing.T) {
+	a := &Authenticator{cfg: Config{ServiceToken: "svc", ServiceIdentity: "service@dross"}}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "svc")
+	if _, _, ok := a.identify(r); ok {
+		t.Error("bare Authorization value authenticated")
+	}
+	r.Header.Set("Authorization", "Bearer svc")
+	if _, _, ok := a.identify(r); !ok {
+		t.Error("Bearer credential rejected")
+	}
+}
+
+// A service token with no identity would authenticate as the empty string.
+func TestServiceTokenRequiresIdentity(t *testing.T) {
+	if _, err := New(context.Background(), Config{ServiceToken: "x"}); err == nil {
+		t.Fatal("expected an error for a service token without an identity")
+	}
+}

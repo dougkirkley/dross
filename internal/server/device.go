@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -66,11 +65,12 @@ func (h *deviceHub) remove(id string) {
 // hello, then pumps frames both ways until the connection drops.
 func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
 	// Require a real SSO identity for device linking, so a session is always
-	// tied to the logged-in user — the shared static token (identity
-	// "api-token") is not enough here.
+	// tied to the logged-in user. Checking only for an "@" was dead code: the
+	// machine credential's identity (service@dross) contains one, so a token
+	// meant for automated checks could register a device and receive prompts.
 	if s.auth != nil {
 		email := auth.Identity(r)
-		if email == "" || !strings.Contains(email, "@") {
+		if email == "" || s.auth.IsServiceIdentity(email) {
 			http.Error(w, "device linking requires SSO login", http.StatusForbidden)
 			return
 		}
