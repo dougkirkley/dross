@@ -30,6 +30,7 @@ func newServeCmd() *cobra.Command {
 		authCFTeam, authCFAud, authToken, authCookieSecret             string
 		authInsecure                                                   bool
 		artifactDir, publicURL                                         string
+		serviceToken, serviceIdentity                                  string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -69,6 +70,7 @@ func newServeCmd() *cobra.Command {
 				Issuer: authIssuer, ClientID: authClientID, ClientSecret: authSecret,
 				RedirectURL: authRedirect, CFTeamDomain: authCFTeam, CFAudience: authCFAud,
 				StaticToken: authToken, AllowedEmails: emails, CookieSecret: cookieSecret,
+				ServiceToken: serviceToken, ServiceIdentity: serviceIdentity,
 				AllowInsecureCookies: authInsecure,
 			})
 			if err != nil {
@@ -147,7 +149,9 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&authEmails, "auth-allowed-emails", "", "comma-separated email allowlist")
 	f.StringVar(&authCFTeam, "auth-cf-team", "", "Cloudflare Access team domain")
 	f.StringVar(&authCFAud, "auth-cf-aud", "", "Cloudflare Access application AUD")
-	f.StringVar(&authToken, "auth-token", "", "static API bearer token")
+	f.StringVar(&authToken, "auth-token", "", "static API bearer token (bypasses the allowlist; prefer --service-token)")
+	f.StringVar(&serviceToken, "service-token", "", "machine bearer token, authenticated as --service-identity and subject to the allowlist")
+	f.StringVar(&serviceIdentity, "service-identity", "service@dross", "identity the service token authenticates as")
 	f.StringVar(&authCookieSecret, "auth-cookie-secret", "", "hex key signing session cookies")
 	f.BoolVar(&authInsecure, "auth-insecure-cookies", false, "drop Secure flag on cookies (local http dev)")
 	f.StringVar(&artifactDir, "artifact-dir", "", "directory for published artifacts")

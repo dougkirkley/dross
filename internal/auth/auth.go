@@ -41,7 +41,14 @@ type Config struct {
 	CFAudience   string // the Access application AUD tag
 
 	// Static API token for programmatic clients not doing interactive OIDC.
+	// Historically this bypassed the allowlist entirely; prefer ServiceToken.
 	StaticToken string
+
+	// ServiceToken is a machine credential that authenticates AS ServiceIdentity
+	// and is still subject to the email allowlist, so it cannot outlive the
+	// access rules the way a bypassing token can.
+	ServiceToken    string
+	ServiceIdentity string // e.g. "service@dross"; required with ServiceToken
 
 	// Allowlist of permitted emails; empty means any verified identity.
 	AllowedEmails []string
@@ -55,7 +62,7 @@ type Config struct {
 }
 
 func (c Config) enabled() bool {
-	return c.Issuer != "" || c.CFTeamDomain != "" || c.StaticToken != ""
+	return c.Issuer != "" || c.CFTeamDomain != "" || c.StaticToken != "" || c.ServiceToken != ""
 }
 
 // Authenticator holds the verifiers and issues/validates sessions.
@@ -157,10 +164,17 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok bool) {
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
-	// 1. Static API token (constant-time compare).
+	// 1. Static API token (constant-time compare). Exempt from the allowlist —
+	// legacy; ServiceToken below is the safer form.
 	if a.cfg.StaticToken != "" && bearer != "" &&
 		hmac.Equal([]byte(bearer), []byte(a.cfg.StaticToken)) {
 		return "api-token", true, true
+	}
+	// 1b. Service token: a machine credential with a real identity, so the
+	// allowlist still applies and revoking the identity revokes the access.
+	if a.cfg.ServiceToken != "" && bearer != "" &&
+		hmac.Equal([]byte(bearer), []byte(a.cfg.ServiceToken)) {
+		return a.cfg.ServiceIdentity, false, true
 	}
 	// 2. Cloudflare Access header.
 	if a.cfVerifier != nil {
