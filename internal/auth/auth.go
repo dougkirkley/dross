@@ -336,12 +336,15 @@ func (a *Authenticator) Logout(w http.ResponseWriter, r *http.Request) {
 	a.clearCookie(w, sessionCookie)
 	// Clearing our own cookie is not a logout the user can feel: the identity
 	// provider still holds a session, so the next sign-in bounces straight back
-	// through without a prompt. End the upstream session too — but from a hidden
-	// frame on our own page, so the user sees dross rather than the provider's
-	// "you have been signed out" screen. (Access has no returnTo parameter to
-	// bring them back with, so redirecting there would strand them.)
+	// through without a prompt.
+	//
+	// This has to be a top-level navigation. Loading the provider's logout in a
+	// hidden frame keeps the user on our page but is a third-party request, and
+	// browsers that block third-party cookies (Safari by default) drop the
+	// clearing Set-Cookie — the sign-out then silently does nothing. Correctness
+	// wins over staying on our own page.
 	if u := a.idpLogoutURL(); u != "" {
-		serveSignedOutPage(w, u)
+		http.Redirect(w, r, u, http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
