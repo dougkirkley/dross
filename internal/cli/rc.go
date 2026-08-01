@@ -63,6 +63,12 @@ func newRCCmd() *cobra.Command {
 			}
 
 			// Authenticate as the SSO user (stored session, or sign in now).
+			// $DROSS_TOKEN comes before the stored session because it is how a
+			// session pod is given its scoped credential: it has no stored
+			// session, no browser, and no way to complete a sign-in.
+			if token == "" {
+				token = os.Getenv("DROSS_TOKEN")
+			}
 			if token == "" {
 				token = relay.LoadToken(server)
 			}
