@@ -136,6 +136,12 @@ func (a *Authenticator) OnSignIn(fn func(email, name string)) { a.onSignIn = fn 
 
 type ctxKey struct{}
 
+// WithIdentity attaches a verified identity to a context, for authenticators
+// that run outside the standard middleware (the device relay).
+func WithIdentity(ctx context.Context, email string) context.Context {
+	return context.WithValue(ctx, ctxKey{}, email)
+}
+
 // Identity returns the authenticated email for a request, if any.
 func Identity(r *http.Request) string {
 	if v, ok := r.Context().Value(ctxKey{}).(string); ok {
@@ -210,7 +216,9 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 	}
 	// 3b. Bearer dross session token (issued to native app clients via the
 	// mode=app login flow); the same signed session the cookie carries.
-	if bearer != "" {
+	// Device tokens are excluded: they authorise attaching one device over the
+	// relay, not acting as the user against the API.
+	if bearer != "" && !IsDeviceToken(bearer) {
 		if e, ok := a.readSession(bearer); ok {
 			return e, false, true
 		}

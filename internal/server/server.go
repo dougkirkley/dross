@@ -71,7 +71,6 @@ func (s *Server) apiMux() *http.ServeMux {
 	mux.HandleFunc("POST /api/artifacts/{id}/share", s.handleArtifactShare)
 	mux.HandleFunc("DELETE /api/artifacts/{id}/share", s.handleArtifactUnshare)
 
-	mux.HandleFunc("GET /api/device/connect", s.handleDeviceConnect) // relay WS
 	return mux
 }
 
@@ -98,6 +97,9 @@ func (s *Server) buildHandler() http.Handler {
 		root.Handle("/", rootFallback)
 		return root
 	}
+	// The relay authenticates itself: a session pod presents a scoped device
+	// token, which the normal middleware deliberately refuses.
+	root.Handle("GET /api/device/connect", s.deviceAuth(http.HandlerFunc(s.handleDeviceConnect)))
 	// Private artifact view: same gate as the rest of the app.
 	root.Handle("GET /a/{id}", s.auth.Middleware(http.HandlerFunc(s.handleArtifactGet)))
 	root.HandleFunc("GET /auth/login", s.auth.Login)

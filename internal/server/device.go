@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,13 +66,12 @@ func (h *deviceHub) remove(id string) {
 // handleDeviceConnect is the relay endpoint a device dials into. It reads the
 // hello, then pumps frames both ways until the connection drops.
 func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
-	// Require a real SSO identity for device linking, so a session is always
-	// tied to the logged-in user. Checking only for an "@" was dead code: the
-	// machine credential's identity (service@dross) contains one, so a token
-	// meant for automated checks could register a device and receive prompts.
+	// Who is attaching, and as what. Two callers are legitimate: a person's
+	// linked machine (full SSO identity), and a session pod holding a device
+	// token scoped to exactly one device id.
+	owner, boundDevice := auth.Identity(r), deviceScope(r)
 	if s.auth != nil {
-		email := auth.Identity(r)
-		if email == "" || s.auth.IsServiceIdentity(email) {
+		if boundDevice == "" && (owner == "" || s.auth.IsServiceIdentity(owner)) {
 			http.Error(w, "device linking requires SSO login", http.StatusForbidden)
 			return
 		}
@@ -85,6 +86,12 @@ func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
 	var hello relay.Frame
 	if err := wsjson.Read(ctx, c, &hello); err != nil || hello.Type != "hello" || hello.Device == "" {
 		c.Close(websocket.StatusPolicyViolation, "expected hello")
+		return
+	}
+	// A device token may only attach as the device it names, so a session pod
+	// cannot take over another session's relay by claiming its id.
+	if boundDevice != "" && hello.Device != boundDevice {
+		c.Close(websocket.StatusPolicyViolation, "device id does not match the credential")
 		return
 	}
 	conn := &deviceConn{id: hello.Device, send: make(chan relay.Frame, 64)}
@@ -171,4 +178,39 @@ func (m *Manager) setDeviceConnected(device string, connected bool) {
 			s.mu.Unlock()
 		}
 	}
+}
+
+// deviceScopeKey carries the device id a request's credential is limited to.
+type deviceScopeKey struct{}
+
+// deviceScope returns the device id a device-token request may attach as, or ""
+// when the caller authenticated as a full identity.
+func deviceScope(r *http.Request) string {
+	if v, ok := r.Context().Value(deviceScopeKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// deviceAuth authorises the relay endpoint. A device token is accepted here and
+// nowhere else; anything else falls through to normal authentication.
+func (s *Server) deviceAuth(next http.Handler) http.Handler {
+	if s.auth == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if auth.IsDeviceToken(bearer) {
+			email, device, ok := s.auth.VerifyDeviceToken(bearer)
+			if !ok {
+				http.Error(w, "invalid device token", http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), deviceScopeKey{}, device)
+			ctx = auth.WithIdentity(ctx, email)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		s.auth.Middleware(next).ServeHTTP(w, r)
+	})
 }
