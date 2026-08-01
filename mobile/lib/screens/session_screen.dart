@@ -315,20 +315,33 @@ class _SessionScreenState extends State<SessionScreen> {
                         ),
                       );
                     }
-                    return GestureDetector(
-                      onTap: running
-                          ? () => context.read<AppState>().interrupt()
-                          : null,
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: running ? T.accent : T.surfaceAlt,
-                          borderRadius: BorderRadius.circular(10),
+                    // Running with an empty composer: the square is Stop.
+                    if (running) {
+                      return GestureDetector(
+                        onTap: () => context.read<AppState>().interrupt(),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: T.accent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.stop, size: 18, color: T.bg),
                         ),
-                        child: Icon(Icons.stop,
-                            size: 18, color: running ? T.bg : T.textDim),
+                      );
+                    }
+                    // Idle with nothing typed: a dimmed, inert send arrow — the
+                    // resting state shouldn't offer a Stop for a run that isn't
+                    // happening.
+                    return Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: T.surfaceAlt,
+                        shape: BoxShape.circle,
                       ),
+                      child: const Icon(Icons.arrow_upward,
+                          size: 20, color: T.textFaint),
                     );
                   },
                 ),
