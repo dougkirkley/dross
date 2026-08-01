@@ -132,7 +132,10 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		email, exempt, ok := a.identify(r)
 		if !ok {
 			if wantsHTML(r) && a.oauth != nil {
-				http.Redirect(w, r, "/auth/login?next="+url.QueryEscape(safeNext(r.URL.RequestURI())), http.StatusFound)
+				// Show dross's own sign-in screen rather than bouncing straight to
+				// the identity provider, so the first thing a user sees is dross.
+				// The button starts the same OIDC flow.
+				serveLoginPage(w, "/auth/login?next="+url.QueryEscape(safeNext(r.URL.RequestURI())))
 				return
 			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
