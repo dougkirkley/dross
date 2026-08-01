@@ -58,7 +58,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 else
                   PillButton(
                     label: 'Sign in with Google',
-                    icon: Icons.login,
+                    leading: const GoogleMark(size: 20),
                     onTap: _signIn,
                   ),
                 if (_error != null) ...[

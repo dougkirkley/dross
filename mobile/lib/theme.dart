@@ -170,9 +170,16 @@ class CircleIconButton extends StatelessWidget {
 /// The near-white pill button pinned bottom-right ("New session" / "New chat").
 class PillButton extends StatelessWidget {
   const PillButton(
-      {super.key, required this.label, required this.icon, this.onTap});
+      {super.key,
+      required this.label,
+      this.icon,
+      this.leading,
+      this.onTap});
   final String label;
-  final IconData icon;
+  final IconData? icon;
+  /// Optional custom leading widget, used where a brand mark (e.g. the Google
+  /// "G") should appear instead of a Material icon.
+  final Widget? leading;
   final VoidCallback? onTap;
 
   @override
@@ -187,7 +194,7 @@ class PillButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(T.rPill),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 20, color: T.pillText),
+          leading ?? Icon(icon, size: 20, color: T.pillText),
           const SizedBox(width: 8),
           Text(label,
               style: const TextStyle(
