@@ -35,6 +35,7 @@ func newServeCmd() *cobra.Command {
 		artifactDir, publicURL                                         string
 		serviceToken, serviceIdentity                                  string
 		adminEmail, resendKey, mailFrom                                string
+		identityStore, kratosAdminURL                                  string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -127,9 +128,27 @@ func newServeCmd() *cobra.Command {
 			// sign-in registers the account as pending and the admin approves it
 			// on /admin. Accounts already on disk migrate to approved, so the
 			// deploy that introduces this does not lock the household out.
-			users, err := server.NewUsers(filepath.Dir(sp))
-			if err != nil {
-				return fmt.Errorf("user registry: %w", err)
+			//
+			// Two stores satisfy the same interface: a JSON file, which is the
+			// right size for a household, and Ory Kratos, which is the right
+			// shape for anything past one. Nothing above this line knows which.
+			var users server.UserDirectory
+			switch identityStore {
+			case "kratos":
+				kd, err := server.NewKratosDirectory(kratosAdminURL)
+				if err != nil {
+					return fmt.Errorf("kratos directory: %w", err)
+				}
+				users = kd
+				fmt.Fprintf(cmd.OutOrStdout(), "accounts: kratos at %s\n", kratosAdminURL)
+			case "", "file":
+				fu, err := server.NewUsers(filepath.Dir(sp))
+				if err != nil {
+					return fmt.Errorf("user registry: %w", err)
+				}
+				users = fu
+			default:
+				return fmt.Errorf("--identity-store must be file or kratos, got %q", identityStore)
 			}
 			// The first admin comes from the flag, because the alternative is an
 			// account that has to be approved by someone who does not exist yet.
@@ -259,6 +278,8 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&serviceIdentity, "service-identity", "service@dross", "identity the service token authenticates as")
 	f.StringVar(&authCookieSecret, "auth-cookie-secret", "", "hex key signing session cookies")
 	f.BoolVar(&authInsecure, "auth-insecure-cookies", false, "drop Secure flag on cookies (local http dev)")
+	f.StringVar(&identityStore, "identity-store", "file", "where accounts live: file (users.json) or kratos")
+	f.StringVar(&kratosAdminURL, "kratos-admin-url", "", "Kratos admin API base URL, e.g. http://kratos-admin.dross-system.svc")
 	f.StringVar(&adminEmail, "admin-email", "", "identity allowed to approve accounts at /admin; always approved itself")
 	f.StringVar(&resendKey, "resend-key", "", "Resend API key; defaults to $RESENDER_API_KEY, and sends no mail when neither is set")
 	f.StringVar(&mailFrom, "mail-from", "", "From address for account mail, e.g. \"Dross <dross@dross.sh>\"")

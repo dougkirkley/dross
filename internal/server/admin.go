@@ -38,11 +38,18 @@ type UserDirectory interface {
 	ClaimAdmin(email, name string) (User, bool)
 	Decide(email string, status Status, by string) (User, bool)
 	MarkWelcomed(email string) bool
+	// Ensure lifts an account to a status and role, creating it if needed. How
+	// the configured admin exists before anyone can approve them.
+	Ensure(email string, status Status, role Role)
+	// SetRole promotes or demotes an account.
+	SetRole(email string, role Role, by string) (User, bool)
 }
 
 var (
 	_ UserDirectory = (*Users)(nil)
 	_ auth.Approver = (*Users)(nil)
+	_ UserDirectory = (*KratosDirectory)(nil)
+	_ auth.Approver = (*KratosDirectory)(nil)
 )
 
 // SetAccounts wires the account directory, the identity allowed to decide, and
