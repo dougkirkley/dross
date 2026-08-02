@@ -237,7 +237,13 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				// from the two the setup screen calls, which are registered
 				// outside this gate. So what gets through here is the static
 				// shell, and nothing it could ask for yet.
-				if wantsHTML(r) {
+				// Anything that is not the API: the document, and every asset it
+				// pulls in behind it. Keying this on "Accept: text/html" was
+				// enough for the navigation and nothing else - a browser asks
+				// for scripts and fonts with Accept: */*, so the shell loaded
+				// and every file it needed to actually run was refused. An empty
+				// page, and no error a person could act on.
+				if !strings.HasPrefix(r.URL.Path, "/api/") {
 					w.Header().Set("Cache-Control", "private, no-store")
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, email)))
 					return

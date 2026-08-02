@@ -154,11 +154,31 @@ func TestFirstRunLetsThePageLoadButNotTheAPI(t *testing.T) {
 		t.Errorf("the app did not load during first run: code=%d reached=%v", w.Code, reached)
 	}
 
+	// An asset the page needs to run. It asks with Accept: */*, so keying the
+	// exemption on text/html let the document load and refused everything it
+	// depended on - a blank page with nothing to report. Assets go through.
 	reached = false
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, signedIn("application/json"))
-	if reached || w.Code != http.StatusForbidden {
-		t.Errorf("an API call got through during first run: code=%d reached=%v", w.Code, reached)
+	asset := httptest.NewRequest("GET", "/main.dart.js", nil)
+	asset.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.signSession("first@example.com")})
+	asset.Header.Set("Accept", "*/*")
+	h.ServeHTTP(w, asset)
+	if !reached || w.Code != http.StatusOK {
+		t.Errorf("the app could not load its own bundle during first run: code=%d reached=%v", w.Code, reached)
+	}
+
+	// The API does not, whatever it asks for.
+	for _, accept := range []string{"application/json", "text/html", "*/*"} {
+		reached = false
+		w = httptest.NewRecorder()
+		api := httptest.NewRequest("GET", "/api/sessions", nil)
+		api.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.signSession("first@example.com")})
+		api.Header.Set("Accept", accept)
+		h.ServeHTTP(w, api)
+		if reached || w.Code != http.StatusForbidden {
+			t.Errorf("an API call with Accept %q got through during first run: code=%d reached=%v",
+				accept, w.Code, reached)
+		}
 	}
 }
 
