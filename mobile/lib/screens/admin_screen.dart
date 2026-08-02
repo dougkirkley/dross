@@ -100,7 +100,7 @@ class _AdminScreenState extends State<AdminScreen> {
       appBar: AppBar(
         backgroundColor: T.bg,
         surfaceTintColor: Colors.transparent,
-        title: const Text('Accounts', style: T.title),
+        title: const Text('Admin', style: T.title),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: T.textDim),

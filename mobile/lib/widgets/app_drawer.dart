@@ -102,8 +102,11 @@ class AppDrawer extends StatelessWidget {
             const Divider(height: 1, color: T.borderFaint),
             // Only for an admin, and only because the server said so. Hiding it
             // is courtesy, not the permission: the API refuses anyone else.
+            //
+            // Not a cog: Settings already owns that glyph, and two cogs in one
+            // drawer is a coin toss every time somebody wants one of them.
             if (s.isAdmin)
-              _navItem(context, Icons.verified_user_outlined, 'Accounts',
+              _navItem(context, Icons.admin_panel_settings_outlined, 'Admin',
                   active: false, onTap: () {
                 Navigator.pop(context);
                 Navigator.push(context,
