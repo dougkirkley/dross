@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,42 @@ func newServeCmd() *cobra.Command {
 						fmt.Fprintf(cmd.OutOrStdout(), "registered new user %s\n", u.Email)
 					}
 				})
+			}
+
+			// Pod mode. Off unless a session namespace is set, so a Docker or
+			// local deployment keeps running sessions in this process and needs
+			// to know nothing about Kubernetes. Set, dross writes a Session
+			// resource per session and the operator turns each into a workload.
+			if ns := podSessionNamespace(); ns != "" {
+				pods, err := server.NewPodSessions(ns)
+				if err != nil {
+					return fmt.Errorf("pod sessions: %w", err)
+				}
+				if pods == nil {
+					// Asked for, but we are not running in a cluster. Say so
+					// rather than silently falling back to in-process sessions.
+					return fmt.Errorf("pod sessions require running in a cluster (DROSS_SESSION_NAMESPACE=%q)", ns)
+				}
+				if authr == nil {
+					// The credential a session pod authenticates with is minted
+					// here; with no authenticator there is nothing to mint it.
+					return fmt.Errorf("pod sessions require authentication to be configured")
+				}
+				pods.Image = envOr("DROSS_SESSION_IMAGE", "")
+				pods.ServerURL = envOr("DROSS_SESSION_SERVER_URL", "")
+				pods.Storage = envOr("DROSS_SESSION_STORAGE", "5Gi")
+				pods.StorageClass = envOr("DROSS_SESSION_STORAGE_CLASS", "")
+				pods.CPULimit = envOr("DROSS_SESSION_CPU_LIMIT", "")
+				pods.MemoryLimit = envOr("DROSS_SESSION_MEMORY_LIMIT", "")
+				pods.ConfigMap = envOr("DROSS_SESSION_CONFIGMAP", "")
+				if pods.Image == "" || pods.ServerURL == "" {
+					return fmt.Errorf("pod sessions need DROSS_SESSION_IMAGE and DROSS_SESSION_SERVER_URL")
+				}
+				pods.MintToken = func(owner, sessionID string, ttl time.Duration) (string, error) {
+					return authr.MintDeviceToken(owner, sessionID, ttl)
+				}
+				mgr.SetPodSessions(pods)
+				fmt.Fprintf(cmd.OutOrStdout(), "pod sessions enabled: namespace %s, image %s\n", ns, pods.Image)
 			}
 
 			sessionStore := storage.NewSessionStore(sp)
@@ -263,4 +300,16 @@ func mcpSpecs(in []config.MCPServer) []agent.MCPServerSpec {
 		out = append(out, mcpSpec(s))
 	}
 	return out
+}
+
+// podSessionNamespace names the namespace session workloads go in, and is what
+// switches pod mode on. Read from the environment rather than a flag because
+// it is set by whatever deploys dross, not by whoever runs it.
+func podSessionNamespace() string { return os.Getenv("DROSS_SESSION_NAMESPACE") }
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
