@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dougkirkley/dross/internal/relay"
 )
@@ -110,5 +111,39 @@ func TestChatSessionsAreNotPodBacked(t *testing.T) {
 	// And a chat session can be prompted straight away, with nothing to wait on.
 	if err := m.prompt(chat, "hello"); err != nil {
 		t.Errorf("prompting a fresh chat session failed: %v", err)
+	}
+}
+
+// A run waiting on a model to load looks exactly like one that has hung: the
+// status says running and the transcript is empty. It has to say something.
+func TestSilentRunSaysSo(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	s := m.create(CreateReq{}, "doug@example.com")
+	s.mu.Lock()
+	s.status = "running"
+	s.mu.Unlock()
+
+	s.warnIfSilent()
+	// The watchdog is on a timer; drive it directly rather than waiting.
+	time.Sleep(10 * time.Millisecond)
+	if n := len(s.history(0)); n != 0 {
+		t.Fatalf("warned immediately (%d events); it must wait", n)
+	}
+}
+
+// A run that produces something is not nagged.
+func TestBusyRunIsNotWarned(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	s := m.create(CreateReq{}, "doug@example.com")
+	s.mu.Lock()
+	s.status = "running"
+	s.mu.Unlock()
+
+	s.warnIfSilent()
+	s.emit("text", "here is an answer") // activity moves the sequence on
+	for _, e := range s.history(0) {
+		if e.Kind == "meta" {
+			t.Error("warned a run that was producing output")
+		}
 	}
 }

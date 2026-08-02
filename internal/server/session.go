@@ -48,10 +48,15 @@ type Session struct {
 	// only ever visible to the identity that owns them.
 	owner string
 
-	mu        sync.Mutex
-	workdir   string
-	repo      string // owner/repo (or dir name) label for the session card
-	title     string // first prompt, truncated — the session's display name
+	mu      sync.Mutex
+	workdir string
+	repo    string // owner/repo (or dir name) label for the session card
+	title   string // first prompt, truncated — the session's display name
+	// titleAuto marks a name the server invented (the workload's, given at
+	// creation) rather than one that means something. The first prompt replaces
+	// it, because "add retry to the uploader" says more than "eager-island";
+	// a name the user typed is left alone.
+	titleAuto bool
 	last      string // most recent user/agent message, for the list preview
 	updated   time.Time
 	status    string // "idle" | "running" | "error"
@@ -100,6 +105,34 @@ type sessionView struct {
 }
 
 // emit appends an event and fans it out to live subscribers.
+// silenceWarning is how long a run may produce nothing before the session says
+// so. Generous: a first turn against a cold local model spends a minute or more
+// loading weights before it emits a token.
+const silenceWarning = 45 * time.Second
+
+// warnIfSilent says something when a run produces nothing for a long time.
+//
+// A run that is waiting on a model to load looks exactly like one that has
+// hung: the status is "running" and the transcript is empty. Saying that
+// nothing has come back yet is the difference between waiting and wondering
+// whether it is broken.
+func (s *Session) warnIfSilent() {
+	s.mu.Lock()
+	at := s.seq
+	s.mu.Unlock()
+
+	time.AfterFunc(silenceWarning, func() {
+		s.mu.Lock()
+		quiet := s.seq == at && s.status == "running"
+		s.mu.Unlock()
+		if !quiet {
+			return
+		}
+		s.emit("meta", "still working — nothing back from the model yet. "+
+			"A local model that is not loaded can take a minute or two on the first turn.")
+	})
+}
+
 func (s *Session) emit(kind, data string) {
 	s.mu.Lock()
 	s.seq++
@@ -161,9 +194,12 @@ func (m *Manager) markBusy(sessionID string, busy bool) {
 // setTitle renames a session for display. The id is untouched: it is what the
 // relay device, the workload label and every stored event key on, so a rename
 // must not be able to move a session out from under them.
-func (s *Session) setTitle(t string) {
+func (s *Session) setTitle(t string) { s.setTitleAuto(t, false) }
+
+// setTitleAuto renames a session, recording whether the name was invented.
+func (s *Session) setTitleAuto(t string, auto bool) {
 	s.mu.Lock()
-	s.title = t
+	s.title, s.titleAuto = t, auto
 	s.updated = time.Now()
 	s.mu.Unlock()
 	if s.mgr != nil {
@@ -449,8 +485,8 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	// Device sessions run on the linked laptop: relay the prompt over the hub
 	// and let its events stream back. The pod runs no agent for these.
 	if s.device != "" {
-		if s.title == "" {
-			s.title = truncate(oneLine(prompt), 60)
+		if s.title == "" || s.titleAuto {
+			s.title, s.titleAuto = truncate(oneLine(prompt), 60), false
 		}
 		s.status = "running"
 		s.mu.Unlock()
@@ -460,13 +496,14 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 			return fmt.Errorf("device %q is not connected", s.device)
 		}
 		s.emit("prompt", prompt)
+		s.warnIfSilent()
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.status = "running"
-	if s.title == "" {
-		s.title = truncate(oneLine(prompt), 60)
+	if s.title == "" || s.titleAuto {
+		s.title, s.titleAuto = truncate(oneLine(prompt), 60), false
 	}
 	model := s.Model
 	chat := s.Chat
@@ -518,6 +555,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 
 	s.emit("prompt", prompt)
+	s.warnIfSilent()
 	go func() {
 		defer ag.Close() // release MCP connections when the turn ends
 		res, err := ag.Run(ctx, prompt)

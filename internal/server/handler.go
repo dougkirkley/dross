@@ -72,7 +72,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// Call the session what its pod is called, so the two are the same
 		// thing to look at. Without this a pod-backed session has no name until
 		// its first prompt, and a list of them reads as "New session" repeated.
-		sess.setTitle(name)
+		// Invented, so the first prompt replaces it with something that says
+		// what the session is for.
+		sess.setTitleAuto(name, true)
 		sess.markDevice(sess.ID)
 	}
 	writeJSON(w, http.StatusCreated, sess.snapshot())
