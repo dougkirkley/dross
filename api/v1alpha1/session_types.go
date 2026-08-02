@@ -47,6 +47,12 @@ type SessionSpec struct {
 	Provider string `json:"provider,omitempty"`
 	BaseURL  string `json:"baseURL,omitempty"`
 
+	// APIKeyEnv is the variable the key in TokenSecret is exposed as, decided by
+	// the server because it is the side that knows the provider conventions.
+	// Passing the name rather than the provider keeps the operator free of the
+	// agent's configuration packages, and its image is deliberately small.
+	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
+
 	// Model overrides the server default for this session.
 	Model string `json:"model,omitempty"`
 

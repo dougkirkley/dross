@@ -221,6 +221,7 @@ func TestSessionPodCarriesTheProviderConfig(t *testing.T) {
 	s := newSession()
 	s.Spec.Provider = "openai"
 	s.Spec.BaseURL = "http://ollama.media.svc.cluster.local:11434/v1"
+	s.Spec.APIKeyEnv = "OPENAI_API_KEY"
 
 	pod := podTemplateFor(s).Spec.Containers[0]
 
@@ -256,7 +257,7 @@ func TestSessionPodCarriesTheProviderConfig(t *testing.T) {
 // an empty variable invented for it.
 func TestSessionPodOmitsTheKeyEnvWhenThereIsNoConvention(t *testing.T) {
 	s := newSession()
-	s.Spec.Provider = "bedrock"
+	s.Spec.Provider = "bedrock" // no key convention, so the server names none
 	for _, e := range podTemplateFor(s).Spec.Containers[0].Env {
 		if strings.HasSuffix(e.Name, "_API_KEY") {
 			t.Errorf("invented %s for bedrock", e.Name)

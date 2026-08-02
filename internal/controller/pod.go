@@ -6,7 +6,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
-	"github.com/dougkirkley/dross/internal/config"
 )
 
 // podTemplateFor builds the pod template that runs one session.
@@ -54,9 +53,10 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	}
 	env := []corev1.EnvVar{fromSecret("DROSS_TOKEN", "token")}
 	// The provider's own variable, which the CLI already reads when no key is
-	// given on the command line.
-	if v := config.APIKeyEnv(s.Spec.Provider); v != "" {
-		env = append(env, fromSecret(v, "api-key"))
+	// given on the command line. Named by the server, which knows the
+	// conventions; empty for a provider that has none, such as bedrock.
+	if s.Spec.APIKeyEnv != "" {
+		env = append(env, fromSecret(s.Spec.APIKeyEnv, "api-key"))
 	}
 
 	c := corev1.Container{

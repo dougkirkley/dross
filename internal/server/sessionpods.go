@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 // Pod-backed sessions.
@@ -121,6 +122,7 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 			TokenSecret:  sec.Name,
 			Provider:     p.Provider,
 			BaseURL:      p.BaseURL,
+			APIKeyEnv:    config.APIKeyEnv(p.Provider),
 			Model:        model,
 			Storage:      p.Storage,
 			StorageClass: p.StorageClass,
