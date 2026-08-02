@@ -273,3 +273,39 @@ func TestMultiQuestionKeepsItsLabels(t *testing.T) {
 		t.Errorf("multi-question answer lost its labels: %q", got)
 	}
 }
+
+// The lit part of the running rule has to actually move, stay inside the
+// window, and come back — it is the only thing saying a run is still alive.
+func TestSweepSegmentMovesAndStaysInBounds(t *testing.T) {
+	const w = 100
+	seen := map[int]bool{}
+	for tick := 0; tick < 400; tick++ {
+		pos, seg, ok := sweepSegment(w, tick)
+		if !ok {
+			t.Fatalf("tick %d: no segment for a %d-wide window", tick, w)
+		}
+		if pos < 0 || pos+seg > w {
+			t.Fatalf("tick %d: segment %d..%d falls outside the window", tick, pos, pos+seg)
+		}
+		seen[pos] = true
+	}
+	if len(seen) < 10 {
+		t.Errorf("only %d distinct positions; the rule is not sweeping", len(seen))
+	}
+	// It reverses rather than jumping back to the start.
+	pos0, seg, _ := sweepSegment(w, 0)
+	if pos0 != 0 {
+		t.Errorf("starts at %d, not the left edge", pos0)
+	}
+	if far, _, _ := sweepSegment(w, w-seg); far != w-seg {
+		t.Errorf("does not reach the right edge: %d", far)
+	}
+}
+
+// A window too narrow for a moving segment must fall back rather than render a
+// negative-width run, which would panic on strings.Repeat.
+func TestSweepSegmentGivesUpOnANarrowWindow(t *testing.T) {
+	if _, _, ok := sweepSegment(4, 3); ok {
+		t.Error("claimed a segment in a 4-wide window")
+	}
+}

@@ -80,6 +80,9 @@ class _SessionScreenState extends State<SessionScreen> {
                   ? null
                   : _sessionMenu(context, sess),
             ),
+            // Same signal at the top of the window the session owns, so a run
+            // is visible without going back to the list to see its card.
+            if (sess?.isRunning ?? false) const RunningBar(),
             Expanded(
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);

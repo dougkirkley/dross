@@ -152,6 +152,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
           context,
           sess,
           _card(
+            running: sess.isRunning,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -276,14 +277,23 @@ class _SessionsScreenState extends State<SessionsScreen> {
     );
   }
 
-  Widget _card({required Widget child}) => Container(
+  Widget _card({required Widget child, bool running = false}) => Container(
         width: double.infinity,
+        // Clipped, so the bar takes the card's rounded corners instead of
+        // squaring them off.
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: T.surface,
           borderRadius: BorderRadius.circular(T.rCard),
           border: Border.all(color: T.border),
         ),
-        child: child,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (running) const RunningBar(),
+            child,
+          ],
+        ),
       );
 
   Widget _needsConfig(BuildContext context) => Center(

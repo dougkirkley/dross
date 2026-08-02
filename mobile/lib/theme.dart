@@ -334,3 +334,74 @@ class FlatHeader extends StatelessWidget {
     );
   }
 }
+
+/// A light bar that sweeps back and forth: a session is working.
+///
+/// Indeterminate on purpose. A run has no measurable progress — the agent is
+/// taking as many turns as it needs — so a bar that filled left to right would
+/// be inventing one. This says only "still going", which is the whole of what
+/// is known.
+///
+/// It sits on the top edge of the card it belongs to, using the same aurora
+/// colours as GradientHairline so it reads as part of the same surface rather
+/// than as a stock progress indicator.
+class RunningBar extends StatefulWidget {
+  const RunningBar({super.key, this.height = 2});
+  final double height;
+
+  @override
+  State<RunningBar> createState() => _RunningBarState();
+}
+
+class _RunningBarState extends State<RunningBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: widget.height,
+      child: LayoutBuilder(builder: (context, box) {
+        final w = box.maxWidth;
+        final seg = w * 0.35;
+        return AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) {
+            // easeInOut so it slows at each end rather than snapping back,
+            // which is what makes it read as a sweep and not a jump.
+            final t = Curves.easeInOut.transform(_c.value);
+            return Stack(children: [
+              Positioned(
+                left: (w - seg) * t,
+                width: seg,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(widget.height),
+                    gradient: const LinearGradient(colors: [
+                      Colors.transparent,
+                      T.violet,
+                      T.accentHi,
+                      T.bloom,
+                      Colors.transparent,
+                    ]),
+                  ),
+                ),
+              ),
+            ]);
+          },
+        );
+      }),
+    );
+  }
+}

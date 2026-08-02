@@ -2326,8 +2326,54 @@ func (m Model) header() string {
 	if w < 1 {
 		w = 1
 	}
-	rule := gradientText(strings.Repeat("─", w), holoLoop)
-	return bar + "\n" + rule
+	return bar + "\n" + m.headerRule(w)
+}
+
+// headerRule is the hairline under the header: static when idle, and a lit
+// segment sweeping back and forth while a run is in flight.
+//
+// The same signal the app shows on a session's card and at the top of its
+// window. Indeterminate, because a run has no measurable progress — the agent
+// takes as many turns as it needs — so a bar that filled end to end would be
+// inventing one. This says "still going", which is all that is known.
+func (m Model) headerRule(w int) string {
+	if !m.running {
+		return gradientText(strings.Repeat("─", w), holoLoop)
+	}
+	pos, seg, ok := sweepSegment(w, m.tick)
+	if !ok {
+		return gradientText(strings.Repeat("─", w), holoLoop)
+	}
+	return ruleStyle.Render(strings.Repeat("─", pos)) +
+		gradientText(strings.Repeat("─", seg), holoLoop) +
+		ruleStyle.Render(strings.Repeat("─", w-pos-seg))
+}
+
+// sweepSegment places the lit part of the running rule: how far along it starts
+// and how wide it is, ping-ponging with the tick. ok is false when the window
+// is too narrow to show a moving segment at all.
+//
+// Split out from the rendering because the rendering cannot be asserted on: in
+// a test there is no terminal, lipgloss emits no escapes, and every position
+// draws the same run of dashes.
+func sweepSegment(w, tick int) (pos, seg int, ok bool) {
+	seg = w / 4
+	if seg < 6 {
+		seg = 6
+	}
+	span := w - seg
+	if span < 1 {
+		return 0, 0, false
+	}
+	if tick < 0 {
+		tick = -tick
+	}
+	// Walk to the far end over `span` ticks, then back.
+	pos = tick % (2 * span)
+	if pos > span {
+		pos = 2*span - pos
+	}
+	return pos, seg, true
 }
 
 // statsSegment is the context meter (when the window is known) + running cost,
