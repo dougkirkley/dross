@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/dougkirkley/dross/pkg/provider"
@@ -35,5 +36,34 @@ func TestApproveRequiresTheExactOption(t *testing.T) {
 	b := &Agent{asker: func(AskRequest) (string, error) { return sessionAllowOpt, nil }}
 	if !b.approve(call, true) || !b.sessionAllow["bash"] {
 		t.Error("session-allow option not honoured")
+	}
+}
+
+// With no asker there is nobody to ask, so a call that reached approve must be
+// refused. Returning true instead made every "ask" rule a no-op for precisely
+// the callers that cannot supervise the result — a server, a session pod, a
+// relayed prompt.
+func TestApproveWithoutAnAskerRefuses(t *testing.T) {
+	a := &Agent{} // no asker
+	if a.approve(provider.ToolCall{Name: "bash"}, false) {
+		t.Error("approved a gated call with nobody to ask")
+	}
+	if a.approve(provider.ToolCall{Name: "write"}, true) {
+		t.Error("approved a gated call with nobody to ask (session variant)")
+	}
+}
+
+// The default mode must stay unattended-friendly: it never consults approve, so
+// making approve refuse cannot break a server or a one-shot run that has not
+// configured a gate.
+func TestAutoModeNeverReachesApprove(t *testing.T) {
+	a := &Agent{permMode: PermAuto, asker: func(AskRequest) (string, error) {
+		t.Fatal("auto mode asked for approval")
+		return "", nil
+	}}
+	for _, name := range []string{"write", "edit", "bash"} {
+		if why, ok := a.gate(provider.ToolCall{Name: name, Input: json.RawMessage(`{"command":"ls"}`)}); !ok {
+			t.Errorf("auto mode blocked %s: %s", name, why)
+		}
 	}
 }

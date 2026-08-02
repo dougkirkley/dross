@@ -1124,13 +1124,24 @@ func (a *Agent) isExternalTool(name string) bool {
 
 const sessionAllowOpt = "Allow, don't ask again this session"
 
-// approve asks the user to allow a gated tool call. With no asker (non-
-// interactive), it allows by default so servers and one-shot runs aren't blocked.
+// approve asks the user to allow a gated tool call.
+//
+// With no asker there is nobody to ask, so the answer is no. Reaching here at
+// all means something already decided this call needs approval — a config rule
+// of "ask", or manual/accept-edits mode — and treating that as "allow" turns
+// every such rule into a no-op for exactly the callers that cannot supervise
+// the result. The two guardrails above (destructive commands, sensitive writes)
+// already refuse on this basis; this is the same rule applied consistently.
+//
+// Callers that legitimately run unattended are unaffected: the default PermAuto
+// mode never consults approve, so a server or one-shot run only sees a refusal
+// once someone has configured a gate for it.
+//
 // When allowSession is set, it offers a "don't ask again this session" option
 // that whitelists the tool for the rest of the conversation.
 func (a *Agent) approve(tc provider.ToolCall, allowSession bool) bool {
 	if a.asker == nil {
-		return true
+		return false
 	}
 	opts := []string{"Allow", "Deny"}
 	if allowSession {

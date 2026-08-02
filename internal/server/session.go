@@ -226,6 +226,10 @@ type Manager struct {
 	repo      string                 // owner/repo (or dir) label shown on session cards
 	hub       *deviceHub             // linked devices (session relay)
 	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
+	// policy is the user's allowed-tools/plugins/permission rules, shared with
+	// every other place an agent is built so a session here is gated the same
+	// way it would be anywhere else.
+	policy    []agent.Option
 
 	// pods provisions a workload per session; nil keeps sessions in-process,
 	// which is what a Docker or local deployment does.
@@ -251,6 +255,9 @@ func (m *Manager) SetModels(models []string) { m.models = models }
 
 // SetMCP configures the MCP servers whose tools pod-hosted code sessions gain.
 func (m *Manager) SetMCP(specs []agent.MCPServerSpec) { m.mcp = specs }
+
+// SetPolicy sets the tool and permission policy every session runs under.
+func (m *Manager) SetPolicy(opts []agent.Option) { m.policy = opts }
 
 // SetRepo sets the workspace label (e.g. "owner/repo") shown on session cards.
 func (m *Manager) SetRepo(repo string) { m.repo = repo }
@@ -457,6 +464,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 			opts = append(opts, agent.WithCompactStats(m.compStats))
 		}
 	}
+	opts = append(opts, m.policy...)
 	identity := config.DefaultIdentity
 	if chat {
 		identity = config.DefaultChatIdentity

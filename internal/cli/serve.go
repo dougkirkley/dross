@@ -119,6 +119,7 @@ func newServeCmd() *cobra.Command {
 			}
 			mgr.SetModels(res.File.Models)
 			mgr.SetMCP(mergedMCP(res.File, workdir))
+			mgr.SetPolicy(config.PolicyOptions(res.File))
 			mgr.SetRepo(repoLabel(workdir))
 			// Who may sign in is decided upstream by the identity provider's own
 			// policy. dross records accounts rather than gating on them: the first

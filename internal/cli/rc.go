@@ -8,8 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/dross/pkg/provider"
+	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/internal/relay"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // newRCCmd is `dross rc`: link this computer to a dross server as a
@@ -92,7 +93,8 @@ func newRCCmd() *cobra.Command {
 			return relay.RunDevice(ctx, relay.DeviceOptions{
 				Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
 				Lead: lead, LeadModel: res.Lead.Model, Worker: worker, WorkerModel: res.Worker.Model,
-				Log: func(s string) { fmt.Fprintln(out, s) },
+				Policy: config.PolicyOptions(res.File),
+				Log:    func(s string) { fmt.Fprintln(out, s) },
 			})
 		},
 	}

@@ -206,28 +206,11 @@ func newTUICmd() *cobra.Command {
 							return tui.Ask(prog, req)
 						}))
 					}
-					if len(res.File.Tools) > 0 {
-						opts = append(opts, agent.WithAllowedTools(res.File.Tools))
-					}
-					if len(res.File.Plugins) > 0 {
-						specs := make([]agent.PluginSpec, 0, len(res.File.Plugins))
-						for _, p := range res.File.Plugins {
-							specs = append(specs, agent.PluginSpec{
-								Name: p.Name, Description: p.Description, Command: p.Command,
-								Properties: p.Properties, Required: p.Required,
-							})
-						}
-						opts = append(opts, agent.WithPluginTools(specs))
-					}
+					// Allowed tools, plugins and permission rules are shared with
+					// every other place an agent is built, so they cannot drift.
+					opts = append(opts, config.PolicyOptions(res.File)...)
 					if specs := mergedMCP(res.File, workdir); len(specs) > 0 {
 						opts = append(opts, agent.WithMCPServers(specs))
-					}
-					if len(res.File.Permission) > 0 {
-						rules := make(map[string]agent.PermRuleSpec, len(res.File.Permission))
-						for tool, p := range res.File.Permission {
-							rules[tool] = agent.PermRuleSpec{Decision: p.Blanket, Patterns: p.Rules}
-						}
-						opts = append(opts, agent.WithPermissionRules(rules))
 					}
 					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity, MaxTurns: res.File.MaxTurns},
 						st.prov, opts...)

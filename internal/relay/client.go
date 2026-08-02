@@ -42,6 +42,24 @@ type DeviceOptions struct {
 	// whoever is holding the phone sees what you type, and you see what they
 	// send.
 	Ready func(publish func(kind, data string))
+
+	// Prompt and Interrupt, when set, hand the remote's requests to the local
+	// UI instead of running them here.
+	//
+	// This device can build an agent of its own, and does when nothing else
+	// will (a session pod, or plain `dross rc`). But when a TUI is attached it
+	// already owns one: a conversation that persists across turns, with the
+	// permission mode, identity, turn limit, MCP servers and plugins the user
+	// configured. Running a second agent beside it would answer the phone with
+	// a different, ungated assistant that remembers nothing — so when the UI
+	// offers to take prompts, it takes all of them.
+	Prompt    func(sessionID, text string)
+	Interrupt func(sessionID string)
+
+	// Policy is the user's tool and permission policy, applied when this device
+	// does build an agent of its own. Without it a headless worker ran with no
+	// rules at all, so a gate the user configured simply did not exist here.
+	Policy []agent.Option
 }
 
 func (o DeviceOptions) mirror(kind, data string) {
@@ -105,11 +123,20 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		}
 		switch f.Type {
 		case "prompt":
+			if opts.Prompt != nil {
+				// The UI owns the agent; it echoes and publishes the run itself.
+				opts.Prompt(f.SessionID, f.Text)
+				break
+			}
 			// Echoed locally only. The server already recorded this prompt when
 			// it relayed it, so sending it back would double it there.
 			opts.mirror("prompt", f.Text)
 			d.run(ctx, f.SessionID, f.Text)
 		case "interrupt":
+			if opts.Interrupt != nil {
+				opts.Interrupt(f.SessionID)
+				break
+			}
 			opts.mirror("meta", "interrupted from the remote")
 			d.interrupt(f.SessionID)
 		}
@@ -160,6 +187,7 @@ func (d *device) run(ctx context.Context, id, text string) {
 	if d.opts.Worker != nil && d.opts.WorkerModel != "" {
 		aopts = append(aopts, agent.WithWorker(d.opts.Worker, d.opts.WorkerModel))
 	}
+	aopts = append(aopts, d.opts.Policy...)
 	ag, err := agent.New(agent.Config{Name: "dross", Model: d.opts.LeadModel, Workdir: d.opts.Workdir}, d.opts.Lead, aopts...)
 	if err != nil {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "error", Data: err.Error()})
