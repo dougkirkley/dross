@@ -129,9 +129,10 @@ List<Object> buildTimeline(List<Event> events) {
       case 'review':
       case 'error':
       case 'checkpoint':
-      // A permission gate: the run is blocked on it, so it has to break the
-      // activity run and stand on its own rather than fold into a summary line.
-      case 'ask':
+      // A question the run is blocked on, so it breaks the activity run and
+      // stands on its own rather than folding into a summary line. Distinct
+      // from "ask", which is the agent's own note that it asked something.
+      case 'ask-request':
         flush();
         out.add(e);
       case 'done':
@@ -147,6 +148,7 @@ List<Object> buildTimeline(List<Event> events) {
           awaiting = null;
         }
       case 'usage': // token counter, not an activity step
+      case 'ask': // the agent's note; the actionable one is ask-request
       case 'answer':
         break; // not shown as a step
       case 'compact':

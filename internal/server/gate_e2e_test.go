@@ -149,7 +149,7 @@ func waitForAsk(t *testing.T, base, sid string) (string, string) {
 		json.NewDecoder(r.Body).Decode(&body)
 		r.Body.Close()
 		for _, e := range body.Events {
-			if e.Kind == "ask" {
+			if e.Kind == "ask-request" {
 				id, payload, _ := strings.Cut(e.Data, "\x1f")
 				return id, payload
 			}
@@ -219,5 +219,74 @@ func TestDeniedGateReachesTheRun(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the denial never reached the run")
+	}
+}
+
+// ask_user, not a permission gate: a free-text question with no options. The
+// answer has to come back verbatim, because the model reads it as prose rather
+// than matching it against a choice.
+func TestFreeTextAskFromRemoteReturnsTheTypedAnswer(t *testing.T) {
+	store := storage.NewSessionStore(t.TempDir())
+	mgr := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	srv := New(store, mgr, nil, testArts(t))
+	hs := httptest.NewServer(srv)
+	defer hs.Close()
+
+	got := make(chan string, 1)
+	linked := make(chan struct{})
+	var askFn func(string) (string, error)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = relay.RunDevice(ctx, relay.DeviceOptions{
+			Server: hs.URL, Name: "desk", Workdir: t.TempDir(),
+			Lead: &fakeProvider{}, LeadModel: "m",
+			Ready: func(_ func(kind, data string), ask func(string) (string, error)) {
+				askFn = ask
+				close(linked)
+			},
+			Prompt: func(_, _ string) {
+				// What the ask_user tool produces: no options at all.
+				req := agent.AskRequest{Questions: []agent.AskQuestion{{
+					Header: "name", Question: "What should I call the service?",
+				}}}
+				payload, _ := json.Marshal(req)
+				ans, err := askFn(string(payload))
+				if err != nil {
+					got <- "error: " + err.Error()
+					return
+				}
+				got <- ans
+			},
+		})
+	}()
+
+	<-linked
+	const sid = "ses_desk"
+	for i := 0; i < 500; i++ {
+		if _, ok := mgr.getAny(sid); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	post(t, hs.URL+"/api/sessions/"+sid+"/prompt", `{"prompt":"scaffold it"}`, http.StatusAccepted)
+
+	askID, question := waitForAsk(t, hs.URL, sid)
+	// The client needs the options list to know this is free text rather than a
+	// choice; an empty/absent list is what tells it to show a text field.
+	if !strings.Contains(question, `"options":null`) {
+		t.Errorf("free-text question did not arrive as such: %s", question)
+	}
+	post(t, hs.URL+"/api/sessions/"+sid+"/answer",
+		`{"ask_id":"`+askID+`","answer":"gateway-api"}`, http.StatusOK)
+
+	select {
+	case ans := <-got:
+		if ans != "gateway-api" {
+			t.Fatalf("the run received %q; the typed answer must arrive verbatim", ans)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the answer never reached the blocked run")
 	}
 }

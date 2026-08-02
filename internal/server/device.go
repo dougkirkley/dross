@@ -230,9 +230,15 @@ func (m *Manager) deviceAsk(device, sessionID, askID, payload string) {
 	s.mu.Lock()
 	s.pendingAsk = askID
 	s.mu.Unlock()
+	// "ask-request", not "ask": the agent already emits "ask" with the bare
+	// question text when the ask_user tool fires, purely so clients can show
+	// what was asked. Reusing that kind for a payload meant to be acted on put
+	// two different shapes behind one name, and the client that tried to parse
+	// both rendered whichever arrived first as nothing.
+	//
 	// The ask id travels with the question so an answer can be matched to it
 	// rather than to whatever is outstanding when it arrives.
-	s.emit("ask", askID+"\x1f"+payload)
+	s.emit("ask-request", askID+"\x1f"+payload)
 }
 
 // answerDevice sends a reply to a device's pending question. It reports whether

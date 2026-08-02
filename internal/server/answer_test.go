@@ -29,7 +29,7 @@ func TestDeviceAskReachesTheSession(t *testing.T) {
 	}
 	var found string
 	for _, e := range s.history(0) {
-		if e.Kind == "ask" {
+		if e.Kind == "ask-request" {
 			found = e.Data
 		}
 	}

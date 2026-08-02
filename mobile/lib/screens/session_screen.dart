@@ -193,7 +193,7 @@ class _SessionScreenState extends State<SessionScreen> {
     final indent = e.isWorker ? const EdgeInsets.only(left: 20) : EdgeInsets.zero;
     Widget content;
     switch (e.baseKind) {
-      case 'ask':
+      case 'ask-request':
         // Blocking the run, so it gets its own card rather than a text row.
         return AskCard(e.data);
       case 'prompt':
