@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
+import '../widgets/swipe_delete.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
@@ -144,12 +145,9 @@ class _SessionsScreenState extends State<SessionsScreen> {
     );
   }
 
-  Widget _sessionCard(BuildContext context, Session sess) => Dismissible(
+  Widget _sessionCard(BuildContext context, Session sess) => SwipeToDelete(
         key: ValueKey(sess.id),
-        direction: DismissDirection.endToStart,
-        background: _swipeBg(),
-        confirmDismiss: (_) => _confirmSheet(context, sess),
-        onDismissed: (_) => context.read<AppState>().deleteSession(sess),
+        onDelete: () => context.read<AppState>().deleteSession(sess),
         child: _openTap(
           context,
           sess,
@@ -227,15 +225,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _detail() => widget.chat ? const ChatScreen() : const SessionScreen();
 
   // Red trailing background revealed while swiping a card to delete.
-  Widget _swipeBg() => Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        decoration: BoxDecoration(
-          color: T.danger.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(T.rCard),
-        ),
-        child: const Icon(Icons.delete_outline, color: T.danger),
-      );
 
   // Status label (colored) + workspace. Device sessions show connection state
   // ("Connected · owner/repo"); pod sessions show run status.
@@ -321,24 +310,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
 
   /// Shows the delete-confirmation sheet and returns whether the user confirmed.
   /// It performs no mutation, so it is safe as a Dismissible confirmDismiss.
-  Future<bool> _confirmSheet(BuildContext context, Session sess) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: T.surface,
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.delete_outline, color: T.danger),
-            title:
-                const Text('Delete session', style: TextStyle(color: T.text)),
-            subtitle: Text(sess.displayTitle, style: T.metaFaint),
-            onTap: () => Navigator.pop(context, true),
-          ),
-        ]),
-      ),
-    );
-    return ok == true;
-  }
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();
