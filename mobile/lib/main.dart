@@ -6,6 +6,7 @@ import 'theme.dart';
 import 'screens/chats_screen.dart';
 import 'screens/server_setup_screen.dart';
 import 'screens/sessions_screen.dart';
+import 'screens/setup_screen.dart';
 import 'screens/sign_in_screen.dart';
 
 void main() {
@@ -43,6 +44,11 @@ class Home extends StatelessWidget {
     if (!configured) return const ServerSetupScreen();
     final authed = context.select<AppState, bool>((s) => s.authed);
     if (!authed) return const SignInScreen();
+    // A server with nobody who can approve anyone cannot do anything for
+    // anyone, so this comes before the rest of the app rather than being a page
+    // somebody has to be told the URL of.
+    final needsSetup = context.select<AppState, bool>((s) => s.needsSetup);
+    if (needsSetup) return const SetupScreen();
     final mode = context.select<AppState, AppMode>((s) => s.mode);
     return mode == AppMode.chat ? const ChatsScreen() : const SessionsScreen();
   }

@@ -426,3 +426,48 @@ func TestClaimAdminIsAtomic(t *testing.T) {
 		t.Fatalf("%d racers claimed the role; want exactly 1", n)
 	}
 }
+
+// A server with no administrator has to explain itself inside the application,
+// not at a URL somebody has to be told about. These are the two calls the app
+// makes to do that, and they sit outside the approval gate because the whole
+// point is that approval is impossible until one of them is answered.
+func TestSetupAPIOffersAndTakesTheRole(t *testing.T) {
+	users, err := NewUsers(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(storage.NewSessionStore(t.TempDir()),
+		NewManager(&fakeProvider{}, nil, "m", t.TempDir()), nil, testArts(t))
+	srv.SetAccounts(users, "", &recorder{})
+	users.SignIn("first@example.com", "First")
+
+	call := func(method, path, who string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(httptest.NewRequest(method, path, nil), who))
+		return w
+	}
+
+	w := call("GET", "/api/setup/status", "first@example.com")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"needs_setup":true`) {
+		t.Fatalf("status = %d %s", w.Code, w.Body.String())
+	}
+
+	if w := call("POST", "/api/setup/claim", "first@example.com"); w.Code != http.StatusOK {
+		t.Fatalf("claim = %d %s", w.Code, w.Body.String())
+	}
+	if !users.IsAdmin("first@example.com") {
+		t.Fatal("the claim did not take")
+	}
+
+	// Setup is over, and says so.
+	if w := call("GET", "/api/setup/status", "second@example.com"); !strings.Contains(w.Body.String(), `"needs_setup":false`) {
+		t.Errorf("still asking for setup after a claim: %s", w.Body.String())
+	}
+	// And a second claim is refused rather than quietly ignored.
+	if w := call("POST", "/api/setup/claim", "second@example.com"); w.Code != http.StatusConflict {
+		t.Errorf("second claim = %d; want 409", w.Code)
+	}
+	if users.IsAdmin("second@example.com") {
+		t.Fatal("two administrators from one first run")
+	}
+}

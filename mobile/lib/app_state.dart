@@ -73,6 +73,11 @@ class AppState extends ChangeNotifier {
   /// regardless of what the client believes.
   bool isAdmin = false;
 
+  /// True when the server has no administrator at all. Not a permission - a
+  /// state of the whole installation, which the app has to surface rather than
+  /// leave someone to discover at a URL.
+  bool needsSetup = false;
+
   /// True once the first session fetch has completed, so the lists show a
   /// loading screen (not the empty state) until sessions are actually available.
   bool sessionsLoaded = false;
@@ -236,12 +241,36 @@ class AppState extends ChangeNotifier {
   /// Asks the server what this identity may do. A failure here is not worth
   /// surfacing: it only means the admin entry stays hidden.
   Future<void> refreshWhoami() async {
+    // Setup first: while it is needed, whoami is the less interesting question
+    // and the API behind it is refused anyway.
+    try {
+      final needs = await _client.needsSetup();
+      if (needs != needsSetup) {
+        needsSetup = needs;
+        notifyListeners();
+      }
+      if (needs) return;
+    } catch (_) {}
     try {
       final admin = await _client.isAdmin();
       if (admin == isAdmin) return;
       isAdmin = admin;
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// Takes the administrator role on a server that has none.
+  Future<String?> claimAdmin() async {
+    try {
+      await _client.claimAdmin();
+      needsSetup = false;
+      isAdmin = true;
+      notifyListeners();
+      await refreshSessions();
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   /// Every registered account, for the admin screen.

@@ -150,6 +150,20 @@ class DrossClient {
 
   // --- accounts ---------------------------------------------------------
 
+  /// Whether this server still has nobody who can approve anyone. Answerable
+  /// before approval, because that is exactly the state it reports.
+  Future<bool> needsSetup() async {
+    final r = await _http.get(_uri('api/setup/status'), headers: _headers);
+    _check(r);
+    return (jsonDecode(r.body)['needs_setup'] as bool?) ?? false;
+  }
+
+  /// Takes the administrator role. Throws if someone else already has it.
+  Future<void> claimAdmin() async {
+    final r = await _http.post(_uri('api/setup/claim'), headers: _headers);
+    _check(r);
+  }
+
   /// Whether the signed-in identity may administer accounts. The server
   /// answers this, not the client: the app must never decide for itself that a
   /// screen is allowed, it only decides whether to bother offering it.

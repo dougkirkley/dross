@@ -221,9 +221,18 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			// Nobody can approve them because nobody can approve anyone. Send
 			// them somewhere that can be acted on rather than a page that says
 			// wait for a person who does not exist.
-			if a.setupPath != "" && a.firstRun != nil && a.firstRun() {
+			if a.firstRun != nil && a.firstRun() {
+				// Let the application load. It asks whether setup is needed and
+				// says so itself, which is the difference between a product
+				// that explains its state and a URL somebody has to be told.
+				//
+				// Only the page: every API route stays refused below, apart
+				// from the two the setup screen calls, which are registered
+				// outside this gate. So what gets through here is the static
+				// shell, and nothing it could ask for yet.
 				if wantsHTML(r) {
-					http.Redirect(w, r, a.setupPath, http.StatusFound)
+					w.Header().Set("Cache-Control", "private, no-store")
+					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, email)))
 					return
 				}
 				http.Error(w, "forbidden: this server has no administrator yet", http.StatusForbidden)

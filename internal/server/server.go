@@ -155,6 +155,13 @@ func (s *Server) buildHandler() http.Handler {
 		}
 		root.Handle("GET /setup", setup(s.handleSetupPage))
 		root.Handle("POST /setup/claim", setup(s.handleSetupClaim))
+		// The same two questions for the app, which is where someone actually
+		// is when they find out this server has no administrator. Registered
+		// here rather than on the API mux so they sit outside the approval
+		// gate, like the page: an account that cannot be approved by anyone
+		// still has to be able to ask, and to fix it.
+		root.Handle("GET /api/setup/status", setup(s.handleSetupStatus))
+		root.Handle("POST /api/setup/claim", setup(s.handleSetupClaimAPI))
 	}
 
 	if s.auth == nil {

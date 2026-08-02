@@ -334,6 +334,41 @@ func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 	_ = ui.Setup(auth.Identity(r)).Render(r.Context(), w)
 }
 
+// handleSetupStatus tells the app whether anyone can approve anyone yet, so it
+// can offer the role instead of leaving the person to find a URL. Reachable
+// before approval, because the whole point is that approval is impossible.
+func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"needs_setup": !s.users.HasAdmin(),
+		"email":       auth.Identity(r),
+	})
+}
+
+// handleSetupClaimAPI is the same claim the page makes, for the app.
+func (s *Server) handleSetupClaimAPI(w http.ResponseWriter, r *http.Request) {
+	email := auth.Identity(r)
+	if email == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	name := ""
+	if u, ok := s.users.Get(email); ok {
+		name = u.Name
+	}
+	u, claimed := s.users.ClaimAdmin(email, name)
+	if !claimed {
+		// Someone else got there first, or the directory could not be read.
+		// Either way they are not an administrator, and saying so is the honest
+		// answer rather than an error about why.
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"claimed": false,
+			"reason":  "this server already has an administrator",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"claimed": true, "email": u.Email})
+}
+
 // handleSetupClaim takes the role, if it is still there to take.
 func (s *Server) handleSetupClaim(w http.ResponseWriter, r *http.Request) {
 	if o := r.Header.Get("Origin"); o != "" && !sameOrigin(o, r) {

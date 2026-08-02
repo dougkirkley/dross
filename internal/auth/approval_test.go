@@ -123,3 +123,41 @@ func TestUnauthenticatedBrowserGoesToKratos(t *testing.T) {
 		t.Errorf("redirect lost the destination: %q", loc)
 	}
 }
+
+// While nobody can approve anyone, the application itself has to load - it is
+// what tells the person what is going on and offers them the role. Only the
+// page: an unapproved account is still unapproved, so anything that is not a
+// browser navigation is still refused.
+func TestFirstRunLetsThePageLoadButNotTheAPI(t *testing.T) {
+	a := &Authenticator{cfg: Config{}, cookieKey: []byte("test-key")}
+	a.SetApproval(fakeApprover{}) // nobody is approved
+	a.SetFirstRun(func() bool { return true }, "/setup")
+
+	reached := false
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+	}))
+
+	signedIn := func(accept string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.signSession("first@example.com")})
+		if accept != "" {
+			r.Header.Set("Accept", accept)
+		}
+		return r
+	}
+
+	reached = false
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, signedIn("text/html"))
+	if !reached || w.Code != http.StatusOK {
+		t.Errorf("the app did not load during first run: code=%d reached=%v", w.Code, reached)
+	}
+
+	reached = false
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, signedIn("application/json"))
+	if reached || w.Code != http.StatusForbidden {
+		t.Errorf("an API call got through during first run: code=%d reached=%v", w.Code, reached)
+	}
+}
