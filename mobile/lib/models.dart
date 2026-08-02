@@ -54,7 +54,13 @@ class Session {
 
   /// The display name for the session card: the title, or the model as a
   /// fallback for sessions that have not run a prompt yet.
-  String get displayTitle => title.isNotEmpty ? title : model;
+  /// The session's name for display.
+  ///
+  /// Falls back to a placeholder rather than the model: every session on the
+  /// server runs the same model, so naming them all after it told you nothing
+  /// and made a list of sessions look like a list of one thing repeated. A
+  /// session takes its name from its first prompt, or from a rename.
+  String get displayTitle => title.isNotEmpty ? title : 'New session';
 
   bool get isRunning => status == 'running';
 }

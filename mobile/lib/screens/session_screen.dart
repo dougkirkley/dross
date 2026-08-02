@@ -71,18 +71,14 @@ class _SessionScreenState extends State<SessionScreen> {
             FlatHeader(
               // The session's own name when it has one, so a renamed session is
               // identifiable from the screen it is open on.
-              title: (sess?.title ?? '').isNotEmpty
-                  ? sess!.title
-                  : (sess?.model ?? 'session'),
+              title: sess?.displayTitle ?? 'session',
               subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
               leading: CircleIconButton(
                   icon: Icons.chevron_left,
                   onTap: () => Navigator.pop(context)),
               trailing: sess == null
                   ? null
-                  : CircleIconButton(
-                      icon: Icons.drive_file_rename_outline,
-                      onTap: () => _rename(context, sess)),
+                  : _sessionMenu(context, sess),
             ),
             Expanded(
               child: Builder(builder: (_) {
@@ -125,6 +121,26 @@ class _SessionScreenState extends State<SessionScreen> {
       ),
     ));
   }
+
+  /// The session's own menu, top right of the page it belongs to.
+  Widget _sessionMenu(BuildContext context, Session sess) => PopupMenuButton<String>(
+        icon: const Icon(Icons.more_horiz, color: T.text),
+        color: T.surface,
+        position: PopupMenuPosition.under,
+        onSelected: (v) {
+          if (v == 'rename') _rename(context, sess);
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(
+            value: 'rename',
+            child: Row(children: [
+              Icon(Icons.drive_file_rename_outline, size: 18, color: T.textDim),
+              SizedBox(width: 10),
+              Text('Rename', style: T.body),
+            ]),
+          ),
+        ],
+      );
 
   /// Rename the session. The id is untouched — this is a label for a human,
   /// and everything else keys on the id.
