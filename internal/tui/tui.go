@@ -363,11 +363,11 @@ type Model struct {
 	streamBuf   string
 
 	// /mcp management modal (mirrors the skills modal), with live status probing.
-	mcpViewOpen bool
-	mcpDetail   bool
-	mcpSel      int
-	mcpRows     []mcpRow
-	mcpProvider func() []MCPServerInfo
+	mcpViewOpen    bool
+	mcpDetail      bool
+	mcpSel         int
+	mcpRows        []mcpRow
+	mcpProvider    func() []MCPServerInfo
 	pluginViewOpen bool
 	pluginTab      int // 0 installed, 1 marketplaces, 2 browse
 	pluginSel      int
@@ -375,12 +375,12 @@ type Model struct {
 	themeViewOpen bool
 	themeSel      int
 	themeOrig     int // theme active when the picker opened (restored on cancel)
-	welcomeStyle   int // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
-	cost           float64
-	turns          int
-	inTok          int64
-	outTok         int64
-	ctxTok         int64 // latest turn's total input-side tokens (context window fill)
+	welcomeStyle  int // empty-state layout: 0 clean, 1 skills, 2 columns, 3 boxed
+	cost          float64
+	turns         int
+	inTok         int64
+	outTok        int64
+	ctxTok        int64 // latest turn's total input-side tokens (context window fill)
 
 	vp          viewport.Model
 	input       textinput.Model
@@ -428,13 +428,13 @@ type Model struct {
 	pickOrder  []int // session indices in switcher display order
 	helpOpen   bool  // shortcuts overlay open
 
-	lines       []string  // rendered log lines
-	lastReply   string    // raw text of the last assistant reply (for ctrl+y copy)
-	lastCtrlC   time.Time // for double-ctrl+c-to-exit
-	copiedAt    time.Time // when the last copy happened (drives the "copied" toast)
-	history     []string  // submitted prompts, for up/down recall
-	histIdx     int       // cursor into history (== len(history) means "current draft")
-	suggestion string // a single contextual next-step (from the reply's [next] line); ghost placeholder, tab to use
+	lines      []string  // rendered log lines
+	lastReply  string    // raw text of the last assistant reply (for ctrl+y copy)
+	lastCtrlC  time.Time // for double-ctrl+c-to-exit
+	copiedAt   time.Time // when the last copy happened (drives the "copied" toast)
+	history    []string  // submitted prompts, for up/down recall
+	histIdx    int       // cursor into history (== len(history) means "current draft")
+	suggestion string    // a single contextual next-step (from the reply's [next] line); ghost placeholder, tab to use
 
 	// Collapsed tool-call group: consecutive tool calls render as one dim summary
 	// line ("Ran 3 shell commands, read 1 file"), expandable with ctrl+o.
@@ -490,10 +490,13 @@ type Model struct {
 	shimmer      int    // animation phase for the holographic welcome shimmer
 
 	// full tool calls this session, for the /tools expandable viewer
-	toolRecs     []toolRec
-	toolViewOpen bool
-	toolSel      int
-	toolLineOf   map[int]int // feed line index → toolRecs index (for click-to-expand)
+	toolRecs   []toolRec
+	toolLineOf map[int]int // feed line index → toolRecs index (for click-to-expand)
+	// Inline expansion: how many detail lines sit under each expanded summary
+	// line, and which lines those are, so a splice can be undone and the
+	// positions kept correct as the feed grows.
+	expandedLen map[int]int
+	expandedAt  []int
 }
 
 // toolRec is a full tool call (untruncated command + output) for /tools.
@@ -543,22 +546,22 @@ func New(agentName, model, provider string, run RunFunc) Model {
 	bar := progress.New(progress.WithGradient("#2B6C8F", "#8FC7E8"), progress.WithoutPercentage())
 
 	return Model{
-		agentName:   agentName,
-		model:       model,
-		provider:    provider,
-		input:       ti,
-		sp:          sp,
-		usageBar:    bar,
-		run:         run,
-		msgs:        make(chan tea.Msg, 256),
+		agentName:    agentName,
+		model:        model,
+		provider:     provider,
+		input:        ti,
+		sp:           sp,
+		usageBar:     bar,
+		run:          run,
+		msgs:         make(chan tea.Msg, 256),
 		logoVariant:  1, // gradient fade (default)
 		welcomeStyle: 0, // clean: Dross mascot + wordmark, dir, model (default)
 		phrases:      DefaultPhrases,
-		streamStart:  -1, // not streaming until a text-delta arrives
-		modeIdx:      2,   // default to Accept edits (auto edits, ask before commands)
+		streamStart:  -1,   // not streaming until a text-delta arrives
+		modeIdx:      2,    // default to Accept edits (auto edits, ask before commands)
 		mouseOn:      true, // drag-to-select auto-copies; wheel scrolls
 		groupLine:    -1,   // no open tool-call group
-		sessions:    []session{{}},
+		sessions:     []session{{}},
 	}
 }
 
@@ -1391,26 +1394,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pluginViewOpen {
 			return m.updatePluginView(msg)
 		}
-		// Tools viewer overlay captures keys.
-		if m.toolViewOpen {
-			switch msg.String() {
-			case "esc", "q", "ctrl+o":
-				m.toolViewOpen = false
-			case "up", "k":
-				if m.toolSel > 0 {
-					m.toolSel--
-				}
-			case "down", "j":
-				if m.toolSel < len(m.toolRecs)-1 {
-					m.toolSel++
-				}
-			case "g", "home":
-				m.toolSel = 0
-			case "G", "end":
-				m.toolSel = len(m.toolRecs) - 1
-			}
-			return m, nil
-		}
 		// Model picker overlay. Navigate by default; "/" starts a search.
 		if m.modelPickerOpen {
 			pick := func() tea.Cmd {
@@ -1744,12 +1727,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "ctrl+o":
-			// Expand/collapse the full tool output (the collapsed "Ran N …" lines).
-			if len(m.toolRecs) > 0 {
-				m.toolViewOpen = !m.toolViewOpen
-				if m.toolViewOpen && m.toolSel >= len(m.toolRecs) {
-					m.toolSel = 0
-				}
+			// Expand/collapse the most recent tool output, in place.
+			if line := m.lastToolLine(); line >= 0 {
+				m.toggleInlineTool(line)
 			}
 			return m, nil
 		case "pgup":
@@ -1905,7 +1885,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.beginRun(next), m.sp.Tick, m.pump())
 		}
 	case tea.MouseMsg:
-		overBody := !m.toolViewOpen && !m.modelPickerOpen && !m.pickerOpen &&
+		overBody := !m.modelPickerOpen && !m.pickerOpen &&
 			!m.helpOpen && !m.skillsViewOpen && !m.pluginViewOpen && !m.themeViewOpen &&
 			!m.mcpViewOpen && m.pendingAsk == nil && m.workerFocus == ""
 		switch msg.Button {
@@ -1950,9 +1930,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// A plain click (no drag): expand the clicked tool line, if any.
 				m.clearSelection()
 				line := m.vp.YOffset + msg.Y - 1
-				if rec, ok := m.toolLineOf[line]; ok && rec >= 0 && rec < len(m.toolRecs) {
-					m.toolViewOpen, m.toolSel = true, rec
-				}
+				m.toggleInlineTool(line)
 				return m, nil
 			}
 		}
@@ -2073,10 +2051,6 @@ func (m Model) View() string {
 	} else if m.pickerOpen {
 		m.vp.SetContent(m.renderSessions())
 		m.vp.GotoBottom()
-		body = m.vp.View()
-	} else if m.toolViewOpen {
-		m.vp.SetContent(m.renderToolView())
-		m.vp.GotoTop()
 		body = m.vp.View()
 	} else if m.modelPickerOpen {
 		body = m.modelBox(bodyH)
@@ -2642,43 +2616,6 @@ func (m *Model) renderUsage() {
 	}
 }
 
-// renderToolView draws the /tools viewer: every tool call this session, with the
-// selected one expanded to its full command and full output.
-func (m Model) renderToolView() string {
-	var b strings.Builder
-	b.WriteString(agentLabel.Render("Tools") + metaStyle.Render("  ↑/↓ select · esc close") + "\n\n")
-	for i, r := range m.toolRecs {
-		cursor, style := "  ", toolName
-		if i == m.toolSel {
-			cursor, style = promptMark.Render("› "), checkStyle
-		}
-		b.WriteString(cursor + style.Render(prettyToolName(r.name)) + " " + metaStyle.Render(truncate(r.args, 70)) + "\n")
-		if i == m.toolSel {
-			// Expanded: full command then full output, wrapped to width.
-			w := m.width - 4
-			if strings.TrimSpace(r.args) != "" {
-				for _, l := range wrap(r.args, w) {
-					b.WriteString("    " + agentText.Render(l) + "\n")
-				}
-			}
-			out := r.result
-			if strings.TrimSpace(out) == "" {
-				out = "(no output yet)"
-			}
-			b.WriteString("    " + metaStyle.Render(strings.Repeat("─", min(w, 40))) + "\n")
-			st := resultStyle
-			if r.isErr {
-				st = errStyle
-			}
-			for _, l := range wrap(out, w) {
-				b.WriteString("    " + st.Render(l) + "\n")
-			}
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}
-
 // isConfigured reports whether prov has been set up (it is the active lead or
 // worker provider), for the "configured" marker in the picker.
 func (m Model) isConfigured(prov string) bool {
@@ -2880,7 +2817,7 @@ func renderHelp() string {
 		{"ctrl+c", "interrupt run · twice to exit"},
 		{"esc", "clear input · close menus"},
 		{"ctrl+y", "copy last reply to clipboard"},
-		{"ctrl+o", "open / close the tool-output view"},
+		{"ctrl+o", "expand / collapse the last tool output"},
 		{"ctrl+b", "background the running shell command"},
 		{"! cmd", "run a shell command directly"},
 		{"@path", "attach a file to your prompt"},
@@ -3581,4 +3518,126 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// --- inline tool output ------------------------------------------------------
+//
+// Expanding a "Ran 3 shell commands" line opens it where it sits, rather than
+// switching the body to a separate tool view. What ran is part of reading the
+// conversation: it belongs beside the reply it produced, and swapping the whole
+// pane out to show a few lines of output loses your place to do it.
+//
+// The feed is a flat slice of already-rendered lines, so expanding splices the
+// detail in and collapsing takes it back out. Every index stored into that
+// slice has to move with it, which is what shiftLineIndexes does.
+
+// toolDetailLines renders one tool record as indented output under its summary.
+func (m *Model) toolDetailLines(rec int) []string {
+	if rec < 0 || rec >= len(m.toolRecs) {
+		return nil
+	}
+	t := m.toolRecs[rec]
+	style := resultStyle
+	if t.isErr {
+		style = errStyle
+	}
+	var out []string
+	head := "  └ " + t.name
+	if t.args != "" {
+		head += " " + truncate(oneLine(t.args), max(20, m.width-24))
+	}
+	out = append(out, style.Render(head))
+	body := strings.TrimRight(t.result, "\n")
+	if body == "" {
+		return append(out, style.Render("    (no output)"))
+	}
+	for _, ln := range strings.Split(body, "\n") {
+		out = append(out, style.Render("    "+truncate(ln, max(20, m.width-8))))
+	}
+	return out
+}
+
+// shiftLineIndexes moves every remembered position in m.lines that sits at or
+// after `at` by delta, so splicing does not leave click targets and the stream
+// cursor pointing at the wrong rows.
+func (m *Model) shiftLineIndexes(at, delta int) {
+	if delta == 0 {
+		return
+	}
+	shifted := make(map[int]int, len(m.toolLineOf))
+	for line, rec := range m.toolLineOf {
+		if line >= at {
+			line += delta
+		}
+		shifted[line] = rec
+	}
+	m.toolLineOf = shifted
+	if m.groupLine >= at {
+		m.groupLine += delta
+	}
+	if m.streamStart >= at {
+		m.streamStart += delta
+	}
+	for i, ln := range m.expandedAt {
+		if ln >= at {
+			m.expandedAt[i] = ln + delta
+		}
+	}
+}
+
+// toggleInlineTool expands or collapses the tool output under the summary on
+// the given feed line.
+func (m *Model) toggleInlineTool(line int) {
+	rec, ok := m.toolLineOf[line]
+	if !ok || rec < 0 || rec >= len(m.toolRecs) {
+		return
+	}
+	if n, open := m.expandedLen[line]; open {
+		// Collapse: drop the lines we inserted and pull everything back up.
+		end := line + 1 + n
+		if end > len(m.lines) {
+			end = len(m.lines)
+		}
+		m.lines = append(m.lines[:line+1], m.lines[end:]...)
+		delete(m.expandedLen, line)
+		m.dropExpandedAt(line)
+		m.shiftLineIndexes(line+1, -n)
+		m.vp.SetContent(strings.Join(m.lines, "\n"))
+		return
+	}
+	detail := m.toolDetailLines(rec)
+	if len(detail) == 0 {
+		return
+	}
+	rest := append([]string(nil), m.lines[line+1:]...)
+	m.lines = append(m.lines[:line+1], detail...)
+	m.lines = append(m.lines, rest...)
+	if m.expandedLen == nil {
+		m.expandedLen = map[int]int{}
+	}
+	m.shiftLineIndexes(line+1, len(detail))
+	m.expandedLen[line] = len(detail)
+	m.expandedAt = append(m.expandedAt, line)
+	m.vp.SetContent(strings.Join(m.lines, "\n"))
+}
+
+func (m *Model) dropExpandedAt(line int) {
+	for i, ln := range m.expandedAt {
+		if ln == line {
+			m.expandedAt = append(m.expandedAt[:i], m.expandedAt[i+1:]...)
+			return
+		}
+	}
+}
+
+// lastToolLine is the most recent expandable summary line, which is what ctrl+o
+// acts on when nothing was clicked.
+func (m *Model) lastToolLine() int {
+	best := -1
+	for line := range m.toolLineOf {
+		if line > best && line < len(m.lines) {
+			best = line
+		}
+	}
+	return best
 }

@@ -171,8 +171,11 @@ func DemoToolsView(width, height int) string {
 			result: "ok  github.com/dougkirkley/dross/pkg/agent  0.42s\nok  github.com/dougkirkley/dross/internal/tui  0.19s\nok  github.com/dougkirkley/dross/internal/cli  0.31s\nok  github.com/dougkirkley/dross/internal/config  0.44s"},
 		{name: "edit", args: "internal/cli/output.go", result: "replaced 1 occurrence"},
 	}
-	m.toolSel = 1
-	m.toolViewOpen = true
+	// Expanded where it sits in the feed, which is how it now reads: the
+	// summary line stays put and the output opens under it.
+	m.append(resultStyle.Render("  Ran 2 shell commands, read 1 file"))
+	m.toolLineOf = map[int]int{len(m.lines) - 1: 1}
+	m.toggleInlineTool(len(m.lines) - 1)
 	return m.View()
 }
 
