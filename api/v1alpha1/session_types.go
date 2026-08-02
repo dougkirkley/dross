@@ -15,6 +15,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// SessionIDLabel carries the dross session id onto the objects created for it.
+//
+// The workload's name is generated and does not encode the id, so this is what
+// correlates a pod back to the session it is running — and what the server uses
+// to find a session again in order to delete it.
+//
+// It is deliberately not part of a StatefulSet's selector, which is immutable:
+// it goes on the pod template and on object metadata, where it can be selected
+// without pinning the shape of anything already running.
+const SessionIDLabel = "dross.sh/session-id"
+
 // GroupVersion is the API group/version this package registers.
 var GroupVersion = schema.GroupVersion{Group: "dross.sh", Version: "v1alpha1"}
 

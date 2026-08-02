@@ -110,7 +110,7 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	}
 
 	return corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Labels: labelsFor(s)},
+		ObjectMeta: metav1.ObjectMeta{Labels: podLabelsFor(s)},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: &no,
 			// Always: a session survives a crash or a node reboot; the
@@ -144,4 +144,18 @@ func parseOr(v, def string) resource.Quantity {
 func ptrQty(s string) *resource.Quantity {
 	q := resource.MustParse(s)
 	return &q
+}
+
+// podLabelsFor is the selector labels plus the session id.
+//
+// The id is on the pod but not in the StatefulSet's selector, which cannot
+// change once the workload exists. It is what connects a generated pod name
+// back to the session it belongs to: `kubectl get pods -l
+// dross.sh/session-id=ses_...` answers the question the name used to.
+func podLabelsFor(s *dross.Session) map[string]string {
+	l := labelsFor(s)
+	if s.Spec.SessionID != "" {
+		l[dross.SessionIDLabel] = s.Spec.SessionID
+	}
+	return l
 }

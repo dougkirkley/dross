@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +32,10 @@ type PodSessions struct {
 	// Image the session pods run, and where they dial back to.
 	Image     string
 	ServerURL string
+
+	// NamePrefix starts each workload's name, so a session reads as belonging
+	// to the server that asked for it.
+	NamePrefix string
 
 	// Provider, BaseURL and APIKey are the model backend the server itself uses.
 	// A session pod is handed the same one, or it would fall back to the CLI's
@@ -81,16 +84,15 @@ func NewPodSessions(namespace string) (*PodSessions, error) {
 	return &PodSessions{c: c, namespace: namespace, TokenTTL: 24 * time.Hour}, nil
 }
 
-// objectName is the Kubernetes name for a session. Session ids carry an
-// underscore, which object names forbid.
-func objectName(sessionID string) string {
-	return "dross-" + strings.ReplaceAll(strings.TrimPrefix(sessionID, "ses_"), "_", "-")
-}
+// sessionIDLabel ties a workload back to the dross session that asked for it.
+// Shared with the operator, which puts the same label on the pod.
+const sessionIDLabel = dross.SessionIDLabel
 
 // Create writes the session's credential and its Session record. The operator
 // takes it from there.
 func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string) error {
-	name := objectName(sessionID)
+	name := sessionName(p.NamePrefix)
+	labels := map[string]string{sessionIDLabel: sessionID}
 
 	tok, err := p.MintToken(owner, sessionID, p.TokenTTL)
 	if err != nil {
@@ -104,7 +106,9 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 		data["api-key"] = p.APIKey
 	}
 	sec := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: p.namespace, Name: name + "-token"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: p.namespace, Name: name + "-token", Labels: labels,
+		},
 		StringData: data,
 		Type:       corev1.SecretTypeOpaque,
 	}
@@ -113,7 +117,9 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 	}
 
 	s := &dross.Session{
-		ObjectMeta: metav1.ObjectMeta{Namespace: p.namespace, Name: name},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: p.namespace, Name: name, Labels: labels,
+		},
 		Spec: dross.SessionSpec{
 			Owner:        owner,
 			SessionID:    sessionID,
@@ -137,12 +143,34 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 	return nil
 }
 
+// findBySession returns the Session resource for a dross session id, since the
+// object's name no longer encodes it.
+func (p *PodSessions) findBySession(ctx context.Context, sessionID string) (*dross.Session, error) {
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list,
+		client.InNamespace(p.namespace),
+		client.MatchingLabels{sessionIDLabel: sessionID},
+	); err != nil {
+		return nil, err
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	return &list.Items[0], nil
+}
+
 // Delete removes a session's record; ownerReferences reclaim the workload and
 // its volume. The credential is deleted explicitly, since it is not owned.
 func (p *PodSessions) Delete(ctx context.Context, sessionID string) error {
-	name := objectName(sessionID)
-	s := &dross.Session{ObjectMeta: metav1.ObjectMeta{Namespace: p.namespace, Name: name}}
-	if err := p.c.Delete(ctx, s); err != nil && !apierrors.IsNotFound(err) {
+	found, err := p.findBySession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if found == nil {
+		return nil // already gone, or never had a workload
+	}
+	name := found.Name
+	if err := p.c.Delete(ctx, found); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: p.namespace, Name: name + "-token"}}

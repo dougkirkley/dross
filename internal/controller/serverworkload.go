@@ -51,6 +51,9 @@ func sessionEnv(d *dross.Dross) []corev1.EnvVar {
 		// The Service this same reconcile creates, by name: the server does not
 		// need to be told its own address by hand.
 		{Name: "DROSS_SESSION_SERVER_URL", Value: "http://" + d.Name + "." + d.Namespace + ".svc:8080"},
+		// Session workloads are named after this server, so which server asked
+		// for a pod is legible from `kubectl get pods` alone.
+		{Name: "DROSS_SESSION_PREFIX", Value: d.Name},
 	}
 	for _, kv := range []struct{ k, v string }{
 		{"DROSS_SESSION_STORAGE", s.Storage},

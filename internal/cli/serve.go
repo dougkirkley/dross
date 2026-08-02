@@ -160,6 +160,7 @@ func newServeCmd() *cobra.Command {
 				pods.Provider = res.Lead.Provider
 				pods.BaseURL = res.Lead.BaseURL
 				pods.APIKey = res.Lead.APIKey
+				pods.NamePrefix = envOr("DROSS_SESSION_PREFIX", "dross")
 				pods.Image = envOr("DROSS_SESSION_IMAGE", "")
 				pods.ServerURL = envOr("DROSS_SESSION_SERVER_URL", "")
 				pods.Storage = envOr("DROSS_SESSION_STORAGE", "5Gi")

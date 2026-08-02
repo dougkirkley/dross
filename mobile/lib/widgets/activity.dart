@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'readable.dart';
 
 /// One step within an activity block: a tool call or a file edit.
 class ActStep {
@@ -374,6 +375,7 @@ class _InlineStepState extends State<_InlineStep> {
     final s = widget.step;
     final edit = s.edit;
     final out = s.output?.trimRight() ?? '';
+    final wide = isWide(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,16 +411,22 @@ class _InlineStepState extends State<_InlineStep> {
             ),
           ),
         ),
+        // On a desktop width the output is plain indented text under the "└",
+        // the way it reads in the terminal. On a phone it keeps the card: a
+        // bordered block is what separates it from the conversation when the
+        // indent is only a few pixels of a narrow screen.
         if (_open && edit == null)
           Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(left: 16, bottom: 6),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: T.surface,
-              borderRadius: BorderRadius.circular(T.rCard),
-              border: Border.all(color: T.borderFaint),
-            ),
+            margin: EdgeInsets.only(left: wide ? 28 : 16, bottom: 6),
+            padding: wide ? EdgeInsets.zero : const EdgeInsets.all(10),
+            decoration: wide
+                ? null
+                : BoxDecoration(
+                    color: T.surface,
+                    borderRadius: BorderRadius.circular(T.rCard),
+                    border: Border.all(color: T.borderFaint),
+                  ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

@@ -264,3 +264,31 @@ func TestSessionPodOmitsTheKeyEnvWhenThereIsNoConvention(t *testing.T) {
 		}
 	}
 }
+
+// The workload's name is generated, so the session id has to be on the pod for
+// anyone to tell which session a pod is running.
+func TestPodCarriesTheSessionID(t *testing.T) {
+	s := newSession()
+	got := podTemplateFor(s).ObjectMeta.Labels[dross.SessionIDLabel]
+	if got != s.Spec.SessionID {
+		t.Errorf("pod label = %q; want the session id %q", got, s.Spec.SessionID)
+	}
+}
+
+// It must not be in the selector: that is immutable once the StatefulSet
+// exists, so putting it there would make the id unchangeable and risk a
+// conflict on any future rename.
+func TestSelectorLeavesTheSessionIDOut(t *testing.T) {
+	s := newSession()
+	sel := statefulSetFor(s).Spec.Selector.MatchLabels
+	if _, ok := sel[dross.SessionIDLabel]; ok {
+		t.Error("session id is in the immutable selector")
+	}
+	// The pod still has to match its own selector.
+	pod := podTemplateFor(s).ObjectMeta.Labels
+	for k, v := range sel {
+		if pod[k] != v {
+			t.Errorf("pod does not match selector on %s", k)
+		}
+	}
+}

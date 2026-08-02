@@ -36,7 +36,7 @@ func statefulSetFor(s *dross.Session) *appsv1.StatefulSet {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: s.Namespace,
 			Name:      s.Name,
-			Labels:    labelsFor(s),
+			Labels:    podLabelsFor(s),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &one,
