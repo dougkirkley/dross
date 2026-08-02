@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -46,7 +47,13 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	// with nothing to say which of those it is. That is exactly how a session
 	// pod looks when it never attaches: running, and quiet.
 	opts.log(fmt.Sprintf("connecting to %s as %q…", url, opts.Name))
-	c, _, err := websocket.Dial(ctx, url, dopts)
+	// Bounded, because a refused connection reports itself but a dropped one
+	// does not: a network policy that filters the packets leaves the dial
+	// waiting on a reply that is never coming. Failing after a minute gives an
+	// error to log and, in a pod, a restart that retries.
+	dialCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	c, _, err := websocket.Dial(dialCtx, url, dopts)
 	if err != nil {
 		opts.log(fmt.Sprintf("connect failed: %v", err))
 		return fmt.Errorf("dial %s: %w", url, err)
