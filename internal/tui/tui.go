@@ -50,6 +50,7 @@ var (
 	headerBar    lipgloss.Style
 	ruleStyle    lipgloss.Style
 	youLabel     lipgloss.Style
+	remoteLabel  lipgloss.Style
 	agentLabel   lipgloss.Style
 	agentText    lipgloss.Style
 	proseStyle   lipgloss.Style
@@ -148,6 +149,9 @@ func rebuildStyles() {
 	headerBar = lipgloss.NewStyle().Padding(0, 1)
 	ruleStyle = lipgloss.NewStyle().Foreground(dim)
 	youLabel = lipgloss.NewStyle().Foreground(muted).Bold(true)
+	// Accent, not muted: a prompt someone else sent should catch the eye of
+	// whoever is watching the terminal it landed in.
+	remoteLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	agentLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	agentText = lipgloss.NewStyle().Foreground(fg)
 	proseStyle = lipgloss.NewStyle().Foreground(prose)
@@ -237,6 +241,11 @@ type askMsg struct{ st *askState }
 
 // remoteStatusMsg reports progress of a /login or /rc slash command.
 type remoteStatusMsg struct{ text string }
+
+// remoteEventMsg is one event produced while someone else is driving this
+// machine over the relay. It is rendered through the same path as a local run,
+// so a linked terminal shows the work instead of going silent.
+type remoteEventMsg struct{ kind, data string }
 
 // shimmerMsg drives the animated holographic shimmer on the welcome screen.
 type shimmerMsg struct{}
@@ -456,8 +465,8 @@ type Model struct {
 	// remote device linking (/login + /rc). Nil when the TUI was started
 	// without a --server, in which case those commands report as unavailable.
 	remoteServer string
-	remoteLogin  func(ctx context.Context) error                   // SSO sign-in, stores token
-	remoteLink   func(ctx context.Context, log func(string)) error // advertise this machine
+	remoteLogin  func(ctx context.Context) error                                                  // SSO sign-in, stores token
+	remoteLink   func(ctx context.Context, log func(string), event func(kind, data string)) error // advertise this machine
 	remoteLinked bool
 
 	// /model picker. modelList lists the configured provider's models;
@@ -683,7 +692,7 @@ func (m *Model) SetPhrases(p []string) {
 // SetRemote wires the /login and /rc slash commands. login signs the user in
 // via SSO (storing a session token); link advertises this machine to the server
 // as available for the logged-in user, streaming status through its log arg.
-func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string)) error) {
+func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string), event func(kind, data string)) error) {
 	m.remoteServer = server
 	m.remoteLogin = login
 	m.remoteLink = link
@@ -1283,7 +1292,9 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.remoteLinked = true
 		m.append(metaStyle.Render("linking this machine to " + m.remoteServer + " …"))
 		go func() {
-			err := m.remoteLink(context.Background(), func(s string) { m.msgs <- remoteStatusMsg{s} })
+			err := m.remoteLink(context.Background(),
+				func(s string) { m.msgs <- remoteStatusMsg{s} },
+				func(kind, data string) { m.msgs <- remoteEventMsg{kind, data} })
 			if err != nil {
 				m.msgs <- remoteStatusMsg{"link ended: " + err.Error()}
 			} else {
@@ -1938,6 +1949,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shimmerMsg:
 		m.shimmer++
 		return m, shimmerTick()
+	case remoteEventMsg:
+		// Same renderer as a local run, so remote work reads identically —
+		// tool lines, diffs and prose all behave as they normally do.
+		if msg.kind == "prompt" {
+			m.appendRemotePrompt(msg.data)
+		} else {
+			m.applyEvent(agent.Event{Kind: msg.kind, Data: msg.data})
+		}
+		cmds = append(cmds, m.pump())
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
 			m.remoteLinked = false
@@ -3640,4 +3660,14 @@ func (m *Model) lastToolLine() int {
 		}
 	}
 	return best
+}
+
+// appendRemotePrompt echoes a prompt that arrived over the relay.
+//
+// Labelled "phone" rather than "you", because the distinction matters when you
+// are sitting at a linked terminal: the work about to appear is not something
+// you asked for, and mislabelling it as your own input would make the
+// transcript lie about who drove it.
+func (m *Model) appendRemotePrompt(text string) {
+	m.append(startGlyph.Render("▸ ") + remoteLabel.Render("phone") + "  " + text)
 }

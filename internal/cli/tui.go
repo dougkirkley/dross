@@ -133,7 +133,7 @@ func newTUICmd() *cobra.Command {
 			var skillSpecs []agent.SkillSpec
 			var skillItems []tui.SkillItem
 			var skillGen int
-			var mcpGen int // bumped by /mcp add|remove to rebuild the agent
+			var mcpGen int                 // bumped by /mcp add|remove to rebuild the agent
 			skillOff := map[string]bool{}  // skills disabled via the /skills modal
 			skillSeen := map[string]bool{} // skills we've applied a default enable/disable to
 			loadSkills := func() {
@@ -440,7 +440,7 @@ func newTUICmd() *cobra.Command {
 						_, err := relay.Login(ctx, server)
 						return err
 					},
-					func(ctx context.Context, logf func(string)) error {
+					func(ctx context.Context, logf func(string), event func(kind, data string)) error {
 						token := relay.LoadToken(server)
 						if token == "" {
 							var err error
@@ -455,6 +455,9 @@ func newTUICmd() *cobra.Command {
 							Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
 							Lead: st.prov, LeadModel: st.model, Worker: worker, WorkerModel: res.Worker.Model,
 							Log: logf,
+							// So the linked terminal shows the work being driven
+							// through it, rather than just that a link is open.
+							Mirror: event,
 						})
 					})
 			}
