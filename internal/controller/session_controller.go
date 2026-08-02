@@ -94,23 +94,35 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 	var have appsv1.StatefulSet
 	err = r.Get(ctx, req.NamespacedName, &have)
 	if err == nil {
-		// Only the image is reconciled onto an existing workload. Everything
-		// else in the template is fixed when the session is created, and
-		// rewriting the lot would restart a session for a change to a resource
-		// limit or a label; the image is rolled precisely because the binary
-		// running is the wrong one.
-		c := have.Spec.Template.Spec.Containers
-		if len(c) > 0 && c[0].Image != s.Spec.Image {
-			c[0].Image = s.Spec.Image
-			if err := r.Update(ctx, &have); err != nil {
-				if apierrors.IsConflict(err) {
-					return subreconciler.Retry()
-				}
-				return subreconciler.Fail(fmt.Errorf("statefulset image: %w", err))
-			}
-			log.FromContext(ctx).Info("session image updated",
-				"session", s.Spec.SessionID, "image", s.Spec.Image)
+		// Two fields are reconciled onto an existing workload, not the whole
+		// template: rewriting all of it would restart a session over a changed
+		// resource limit or a label. The image, because it is rolled precisely
+		// when the binary running is the wrong one. And the grace period,
+		// because it is what gives a session time to finish its turn while
+		// being replaced — a session left on the old default is killed part-way
+		// through the very answer draining exists to save.
+		want := podTemplateFor(s).Spec
+		pod := &have.Spec.Template.Spec
+		changed := false
+		if len(pod.Containers) > 0 && pod.Containers[0].Image != s.Spec.Image {
+			pod.Containers[0].Image = s.Spec.Image
+			changed = true
 		}
+		if !equalGrace(pod.TerminationGracePeriodSeconds, want.TerminationGracePeriodSeconds) {
+			pod.TerminationGracePeriodSeconds = want.TerminationGracePeriodSeconds
+			changed = true
+		}
+		if !changed {
+			return subreconciler.ContinueReconciling()
+		}
+		if err := r.Update(ctx, &have); err != nil {
+			if apierrors.IsConflict(err) {
+				return subreconciler.Retry()
+			}
+			return subreconciler.Fail(fmt.Errorf("statefulset: %w", err))
+		}
+		log.FromContext(ctx).Info("session workload updated",
+			"session", s.Spec.SessionID, "image", s.Spec.Image)
 		return subreconciler.ContinueReconciling()
 	}
 	if !apierrors.IsNotFound(err) {
@@ -236,4 +248,13 @@ func labelsFor(s *dross.Session) map[string]string {
 		"app.kubernetes.io/component": "agent",
 		"dross.sh/session":            s.Name,
 	}
+}
+
+// equalGrace compares two termination grace periods, either of which may be
+// unset — an unset period is the API's default, not a match for a set one.
+func equalGrace(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

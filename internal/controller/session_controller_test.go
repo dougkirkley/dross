@@ -302,3 +302,71 @@ func TestSessionWorkloadRollsItsOwnPod(t *testing.T) {
 		t.Errorf("update strategy = %q; want RollingUpdate", got)
 	}
 }
+
+// A session created before drain existed keeps the API's default grace period,
+// and would be killed part-way through the answer draining exists to save. It
+// has to be brought up to date on an existing workload, not only on new ones.
+func TestGracePeriodIsReconciledOntoAnExistingWorkload(t *testing.T) {
+	s := newSession()
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).WithObjects(s).WithStatusSubresource(s).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: s.Namespace, Name: s.Name}
+	ctx := context.Background()
+
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	// Pretend it predates drain: the default, as Kubernetes would have set it.
+	var set appsv1.StatefulSet
+	if err := c.Get(ctx, key, &set); err != nil {
+		t.Fatal(err)
+	}
+	stale := int64(30)
+	set.Spec.Template.Spec.TerminationGracePeriodSeconds = &stale
+	if err := c.Update(ctx, &set); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, key, &set); err != nil {
+		t.Fatal(err)
+	}
+	got := set.Spec.Template.Spec.TerminationGracePeriodSeconds
+	if got == nil || *got != drainGrace {
+		t.Errorf("grace = %v; want %d so the session can finish its turn", got, drainGrace)
+	}
+}
+
+// Reconciling has to be a no-op when nothing differs, or every pass rewrites
+// the workload and restarts the session it is meant to be leaving alone.
+func TestWorkloadIsNotRewrittenWhenUnchanged(t *testing.T) {
+	s := newSession()
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).WithObjects(s).WithStatusSubresource(s).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: s.Namespace, Name: s.Name}
+	ctx := context.Background()
+
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	var first appsv1.StatefulSet
+	if err := c.Get(ctx, key, &first); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var after appsv1.StatefulSet
+	if err := c.Get(ctx, key, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.ResourceVersion != first.ResourceVersion {
+		t.Error("workload was rewritten with nothing to change")
+	}
+}
