@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -115,5 +116,31 @@ func TestCreateNamesTheSessionAfterItsPod(t *testing.T) {
 	}
 	if strings.Contains(friendly, "dross-web") {
 		t.Errorf("session name %q repeats the server prefix", friendly)
+	}
+}
+
+// A workload created before the label existed is named after the session id.
+// Delete has to still find it, or upgrading strands every pod and volume that
+// predates the change while reporting success.
+func TestDeleteFindsAPreLabelWorkload(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	old := &dross.Session{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "dross", Name: "dross-abc", // no session-id label
+	}}
+	if err := p.c.Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Delete(ctx, "ses_abc"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("pre-label workload survived deletion: %v", list.Items[0].Name)
 	}
 }

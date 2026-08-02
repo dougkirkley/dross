@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -147,6 +148,13 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 	return friendly, nil
 }
 
+// legacyObjectName is how a workload was named before the label existed:
+// "dross-" and the session id, with the characters an object name forbids
+// removed.
+func legacyObjectName(sessionID string) string {
+	return "dross-" + strings.ReplaceAll(strings.TrimPrefix(sessionID, "ses_"), "_", "-")
+}
+
 // findBySession returns the Session resource for a dross session id, since the
 // object's name no longer encodes it.
 func (p *PodSessions) findBySession(ctx context.Context, sessionID string) (*dross.Session, error) {
@@ -171,7 +179,13 @@ func (p *PodSessions) Delete(ctx context.Context, sessionID string) error {
 		return err
 	}
 	if found == nil {
-		return nil // already gone, or never had a workload
+		// Sessions created before workloads carried the label have none to find
+		// them by, and their names encoded the session id instead. Without this
+		// an upgrade silently leaks every workload and volume that existed
+		// before it: the lookup returns nothing and delete reports success.
+		found = &dross.Session{ObjectMeta: metav1.ObjectMeta{
+			Namespace: p.namespace, Name: legacyObjectName(sessionID),
+		}}
 	}
 	name := found.Name
 	if err := p.c.Delete(ctx, found); err != nil && !apierrors.IsNotFound(err) {

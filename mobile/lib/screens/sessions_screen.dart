@@ -161,8 +161,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _statusIcon(sess.status),
-                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,7 +230,13 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _statusLine(Session sess) {
     final Color color;
     final String label;
-    if (sess.device.isNotEmpty) {
+    if (sess.status == 'error') {
+      // Ahead of the connection state: a linked session that failed is still
+      // connected, and saying only that would report the least useful half of
+      // what happened. The card no longer carries a status icon, so this line
+      // is the only place an error is named.
+      (color, label) = (T.danger, 'error');
+    } else if (sess.device.isNotEmpty) {
       color = sess.connected ? T.ok : T.textFaint;
       label = sess.connected ? 'Connected' : 'Disconnected';
     } else {
@@ -259,23 +263,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
     ]);
   }
 
-  Widget _statusIcon(String status) {
-    final (color, icon) = switch (status) {
-      'running' => (T.accentHi, Icons.autorenew),
-      'error' => (T.danger, Icons.error_outline),
-      _ => (T.textFaint, Icons.circle_outlined),
-    };
-    return Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        color: T.bg,
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: T.border),
-      ),
-      child: Icon(icon, size: 17, color: color),
-    );
-  }
+
 
   Widget _card({required Widget child, bool running = false}) => Container(
         width: double.infinity,
