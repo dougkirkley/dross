@@ -1,0 +1,75 @@
+package ui
+
+// The pages dross renders itself: the sign-in screen, the holding page an
+// unapproved account lands on, and the admin surface. Plain HTML with no
+// script, so they render before the app bundle exists and under a content
+// security policy that allows almost nothing.
+
+// cardPage is a single centred card on the app's dark gradient.
+templ cardPage(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title } &middot; Dross</title>
+			<style type="text/css">
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: grid; place-items: center;
+    background:
+      radial-gradient(900px 520px at 70% -10%, rgba(139,92,246,.20), transparent 60%),
+      radial-gradient(700px 420px at 10% 10%, rgba(34,211,238,.10), transparent 55%),
+      #07070F;
+    color: #ECE9FB;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: min(92vw, 380px); padding: 40px 32px 32px;
+    background: #0E0E1A; border: 1px solid #241E3B; border-radius: 18px;
+    text-align: center;
+  }
+  .mark { width: 96px; height: 96px; margin: 0 auto 18px; display: block; }
+  h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.02em; font-weight: 650; }
+  p { margin: 0 0 28px; color: #7D7BA3; font-size: 14.5px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 13px 16px; border-radius: 12px;
+    background: #F4F1FC; color: #12101F; font-size: 15px; font-weight: 600;
+    text-decoration: none; border: 0; cursor: pointer;
+    transition: transform .06s ease, filter .15s ease;
+  }
+  .btn:hover { filter: brightness(.94); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid #A78BFA; outline-offset: 3px; }
+  .hairline {
+    height: 1px; margin: 26px 0 0;
+    background: linear-gradient(90deg, transparent, #8B5CF6, #22D3EE, #E879F9, transparent);
+    opacity: .55;
+  }
+  .foot { margin: 14px 0 0; font-size: 12.5px; color: #55547A; }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+  .who {
+    display: inline-block; margin: 0 0 26px; padding: 6px 12px;
+    background: #14122A; border: 1px solid #241E3B; border-radius: 999px;
+    font-size: 13px; color: #B4B0D8;
+  }
+  .link { color: #A78BFA; text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+
+			</style>
+		</head>
+		<body>
+			<main class="card">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+// mark renders the mascot.
+templ mark() {
+	@templ.Raw(markSVG)
+}

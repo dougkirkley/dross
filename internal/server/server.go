@@ -5,6 +5,7 @@ import (
 
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/internal/mail"
 	"github.com/dougkirkley/dross/internal/storage"
 	"github.com/dougkirkley/dross/internal/web"
 )
@@ -19,6 +20,12 @@ type Server struct {
 	arts  *artifact.Store
 	hub   *deviceHub // linked devices (session relay)
 	h     http.Handler
+
+	// Account approval. All three are set together by SetAccounts; nil users or
+	// an empty adminEmail means no admin surface is served at all.
+	users      UserDirectory
+	adminEmail string
+	notify     mail.Notifier
 }
 
 // New creates a Server over a session Manager. If a is non-nil, /api routes
@@ -90,6 +97,20 @@ func (s *Server) buildHandler() http.Handler {
 	rootFallback := http.Handler(api)
 	if h, ok := web.Handler(); ok {
 		rootFallback = h
+	}
+
+	// The admin surface, when an admin identity is configured. It goes on both
+	// paths below: with auth off there is no identity to match, so every request
+	// to it is refused, which is the right answer for a local run.
+	admin := func(h http.HandlerFunc) http.Handler {
+		if s.auth == nil {
+			return s.adminOnly(h)
+		}
+		return s.auth.Middleware(s.adminOnly(h))
+	}
+	if s.users != nil && s.adminEmail != "" {
+		root.Handle("GET /admin", admin(s.handleAdminPage))
+		root.Handle("POST /admin/decide", admin(s.handleAdminDecide))
 	}
 
 	if s.auth == nil {

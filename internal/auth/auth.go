@@ -70,6 +70,7 @@ type Authenticator struct {
 	cfVerifier *oidc.IDTokenVerifier
 	allowed    map[string]bool
 	onSignIn   func(email, name string)
+	approved   Approver
 	cookieKey  []byte
 	insecure   bool
 }
@@ -134,6 +135,21 @@ func (a *Authenticator) IsServiceIdentity(email string) bool {
 // hook a user registry hangs off.
 func (a *Authenticator) OnSignIn(fn func(email, name string)) { a.onSignIn = fn }
 
+// Approver is the authorization half of the split: authentication says who
+// someone is, an Approver says whether they may use the application. An
+// interface rather than a callback so the store behind it — a JSON registry
+// today, a database or an identity service later — is a substitution.
+type Approver interface {
+	IsApproved(email string) bool
+}
+
+// SetApproval installs the gate. Unset, every verified identity is allowed,
+// which is how a local run behaves.
+//
+// One check for the whole app rather than one per handler, so a route added
+// later is gated by default instead of by remembering.
+func (a *Authenticator) SetApproval(p Approver) { a.approved = p }
+
 type ctxKey struct{}
 
 // WithIdentity attaches a verified identity to a context, for authenticators
@@ -170,6 +186,17 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		// the email allowlist. Verified identities do not.
 		if !exempt && len(a.allowed) > 0 && !a.allowed[strings.ToLower(email)] {
 			http.Error(w, "forbidden: "+email+" is not on the allowlist", http.StatusForbidden)
+			return
+		}
+		// Authenticated but not yet approved. The service token is exempt: it is
+		// a machine credential with no user record, and making it have one would
+		// mean an automated check could be "approved" by mistake.
+		if a.approved != nil && !a.IsServiceIdentity(email) && !a.approved.IsApproved(email) {
+			if wantsHTML(r) {
+				servePendingPage(w, email)
+				return
+			}
+			http.Error(w, "forbidden: "+email+" is awaiting approval", http.StatusForbidden)
 			return
 		}
 		// Anything behind auth must never be stored by a shared cache. Without

@@ -1,0 +1,143 @@
+package ui
+
+// Admin is the accounts page: who is waiting, who is in, and the two buttons
+// that decide it. Form posts and a redirect, no script, so the page works under
+// a policy that allows none.
+templ Admin(v AdminView) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>Accounts &middot; Dross</title>
+			<style type="text/css">
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; padding: 40px 20px;
+    background:
+      radial-gradient(900px 520px at 70% -10%, rgba(139,92,246,.20), transparent 60%),
+      radial-gradient(700px 420px at 10% 10%, rgba(34,211,238,.10), transparent 55%),
+      #07070F;
+    color: #ECE9FB;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: min(96vw, 860px); margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; font-weight: 650; }
+  .me { font-size: 13px; color: #7D7BA3; }
+  .hairline {
+    height: 1px; margin: 18px 0 24px;
+    background: linear-gradient(90deg, transparent, #8B5CF6, #22D3EE, #E879F9, transparent);
+    opacity: .55;
+  }
+  h2 { margin: 28px 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #7D7BA3; font-weight: 600; }
+  .flash { padding: 11px 14px; border-radius: 12px; font-size: 14px; margin-bottom: 18px; }
+  .ok { background: #10261B; border: 1px solid #1F5B3E; color: #86E5B0; }
+  .bad { background: #2A1119; border: 1px solid #6B2338; color: #F5A2B8; }
+  .warn { background: #241E3B; border: 1px solid #3A2F63; color: #B4B0D8; }
+  .card { background: #0E0E1A; border: 1px solid #241E3B; border-radius: 16px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid #191627; }
+  .row:first-child { border-top: 0; }
+  .who { flex: 1; min-width: 0; }
+  .email { font-weight: 600; overflow-wrap: anywhere; }
+  .meta { font-size: 12.5px; color: #55547A; margin-top: 2px; }
+  .tag { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid; letter-spacing: .03em; }
+  .t-approved { color: #86E5B0; border-color: #1F5B3E; background: #10261B; }
+  .t-pending  { color: #F5D592; border-color: #6B4E17; background: #261D0E; }
+  .t-denied   { color: #F5A2B8; border-color: #6B2338; background: #2A1119; }
+  form { display: inline; }
+  .btn {
+    padding: 8px 14px; border-radius: 10px; border: 0; cursor: pointer;
+    font: inherit; font-size: 14px; font-weight: 600;
+  }
+  .approve { background: #F4F1FC; color: #12101F; }
+  .deny { background: transparent; color: #F5A2B8; border: 1px solid #4A1D2A; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:focus-visible { outline: 2px solid #A78BFA; outline-offset: 2px; }
+  .empty { padding: 18px; color: #55547A; font-size: 14px; }
+  a { color: #A78BFA; }
+			</style>
+		</head>
+		<body>
+			<main>
+				<header>
+					<h1>Accounts</h1>
+					<span class="me">signed in as { v.Admin }</span>
+				</header>
+				<div class="hairline"></div>
+				if v.Notice != "" {
+					<div class="flash ok">{ v.Notice }</div>
+				}
+				if v.Problem != "" {
+					<div class="flash bad">{ v.Problem }</div>
+				}
+				if !v.MailEnabled {
+					<div class="flash warn">
+						No mail is configured, so approving sends nothing. Set the Resend key and from address to turn the welcome mail on.
+					</div>
+				}
+				<h2>Waiting</h2>
+				<div class="card">
+					if len(v.Pending) == 0 {
+						<div class="empty">Nobody is waiting.</div>
+					}
+					for _, a := range v.Pending {
+						<div class="row">
+							<div class="who">
+								<div class="email">{ a.Email }</div>
+								<div class="meta">
+									if a.Name != "" {
+										{ a.Name } &middot;
+									}
+									asked { ago(a.FirstSeen) } &middot; { signIns(a.Logins) }
+								</div>
+							</div>
+							@decide(a.Email, "approve", "Approve", "approve")
+							@decide(a.Email, "deny", "Deny", "deny")
+						</div>
+					}
+				</div>
+				<h2>Everyone else</h2>
+				<div class="card">
+					if len(v.Decided) == 0 {
+						<div class="empty">No accounts yet.</div>
+					}
+					for _, a := range v.Decided {
+						<div class="row">
+							<div class="who">
+								<div class="email">{ a.Email }</div>
+								<div class="meta">
+									if a.Name != "" {
+										{ a.Name } &middot;
+									}
+									last seen { ago(a.LastSeen) }
+									if a.DecidedBy != "" {
+										&middot; decided by { a.DecidedBy }
+									}
+								</div>
+							</div>
+							<span class={ "tag", "t-" + a.Status }>{ a.Status }</span>
+							if a.Status == "approved" {
+								@decide(a.Email, "deny", "Revoke", "deny")
+							} else {
+								@decide(a.Email, "approve", "Approve", "approve")
+							}
+						</div>
+					}
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+// decide is one button and the form that carries it. A POST, so a crawler or a
+// prefetch cannot approve anybody by following a link.
+templ decide(email, action, label, style string) {
+	<form method="post" action="/admin/decide">
+		<input type="hidden" name="email" value={ email }/>
+		<input type="hidden" name="action" value={ action }/>
+		<button class={ "btn", style } type="submit">{ label }</button>
+	</form>
+}

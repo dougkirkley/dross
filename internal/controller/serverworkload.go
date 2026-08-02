@@ -74,17 +74,23 @@ func authEnv(d *dross.Dross) []corev1.EnvVar {
 	if d.Spec.AuthSecret == "" {
 		return nil
 	}
-	ref := func(key string) *corev1.EnvVarSource {
+	ref := func(key string, optional bool) *corev1.EnvVarSource {
 		return &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{Name: d.Spec.AuthSecret},
 			Key:                  key,
+			Optional:             &optional,
 		}}
 	}
 	return []corev1.EnvVar{
-		{Name: "AUTH_CLIENT_ID", ValueFrom: ref("client-id")},
-		{Name: "AUTH_CLIENT_SECRET", ValueFrom: ref("client-secret")},
-		{Name: "AUTH_COOKIE_SECRET", ValueFrom: ref("cookie-secret")},
-		{Name: "AUTH_SERVICE_TOKEN", ValueFrom: ref("service-token")},
+		{Name: "AUTH_CLIENT_ID", ValueFrom: ref("client-id", false)},
+		{Name: "AUTH_CLIENT_SECRET", ValueFrom: ref("client-secret", false)},
+		{Name: "AUTH_COOKIE_SECRET", ValueFrom: ref("cookie-secret", false)},
+		{Name: "AUTH_SERVICE_TOKEN", ValueFrom: ref("service-token", false)},
+		// Account mail, read straight from the environment by the server rather
+		// than passed as an arg. Optional: a deployment with no mail provider
+		// must still start, and a missing key here would otherwise wedge the pod
+		// in CreateContainerConfigError.
+		{Name: "RESENDER_API_KEY", ValueFrom: ref("resend-key", true)},
 	}
 }
 

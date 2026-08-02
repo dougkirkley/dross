@@ -16,6 +16,7 @@ import (
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
 	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/internal/mail"
 	"github.com/dougkirkley/dross/internal/plugins"
 	"github.com/dougkirkley/dross/internal/server"
 	"github.com/dougkirkley/dross/internal/storage"
@@ -33,6 +34,7 @@ func newServeCmd() *cobra.Command {
 		authInsecure                                                   bool
 		artifactDir, publicURL                                         string
 		serviceToken, serviceIdentity                                  string
+		adminEmail, resendKey, mailFrom                                string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -121,20 +123,16 @@ func newServeCmd() *cobra.Command {
 			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetPolicy(config.PolicyOptions(res.File))
 			mgr.SetRepo(repoLabel(workdir))
-			// Who may sign in is decided upstream by the identity provider's own
-			// policy. dross records accounts rather than gating on them: the first
-			// successful sign-in registers the user.
+			// The identity provider authenticates; dross authorizes. A first
+			// sign-in registers the account as pending and the admin approves it
+			// on /admin. Accounts already on disk migrate to approved, so the
+			// deploy that introduces this does not lock the household out.
 			users, err := server.NewUsers(filepath.Dir(sp))
 			if err != nil {
 				return fmt.Errorf("user registry: %w", err)
 			}
-			if authr != nil {
-				authr.OnSignIn(func(email, name string) {
-					if u, isNew := users.SignIn(email, name); isNew {
-						fmt.Fprintf(cmd.OutOrStdout(), "registered new user %s\n", u.Email)
-					}
-				})
-			}
+			// The admin cannot be left waiting for themselves to approve them.
+			users.Ensure(adminEmail, server.StatusApproved)
 
 			// Pod mode. Off unless a session namespace is set, so a Docker or
 			// local deployment keeps running sessions in this process and needs
@@ -180,6 +178,26 @@ func newServeCmd() *cobra.Command {
 
 			sessionStore := storage.NewSessionStore(sp)
 			srv := server.New(sessionStore, mgr, authr, arts)
+
+			// Accounts: the registry decides who is let in, the notifier tells
+			// them. Both are interfaces to the server, so a bigger store or a
+			// different mail provider is a substitution here and nothing else.
+			srv.SetAccounts(users, adminEmail, &mail.Templated{
+				Send:   mail.NewResend(resendAPIKey(resendKey), mailFrom),
+				AppURL: strings.TrimRight(publicURL, "/"),
+				Admin:  adminEmail,
+			})
+			if authr != nil {
+				authr.SetApproval(users)
+				authr.OnSignIn(func(email, name string) {
+					u, isNew := users.SignIn(email, name)
+					if !isNew {
+						return
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "new account %s (%s)\n", u.Email, u.Status)
+					srv.AnnounceSignUp(u)
+				})
+			}
 
 			// Sessions outlive the process: restore what was there, then mirror
 			// changes to disk so a deploy doesn't discard the user's work.
@@ -238,6 +256,9 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&serviceIdentity, "service-identity", "service@dross", "identity the service token authenticates as")
 	f.StringVar(&authCookieSecret, "auth-cookie-secret", "", "hex key signing session cookies")
 	f.BoolVar(&authInsecure, "auth-insecure-cookies", false, "drop Secure flag on cookies (local http dev)")
+	f.StringVar(&adminEmail, "admin-email", "", "identity allowed to approve accounts at /admin; always approved itself")
+	f.StringVar(&resendKey, "resend-key", "", "Resend API key; defaults to $RESENDER_API_KEY, and sends no mail when neither is set")
+	f.StringVar(&mailFrom, "mail-from", "", "From address for account mail, e.g. \"Dross <dross@dross.sh>\"")
 	f.StringVar(&artifactDir, "artifact-dir", "", "directory for published artifacts")
 	f.StringVar(&publicURL, "public-url", "", "external origin for artifact links")
 	return cmd
@@ -307,6 +328,18 @@ func mcpSpecs(in []config.MCPServer) []agent.MCPServerSpec {
 		out = append(out, mcpSpec(s))
 	}
 	return out
+}
+
+// resendAPIKey resolves the mail credential: the flag wins, otherwise
+// $RESENDER_API_KEY. The environment is where a deployment puts it — read
+// directly rather than expanded into an arg, so a secret key that does not
+// exist yet leaves the value empty (the server then sends nothing) instead of
+// handing the provider a literal "$(RESENDER_API_KEY)".
+func resendAPIKey(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv("RESENDER_API_KEY")
 }
 
 // podSessionNamespace names the namespace session workloads go in, and is what
