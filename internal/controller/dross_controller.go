@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,15 +15,6 @@ import (
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
 	"github.com/dougkirkley/dross/internal/subreconciler"
-)
-
-const (
-	// How many sessions may be down for an image roll at once. One: a session
-	// is somebody's working context, and taking the lot away together to
-	// deliver a fix is its own kind of outage.
-	maxSessionsRolling = 1
-	// How often to look again while a roll is in progress.
-	rollPollInterval = 5 * time.Second
 )
 
 // DrossReconciler runs a dross server from a Dross resource.
@@ -160,9 +150,10 @@ func (r *DrossReconciler) ensureDeployment(ctx context.Context, req ctrl.Request
 // stays on the binary it started with — indefinitely, since a session lives
 // until someone deletes it.
 //
-// It restarts the session's pod, which loses whatever it was in the middle of.
-// The workspace is on a volume and survives; the turn does not. That is the
-// trade being made: an image is rolled because the old one is wrong, and
+// Each session's own workload rolls its pod; this only moves the image the
+// workload is asked for. That restarts the pod and loses whatever it was in
+// the middle of — the workspace is on a volume and survives, the turn does not
+// — which is the trade: an image is rolled because the old one is wrong, and
 // leaving sessions on a known-bad binary is worse than interrupting them.
 func (r *DrossReconciler) rollSessionImages(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
 	d, err := r.load(ctx, req)
@@ -178,47 +169,22 @@ func (r *DrossReconciler) rollSessionImages(ctx context.Context, req ctrl.Reques
 		return subreconciler.Fail(err)
 	}
 
-	// One at a time. Every session is its own workload, so updating them all at
-	// once would take every session on the server down together — and they come
-	// back by pulling an image and attaching a volume, which is slow enough to
-	// be felt. Rolling one and waiting for it costs a longer rollout and keeps
-	// the rest answering throughout.
-	var outdated []*dross.Session
-	moving := 0
 	for i := range list.Items {
 		s := &list.Items[i]
-		if !s.DeletionTimestamp.IsZero() {
+		if s.Spec.Image == d.Spec.Image || !s.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if s.Spec.Image != d.Spec.Image {
-			outdated = append(outdated, s)
-			continue
+		s.Spec.Image = d.Spec.Image
+		if err := r.Update(ctx, s); err != nil {
+			if apierrors.IsConflict(err) {
+				return subreconciler.Retry()
+			}
+			return subreconciler.Fail(fmt.Errorf("roll session %s: %w", s.Name, err))
 		}
-		// Already on the target image but not up yet: it is the one rolling.
-		if s.Status.Phase != "Running" {
-			moving++
-		}
+		log.FromContext(ctx).Info("rolling session onto a new image",
+			"session", s.Spec.SessionID, "image", d.Spec.Image)
 	}
-	if len(outdated) == 0 {
-		return subreconciler.ContinueReconciling()
-	}
-	if moving >= maxSessionsRolling {
-		// Come back when the one in flight has settled.
-		return subreconciler.RequeueAfter(rollPollInterval)
-	}
-
-	s := outdated[0]
-	s.Spec.Image = d.Spec.Image
-	if err := r.Update(ctx, s); err != nil {
-		if apierrors.IsConflict(err) {
-			return subreconciler.Retry()
-		}
-		return subreconciler.Fail(fmt.Errorf("roll session %s: %w", s.Name, err))
-	}
-	log.FromContext(ctx).Info("rolling session onto a new image",
-		"session", s.Spec.SessionID, "image", d.Spec.Image,
-		"remaining", len(outdated)-1)
-	return subreconciler.RequeueAfter(rollPollInterval)
+	return subreconciler.ContinueReconciling()
 }
 
 func (r *DrossReconciler) reflectServerStatus(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {

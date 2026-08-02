@@ -302,10 +302,10 @@ func TestSessionImageChangeUpdatesTheWorkload(t *testing.T) {
 	}
 }
 
-// One session at a time. Every session is its own workload, so bumping them all
-// together takes the whole server's worth of sessions down at once, and they
-// come back slowly — an image pull and a volume attach each.
-func TestRollTakesOneSessionAtATime(t *testing.T) {
+// A bump moves every outdated session in one pass. Each workload rolls its own
+// pod, so pacing them here would only delay a fix reaching the ones at the back
+// of the list.
+func TestRollMovesEverySessionAtOnce(t *testing.T) {
 	d := newDross()
 	var objs []client.Object
 	objs = append(objs, d)
@@ -318,55 +318,21 @@ func TestRollTakesOneSessionAtATime(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme(t)).
 		WithObjects(objs...).WithStatusSubresource(d).Build()
 	r := &DrossReconciler{Client: c}
-	key := types.NamespacedName{Namespace: d.Namespace, Name: d.Name}
 	ctx := context.Background()
 
-	rolled := func() int {
-		var l dross.SessionList
-		if err := c.List(ctx, &l); err != nil {
-			t.Fatal(err)
-		}
-		n := 0
-		for _, s := range l.Items {
-			if s.Spec.Image == d.Spec.Image {
-				n++
-			}
-		}
-		return n
-	}
-
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+	if _, err := r.Reconcile(ctx, ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: d.Namespace, Name: d.Name},
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := rolled(); got != 1 {
-		t.Fatalf("rolled %d sessions in one pass; want 1", got)
-	}
 
-	// The one in flight is not Running yet, so the next pass must hold.
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
-		t.Fatal(err)
-	}
-	if got := rolled(); got != 1 {
-		t.Errorf("rolled %d while one was still coming up; want 1", got)
-	}
-
-	// Mark it up; the next pass takes the second.
 	var l dross.SessionList
 	if err := c.List(ctx, &l); err != nil {
 		t.Fatal(err)
 	}
-	for i := range l.Items {
-		if l.Items[i].Spec.Image == d.Spec.Image {
-			l.Items[i].Status.Phase = "Running"
-			if err := c.Update(ctx, &l.Items[i]); err != nil {
-				t.Fatal(err)
-			}
+	for _, s := range l.Items {
+		if s.Spec.Image != d.Spec.Image {
+			t.Errorf("%s left on %q", s.Name, s.Spec.Image)
 		}
-	}
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
-		t.Fatal(err)
-	}
-	if got := rolled(); got != 2 {
-		t.Errorf("rolled %d after the first settled; want 2", got)
 	}
 }
