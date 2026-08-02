@@ -138,10 +138,26 @@ func flowView(f *auth.UIFlow, title, heading, lead, foot string) ui.FlowView {
 	return v
 }
 
+// writeFlowPage sets the headers for a page whose form hands off to an identity
+// provider.
+//
+// Note what is missing: form-action. Chrome applies that directive to every hop
+// of the redirect chain a submission follows, not just the first - so
+// "form-action 'self'" blocks this form even though it posts to dross's own
+// origin, because Kratos answers the post with a redirect to the OIDC issuer.
+// The browser reports it as the form violating the policy, which points at the
+// form rather than at the redirect behind it.
+//
+// Naming the issuer instead would only move the problem: the chain continues on
+// to Google and wherever Google decides to send someone, and none of that is
+// ours to enumerate. What the directive protects against is an injected form
+// posting somewhere it should not, and this page has no user input at all - a
+// provider button and a CSRF token, both from our own template. Everything else
+// stays locked down.
 func writeFlowPage(w http.ResponseWriter, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'")
+		"default-src 'none'; style-src 'unsafe-inline'; img-src data:")
 	w.WriteHeader(status)
 }

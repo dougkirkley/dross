@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -67,5 +69,30 @@ func TestFlowViewSkipsDisabledNodes(t *testing.T) {
 	v := flowView(&f, "Sign in", "Dross", "", "")
 	if len(v.Buttons) != 0 {
 		t.Errorf("drew %d disabled buttons; want none", len(v.Buttons))
+	}
+}
+
+// The flow page hands off to an identity provider, so it must not carry a
+// form-action directive. Chrome applies that to every hop of the redirect chain
+// a submission follows, and the hop after ours belongs to the provider - so the
+// policy blocks the handoff and blames the form. Every other page dross renders
+// posts only to itself and keeps the directive.
+func TestFlowPageDoesNotBlockItsOwnHandoff(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeFlowPage(w, http.StatusOK)
+	csp := w.Header().Get("Content-Security-Policy")
+
+	if strings.Contains(csp, "form-action") {
+		t.Errorf("the flow page carries form-action, which blocks the sign-in it exists to start: %q", csp)
+	}
+	// The rest of the lockdown has to survive: dropping one directive is not a
+	// reason to stop denying everything else.
+	for _, want := range []string{"default-src 'none'", "style-src 'unsafe-inline'", "img-src data:"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("policy lost %q: %q", want, csp)
+		}
+	}
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("a page carrying a CSRF token must not be cached: %q", w.Header().Get("Cache-Control"))
 	}
 }
