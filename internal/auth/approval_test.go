@@ -90,3 +90,36 @@ func TestMiddlewareWithoutApproverAllowsEveryone(t *testing.T) {
 		t.Error("no approver configured, but the request was refused")
 	}
 }
+
+// With Kratos configured it must be the one that starts a login: it sets the
+// anti-CSRF cookie and mints the flow id, so a page drawn without both can only
+// fail on submit. This is a redirect, not dross's own sign-in screen - and the
+// patch that first introduced it silently did nothing, which no test noticed.
+func TestUnauthenticatedBrowserGoesToKratos(t *testing.T) {
+	k, err := NewKratosSessions("http://kratos-public.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Authenticator{cfg: Config{}, cookieKey: []byte("test-key")}
+	a.SetKratosSessions(k)
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("an anonymous request reached the application")
+	}))
+
+	r := httptest.NewRequest("GET", "/sessions/abc", nil)
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("anonymous browser got %d; want a redirect into the Kratos flow", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/kratos/self-service/login/browser") {
+		t.Fatalf("redirected to %q; want the Kratos login flow", loc)
+	}
+	// And it must carry them back to where they were headed.
+	if !strings.Contains(loc, "return_to=%2Fsessions%2Fabc") {
+		t.Errorf("redirect lost the destination: %q", loc)
+	}
+}

@@ -186,6 +186,15 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		email, exempt, ok := a.identify(r)
 		if !ok {
+			// Kratos owns the login when it is configured, and it has to be the
+			// one that starts the flow: it sets the anti-CSRF cookie and mints
+			// the flow id, and a page drawn without either can only fail on
+			// submit. It redirects back to /login?flow=..., which dross draws.
+			if wantsHTML(r) && a.kratos != nil {
+				http.Redirect(w, r, "/kratos/self-service/login/browser?return_to="+
+					url.QueryEscape(safeNext(r.URL.RequestURI())), http.StatusFound)
+				return
+			}
 			if wantsHTML(r) && a.oauth != nil {
 				// Show dross's own sign-in screen rather than bouncing straight to
 				// the identity provider, so the first thing a user sees is dross.
