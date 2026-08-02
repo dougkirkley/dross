@@ -56,6 +56,14 @@ class T {
   /// narrower than this anyway.
   static const readWidth = 760.0;
 
+  /// Above this the conversation takes the desktop treatment: the transcript
+  /// laid out like the terminal, with gutter glyphs instead of chat bubbles.
+  ///
+  /// A width rather than a platform check. The browser is the case that wants
+  /// it, but a browser window dragged narrow wants the touch layout back, and
+  /// asking "is this the web?" would give a phone-shaped window the wrong one.
+  static const wideAt = 700.0;
+
   // Radii.
   static const rCard = 18.0;
   static const rBubble = 20.0;

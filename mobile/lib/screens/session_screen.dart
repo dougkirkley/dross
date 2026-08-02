@@ -205,21 +205,42 @@ class _SessionScreenState extends State<SessionScreen> {
         // Blocking the run, so it gets its own card rather than a text row.
         return AskCard(e.data);
       case 'prompt':
-        content = Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.82),
-            decoration: BoxDecoration(
-                color: T.surfaceAlt,
-                borderRadius: BorderRadius.circular(T.rBubble)),
-            child: Text(e.data, style: T.termBody),
-          ),
-        );
+        // Wide: the terminal's own line, "▸ you  <prompt>", in the flow. A
+        // bubble pushed to the right margin of a desktop window puts the
+        // request and the reply it produced at opposite edges of the screen.
+        content = isWide(context)
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('▸ ', style: T.termBody.copyWith(color: T.accent)),
+                Text('you',
+                    style: T.termBody.copyWith(
+                        color: T.textDim, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(e.data, style: T.termBody)),
+              ])
+            : Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.82),
+                  decoration: BoxDecoration(
+                      color: T.surfaceAlt,
+                      borderRadius: BorderRadius.circular(T.rBubble)),
+                  child: Text(e.data, style: T.termBody),
+                ),
+              );
         break;
       case 'text':
-        content = ProseText(e.data);
+        // The orb marks the agent's turn, as it does in the terminal. On a
+        // phone the alternation of bubble and prose already says whose turn it
+        // is, and the gutter would only eat width.
+        content = isWide(context)
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('◉ ', style: T.termBody.copyWith(color: T.accentHi)),
+                Expanded(child: ProseText(e.data)),
+              ])
+            : ProseText(e.data);
         break;
       case 'review':
         content = Column(
@@ -291,6 +312,16 @@ class _SessionScreenState extends State<SessionScreen> {
                 ),
               if (s.remotePending.isNotEmpty) _attachChips(context, s),
               Row(children: [
+                // The terminal's prompt marker, on the desktop layout only. On
+                // a phone the composer is obviously a composer and the glyph
+                // would just take a character's width from a short line.
+                if (isWide(context))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text('❯',
+                        style: T.termBody.copyWith(
+                            color: T.accent, fontWeight: FontWeight.w600)),
+                  ),
                 Expanded(
                   child: TextField(
                     controller: _input,

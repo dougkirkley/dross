@@ -19,3 +19,11 @@ class Readable extends StatelessWidget {
         ),
       );
 }
+
+/// Whether to use the desktop treatment: the transcript laid out like the
+/// terminal rather than as chat bubbles.
+///
+/// Measured, not assumed — a narrow browser window gets the touch layout, and a
+/// tablet in landscape gets the desktop one.
+bool isWide(BuildContext context) =>
+    MediaQuery.of(context).size.width >= T.wideAt;
