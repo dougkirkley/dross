@@ -40,8 +40,15 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	dopts := &websocket.DialOptions{
 		HTTPHeader: map[string][]string{"Authorization": {"Bearer " + opts.Token}},
 	}
+	// Announced before the dial, not after. Everything up to here can hang or
+	// fail — a wrong scheme against a plaintext port, an unresolvable service,
+	// a rejected credential — and without this line the process sits silent
+	// with nothing to say which of those it is. That is exactly how a session
+	// pod looks when it never attaches: running, and quiet.
+	opts.log(fmt.Sprintf("connecting to %s as %q…", url, opts.Name))
 	c, _, err := websocket.Dial(ctx, url, dopts)
 	if err != nil {
+		opts.log(fmt.Sprintf("connect failed: %v", err))
 		return fmt.Errorf("dial %s: %w", url, err)
 	}
 	defer c.Close(websocket.StatusNormalClosure, "")
@@ -57,7 +64,10 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	for {
 		var f Frame
 		if err := wsjson.Read(ctx, c, &f); err != nil {
-			return nil // connection closed
+			// Say so: an unexplained exit reads as a crash, and the reason for
+			// the drop is the useful part.
+			opts.log(fmt.Sprintf("disconnected from %s: %v", opts.Server, err))
+			return nil
 		}
 		switch f.Type {
 		case "prompt":
