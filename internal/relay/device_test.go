@@ -1,6 +1,13 @@
 package relay
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 // When the UI takes prompts, this device must not build an agent of its own.
 // Two agents on one machine was the defect: the relay's had no permission
@@ -41,5 +48,52 @@ func TestSessionIDIsNotDoublePrefixed(t *testing.T) {
 		if got := advertisedSessionID(name); got != want {
 			t.Errorf("name %q -> %q; want %q", name, got, want)
 		}
+	}
+}
+
+// The link has to survive the server going away, because a deploy takes it
+// away for a few seconds. Exiting instead put a session pod into
+// CrashLoopBackOff, whose delay grows to minutes — far longer than the restart
+// that caused it.
+func TestRunDeviceRetriesUntilCancelled(t *testing.T) {
+	var attempts int32
+	var logged []string
+	var mu sync.Mutex
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunDevice(ctx, DeviceOptions{
+			// Nothing is listening, so every dial fails.
+			Server: "http://127.0.0.1:1", Name: "box",
+			Log: func(m string) {
+				mu.Lock()
+				logged = append(logged, m)
+				if strings.Contains(m, "connect failed") {
+					if atomic.AddInt32(&attempts, 1) >= 2 {
+						cancel() // it retried; that is the whole claim
+					}
+				}
+				mu.Unlock()
+			},
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("returned %v; cancellation is not a failure", err)
+		}
+	case <-time.After(30 * time.Second):
+		cancel()
+		t.Fatal("did not return after cancellation")
+	}
+	if n := atomic.LoadInt32(&attempts); n < 2 {
+		t.Errorf("dialled %d time(s); it gave up instead of retrying", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(strings.Join(logged, "\n"), "reconnecting") {
+		t.Error("never said it was reconnecting")
 	}
 }

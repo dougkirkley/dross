@@ -63,7 +63,44 @@ func (o DeviceOptions) log(msg string) {
 
 // RunDevice links this computer to the server and serves phone-driven prompts
 // until the context is cancelled or the connection drops.
+// RunDevice keeps this machine linked until the context is cancelled,
+// reconnecting when the link drops.
+//
+// It retries rather than returning, because the server restarting is ordinary:
+// a deploy takes it away for a few seconds and every linked session would
+// otherwise exit. In a pod that means CrashLoopBackOff, whose delay grows to
+// minutes, so a ten-second restart left sessions dead for far longer than the
+// thing that broke them.
 func RunDevice(ctx context.Context, opts DeviceOptions) error {
+	const (
+		firstWait = time.Second
+		maxWait   = 30 * time.Second
+	)
+	wait := firstWait
+	for {
+		err := runDeviceOnce(ctx, opts)
+		if ctx.Err() != nil {
+			return nil // asked to stop
+		}
+		if err != nil {
+			opts.log(fmt.Sprintf("reconnecting in %s…", wait))
+		} else {
+			// A clean drop is still a drop; come back promptly.
+			wait = firstWait
+			opts.log("link closed; reconnecting…")
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return nil
+		}
+		if wait *= 2; wait > maxWait {
+			wait = maxWait
+		}
+	}
+}
+
+func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
 	url := strings.TrimRight(opts.Server, "/") + "/api/device/connect"
 	url = strings.Replace(strings.Replace(url, "https://", "wss://", 1), "http://", "ws://", 1)
 	dopts := &websocket.DialOptions{
