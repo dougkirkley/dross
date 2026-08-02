@@ -41,7 +41,7 @@ func TestGatedCommandFromRemoteIsAnsweredRemotely(t *testing.T) {
 	go func() {
 		_ = relay.RunDevice(ctx, relay.DeviceOptions{
 			Server: hs.URL, Name: "laptop", Workdir: t.TempDir(),
-			Log:    func(m string) { t.Log("device:", m) },
+			Log:  func(m string) { t.Log("device:", m) },
 			Lead: &fakeProvider{}, LeadModel: "m",
 			Ready: func(_ func(kind, data string), ask func(string) (string, error)) {
 				askFn = ask

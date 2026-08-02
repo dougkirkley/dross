@@ -180,21 +180,38 @@ func TestSignUpAnnouncesToBothSides(t *testing.T) {
 	}
 }
 
-// With no admin configured there is no admin surface at all.
-func TestNoAdminEmailMeansNoAdminRoutes(t *testing.T) {
+// The role on the record is the only grant. An address in a flag used to be
+// checked alongside it, which meant a demotion could be undone by a restart.
+func TestAdminIsTheRoleNotTheFlag(t *testing.T) {
 	users, err := NewUsers(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := New(storage.NewSessionStore(t.TempDir()),
 		NewManager(&fakeProvider{}, nil, "m", t.TempDir()), nil, testArts(t))
-	srv.SetAccounts(users, "", nil)
+	// The flag names Doug, and the directory does not agree.
+	srv.SetAccounts(users, "doug@example.com", &recorder{})
+	users.SignIn("doug@example.com", "Doug")
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/admin", nil), "doug@example.com"))
-	// Whatever /admin falls through to, it is not the account page.
-	if strings.Contains(w.Body.String(), "signed in as") {
-		t.Error("the admin page is served with no admin configured")
+	get := func(who string) int {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/admin", nil), who))
+		return w.Code
+	}
+	if code := get("doug@example.com"); code != http.StatusForbidden {
+		t.Errorf("the flag alone let someone in: /admin = %d; want 403", code)
+	}
+
+	// Seeded as the flag intends, they are in.
+	users.Ensure("doug@example.com", StatusApproved, RoleAdmin)
+	if code := get("doug@example.com"); code != http.StatusOK {
+		t.Fatalf("the seeded admin was refused: /admin = %d; want 200", code)
+	}
+
+	// Demoted, they are out again - and the flag does not bring them back.
+	users.SetRole("doug@example.com", RoleUser, "someone@example.com")
+	if code := get("doug@example.com"); code != http.StatusForbidden {
+		t.Errorf("a demoted admin still got in: /admin = %d; want 403", code)
 	}
 }
 

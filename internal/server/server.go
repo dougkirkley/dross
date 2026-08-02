@@ -74,11 +74,10 @@ func (s *Server) apiMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleStream)
 
-	// Account administration. Registered only when there is an admin to be, and
-	// wrapped in the same check the HTML page uses: the surrounding middleware
-	// only proves the caller is signed in, which under the approval model is
-	// true of every stranger.
-	if s.users != nil && s.adminEmail != "" {
+	// Account administration, wrapped in the same check the HTML page uses: the
+	// surrounding middleware only proves the caller is signed in, which under
+	// the approval model is true of every stranger.
+	if s.users != nil {
 		mux.Handle("GET /api/admin/users", s.adminOnly(http.HandlerFunc(s.handleAdminUsers)))
 		mux.Handle("POST /api/admin/users/{email}/decide", s.adminOnly(http.HandlerFunc(s.handleAdminDecideAPI)))
 	}
@@ -108,16 +107,16 @@ func (s *Server) buildHandler() http.Handler {
 		rootFallback = h
 	}
 
-	// The admin surface, when an admin identity is configured. It goes on both
-	// paths below: with auth off there is no identity to match, so every request
-	// to it is refused, which is the right answer for a local run.
+	// The admin surface. It goes on both paths below: with auth off there is no
+	// identity at all, so every request to it is refused, which is the right
+	// answer for a local run.
 	admin := func(h http.HandlerFunc) http.Handler {
 		if s.auth == nil {
 			return s.adminOnly(h)
 		}
 		return s.auth.Middleware(s.adminOnly(h))
 	}
-	if s.users != nil && s.adminEmail != "" {
+	if s.users != nil {
 		root.Handle("GET /admin", admin(s.handleAdminPage))
 		root.Handle("POST /admin/decide", admin(s.handleAdminDecide))
 	}

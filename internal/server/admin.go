@@ -52,8 +52,9 @@ var (
 	_ auth.Approver = (*KratosDirectory)(nil)
 )
 
-// SetAccounts wires the account directory, the identity allowed to decide, and
-// the mailer. Called with a non-empty admin email, the server serves /admin.
+// SetAccounts wires the account directory, the address account mail is copied
+// to, and the mailer. The admin surface is served whenever there is a directory
+// to administer; who may use it is a role on the record.
 func (s *Server) SetAccounts(dir UserDirectory, adminEmail string, n mail.Notifier) {
 	s.users = dir
 	s.adminEmail = strings.TrimSpace(adminEmail)
@@ -71,19 +72,17 @@ func (s *Server) SetAccounts(dir UserDirectory, adminEmail string, n mail.Notifi
 // interface value, so the question has to be asked of the notifier itself.
 func (s *Server) mailEnabled() bool { return s.notify != nil && s.notify.Enabled() }
 
-// isAdmin reports whether the request's identity may decide accounts. The role
-// on the record is the answer; --admin-email is only the bootstrap, checked as
-// well so a registry that lost the record cannot lock the owner out of the page
-// that would fix it.
+// isAdmin reports whether the request's identity may decide accounts.
+//
+// The directory is the only answer. --admin-email used to be checked here as
+// well, which made an address in a flag grant the role no matter what the store
+// said: a demotion could be undone by a restart, and the store could not be
+// audited on its own terms. It is now purely a seed, applied once at startup,
+// and a server that has lost every admin recovers through the first-run claim
+// rather than through a flag.
 func (s *Server) isAdmin(r *http.Request) bool {
 	email := auth.Identity(r)
-	if email == "" {
-		return false
-	}
-	if s.users != nil && s.users.IsAdmin(email) {
-		return true
-	}
-	return s.adminEmail != "" && strings.EqualFold(email, s.adminEmail)
+	return email != "" && s.users != nil && s.users.IsAdmin(email)
 }
 
 // adminOnly refuses a signed-in non-admin with 403 rather than 404. A 404 would
@@ -118,7 +117,7 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'")
 	_ = ui.Admin(ui.AdminView{
-		Admin:       s.adminEmail,
+		Admin:       auth.Identity(r),
 		Pending:     pending,
 		Decided:     decided,
 		Notice:      r.URL.Query().Get("ok"),
