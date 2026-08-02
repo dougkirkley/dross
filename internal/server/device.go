@@ -151,6 +151,7 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 	m.mu.Unlock()
 
 	s.mu.Lock()
+	s.picked = true
 	s.Model, s.Provider = info.Model, info.Provider
 	s.title, s.repo, s.last = info.Title, info.Workspace, info.Last
 	s.status, s.cost = info.Status, info.Cost
@@ -165,6 +166,7 @@ func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 	if !ok || s.device != device {
 		return
 	}
+	s.markPicked()
 	s.emit(kind, data)
 	if kind == "done" || kind == "error" {
 		s.setStatus("idle")

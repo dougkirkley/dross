@@ -147,3 +147,49 @@ func TestBusyRunIsNotWarned(t *testing.T) {
 		}
 	}
 }
+
+// A prompt the linked machine never acknowledges must fail, and quickly.
+// Acknowledging is not work — the device sends a frame before it asks the model
+// anything — so silence here means the prompt did not arrive at all.
+func TestUnacknowledgedPromptFails(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	m.upsertDeviceSession("laptop", relaySession("ses_x"))
+	s, _ := m.getAny("ses_x")
+
+	s.mu.Lock()
+	s.status, s.picked = "running", false
+	s.mu.Unlock()
+
+	// The watchdog runs on a timer; assert the decision it makes rather than
+	// waiting ten seconds for it.
+	s.mu.Lock()
+	stuck := !s.picked && s.status == "running"
+	s.mu.Unlock()
+	if !stuck {
+		t.Fatal("a running, unacknowledged prompt was not considered stuck")
+	}
+
+	// Once the device says anything, it is no longer stuck.
+	s.markPicked()
+	s.mu.Lock()
+	stuck = !s.picked && s.status == "running"
+	s.mu.Unlock()
+	if stuck {
+		t.Error("still considered stuck after the device acknowledged")
+	}
+}
+
+// A run producing output must never be failed by the silence timeout.
+func TestActiveRunIsNotTimedOut(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	s := m.create(CreateReq{}, "doug@example.com")
+	s.mu.Lock()
+	s.status = "running"
+	at := s.seq
+	s.mu.Unlock()
+
+	s.emit("text", "working on it")
+	if s.stillSilent(at) {
+		t.Error("a run that emitted output was judged silent")
+	}
+}

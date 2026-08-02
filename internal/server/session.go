@@ -57,6 +57,11 @@ type Session struct {
 	// it, because "add retry to the uploader" says more than "eager-island";
 	// a name the user typed is left alone.
 	titleAuto bool
+	// picked marks that the linked machine has acknowledged the current prompt.
+	// It sends a session frame the moment it starts a run, so this arrives long
+	// before any model output does — which is what separates "the machine never
+	// took the work" from "the model is slow".
+	picked    bool
 	last      string // most recent user/agent message, for the list preview
 	updated   time.Time
 	status    string // "idle" | "running" | "error"
@@ -105,10 +110,23 @@ type sessionView struct {
 }
 
 // emit appends an event and fans it out to live subscribers.
-// silenceWarning is how long a run may produce nothing before the session says
-// so. Generous: a first turn against a cold local model spends a minute or more
-// loading weights before it emits a token.
-const silenceWarning = 45 * time.Second
+const (
+	// silenceWarning is how long a run may produce nothing before the session
+	// says so. Generous: a first turn against a cold local model spends a
+	// minute or more loading weights before it emits a token.
+	silenceWarning = 45 * time.Second
+
+	// silenceTimeout is how long it may produce nothing before the run is
+	// given up on. A model that has answered nothing in this long is not slow,
+	// it is not coming — the endpoint is wrong, the backend is wedged, or it is
+	// waiting on memory it will not get. Leaving the session "running" for ever
+	// hides that behind something that looks like patience.
+	//
+	// Measured against silence, not total elapsed time: a long agent run is
+	// perfectly normal, and emits tool calls and text throughout. Nothing at
+	// all is the signal.
+	silenceTimeout = 6 * time.Minute
+)
 
 // warnIfSilent says something when a run produces nothing for a long time.
 //
@@ -122,15 +140,65 @@ func (s *Session) warnIfSilent() {
 	s.mu.Unlock()
 
 	time.AfterFunc(silenceWarning, func() {
-		s.mu.Lock()
-		quiet := s.seq == at && s.status == "running"
-		s.mu.Unlock()
-		if !quiet {
+		if !s.stillSilent(at) {
 			return
 		}
 		s.emit("meta", "still working — nothing back from the model yet. "+
 			"A local model that is not loaded can take a minute or two on the first turn.")
 	})
+
+	time.AfterFunc(silenceTimeout, func() {
+		if !s.stillSilent(at) {
+			return
+		}
+		// Cancel first: the run has to stop before the session is called idle,
+		// or a later answer arrives against a session that has moved on.
+		s.interrupt()
+		s.emit("error", fmt.Sprintf(
+			"no response from the model after %s. Check that the configured provider is reachable "+
+				"and the model is available; the request was given up on, not answered.",
+			silenceTimeout))
+		s.setStatus("idle")
+	})
+}
+
+// pickupTimeout is how long a linked machine has to acknowledge a prompt.
+//
+// Short, because acknowledging is not work: the device sends a frame as soon as
+// it starts the run, before it has asked the model anything. Nothing back in
+// this long means the prompt did not arrive — a dropped frame, or a connection
+// that is open but no longer carrying anything.
+const pickupTimeout = 10 * time.Second
+
+// failIfNotPickedUp gives up on a prompt the linked machine never acknowledged.
+func (s *Session) failIfNotPickedUp() {
+	time.AfterFunc(pickupTimeout, func() {
+		s.mu.Lock()
+		stuck := !s.picked && s.status == "running"
+		s.mu.Unlock()
+		if !stuck {
+			return
+		}
+		s.emit("error", fmt.Sprintf(
+			"the session did not pick up the prompt within %s. Its workspace may have "+
+				"restarted or lost its connection; the prompt was not run.", pickupTimeout))
+		s.setStatus("idle")
+	})
+}
+
+// markPicked records that the device has acknowledged the running prompt.
+func (s *Session) markPicked() {
+	s.mu.Lock()
+	s.picked = true
+	s.mu.Unlock()
+}
+
+// stillSilent reports whether the run is going and has produced nothing since
+// seq. Both halves matter: a finished run is not silent, it is done.
+func (s *Session) stillSilent(seq int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seq == seq && s.status == "running"
 }
 
 func (s *Session) emit(kind, data string) {
@@ -271,8 +339,18 @@ func (s *Session) history(after int) []Event {
 // interrupt cancels a running prompt, if any.
 func (s *Session) interrupt() {
 	s.mu.Lock()
-	c := s.cancel
+	c, device, mgr := s.cancel, s.device, s.mgr
 	s.mu.Unlock()
+
+	// A device session's run is not here — it is on the linked machine, and
+	// cancelling a context this process never created did nothing at all, so
+	// Stop left the agent working with no way to reach it.
+	if device != "" {
+		if mgr != nil && mgr.hub != nil {
+			mgr.hub.toDevice(device, relay.Frame{Type: "interrupt", SessionID: s.ID})
+		}
+		return
+	}
 	if c != nil {
 		c()
 	}
@@ -489,8 +567,10 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 			s.title, s.titleAuto = truncate(oneLine(prompt), 60), false
 		}
 		s.status = "running"
+		s.picked = false
 		s.mu.Unlock()
 		m.markBusy(s.ID, true)
+		s.failIfNotPickedUp()
 		if m.hub == nil || !m.hub.toDevice(s.device, relay.Frame{Type: "prompt", SessionID: s.ID, Text: prompt}) {
 			s.setStatus("idle")
 			return fmt.Errorf("device %q is not connected", s.device)
