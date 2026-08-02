@@ -176,7 +176,10 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				// Show dross's own sign-in screen rather than bouncing straight to
 				// the identity provider, so the first thing a user sees is dross.
 				// The button starts the same OIDC flow.
-				serveLoginPage(w, "/auth/login?next="+url.QueryEscape(safeNext(r.URL.RequestURI())))
+				next := url.QueryEscape(safeNext(r.URL.RequestURI()))
+				serveLoginPage(w,
+					"/auth/login?next="+next,
+					"/auth/login?reauth=1&next="+next)
 				return
 			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
