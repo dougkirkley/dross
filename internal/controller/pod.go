@@ -6,6 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 // podTemplateFor builds the pod template that runs one session.
@@ -29,22 +30,40 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	if s.Spec.Model != "" {
 		args = append(args, "--model", s.Spec.Model)
 	}
+	// Provider and base URL as arguments: they are not secret, and having them
+	// visible on the pod is useful when working out what a session talked to.
+	if s.Spec.Provider != "" {
+		args = append(args, "--provider", s.Spec.Provider)
+	}
+	if s.Spec.BaseURL != "" {
+		args = append(args, "--base-url", s.Spec.BaseURL)
+	}
+
+	// From a Secret rather than arguments, so credentials do not show up in the
+	// pod spec or in `kubectl get pod -o yaml`.
+	fromSecret := func(name, key string) corev1.EnvVar {
+		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: s.Spec.TokenSecret},
+				Key:                  key,
+				// Optional: a session created before the key was carried, or a
+				// provider that takes no key, still starts.
+				Optional: &yes,
+			},
+		}}
+	}
+	env := []corev1.EnvVar{fromSecret("DROSS_TOKEN", "token")}
+	// The provider's own variable, which the CLI already reads when no key is
+	// given on the command line.
+	if v := config.APIKeyEnv(s.Spec.Provider); v != "" {
+		env = append(env, fromSecret(v, "api-key"))
+	}
 
 	c := corev1.Container{
 		Name:  "session",
 		Image: s.Spec.Image,
 		Args:  args,
-		Env: []corev1.EnvVar{{
-			// From a Secret rather than an argument, so the credential does not
-			// show up in the pod spec or in `kubectl get pod -o yaml`.
-			Name: "DROSS_TOKEN",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: s.Spec.TokenSecret},
-					Key:                  "token",
-				},
-			},
-		}},
+		Env:   env,
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: &no,
 			ReadOnlyRootFilesystem:   &yes,

@@ -39,6 +39,14 @@ type SessionSpec struct {
 	// credential never appears in the pod spec or in `kubectl get pod -o yaml`.
 	TokenSecret string `json:"tokenSecret"`
 
+	// Provider and BaseURL are the model backend this session talks to, carried
+	// from the server so a pod runs against the same one rather than falling
+	// back to the built-in default. The API key is not here: it travels in
+	// TokenSecret, because a spec is readable by anyone who can read the
+	// resource.
+	Provider string `json:"provider,omitempty"`
+	BaseURL  string `json:"baseURL,omitempty"`
+
 	// Model overrides the server default for this session.
 	Model string `json:"model,omitempty"`
 

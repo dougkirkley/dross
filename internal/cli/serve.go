@@ -155,6 +155,11 @@ func newServeCmd() *cobra.Command {
 					// here; with no authenticator there is nothing to mint it.
 					return fmt.Errorf("pod sessions require authentication to be configured")
 				}
+				// The backend the server resolved for itself, so a session pod
+				// runs against the same one instead of the CLI default.
+				pods.Provider = res.Lead.Provider
+				pods.BaseURL = res.Lead.BaseURL
+				pods.APIKey = res.Lead.APIKey
 				pods.Image = envOr("DROSS_SESSION_IMAGE", "")
 				pods.ServerURL = envOr("DROSS_SESSION_SERVER_URL", "")
 				pods.Storage = envOr("DROSS_SESSION_STORAGE", "5Gi")

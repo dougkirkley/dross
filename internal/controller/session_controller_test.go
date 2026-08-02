@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -210,5 +211,55 @@ func TestReconcileDuringDeletionCreatesNothing(t *testing.T) {
 	}
 	if len(sets.Items) != 0 {
 		t.Errorf("created %d statefulsets while deleting; want 0", len(sets.Items))
+	}
+}
+
+// A session pod must run against the server's backend. Without it the CLI falls
+// back to its built-in default and the first prompt fails with no credentials —
+// the agent moved into a pod but its configuration did not follow.
+func TestSessionPodCarriesTheProviderConfig(t *testing.T) {
+	s := newSession()
+	s.Spec.Provider = "openai"
+	s.Spec.BaseURL = "http://ollama.media.svc.cluster.local:11434/v1"
+
+	pod := podTemplateFor(s).Spec.Containers[0]
+
+	args := strings.Join(pod.Args, " ")
+	if !strings.Contains(args, "--provider openai") ||
+		!strings.Contains(args, "--base-url http://ollama.media.svc.cluster.local:11434/v1") {
+		t.Errorf("args did not carry the backend: %s", args)
+	}
+
+	// The key is a secret reference, never an argument: anything on the command
+	// line is readable by whoever can read the pod.
+	if strings.Contains(args, "--api-key") {
+		t.Error("the API key was put on the command line")
+	}
+	var keyEnv *corev1.EnvVar
+	for i, e := range pod.Env {
+		if e.Name == "OPENAI_API_KEY" {
+			keyEnv = &pod.Env[i]
+		}
+	}
+	if keyEnv == nil {
+		t.Fatal("no OPENAI_API_KEY env for an openai session")
+	}
+	if keyEnv.Value != "" || keyEnv.ValueFrom == nil || keyEnv.ValueFrom.SecretKeyRef == nil {
+		t.Error("the API key must come from a Secret, not a literal value")
+	}
+	if got := keyEnv.ValueFrom.SecretKeyRef.Key; got != "api-key" {
+		t.Errorf("key ref = %q; want api-key", got)
+	}
+}
+
+// A provider with no key convention (bedrock takes the AWS chain) must not get
+// an empty variable invented for it.
+func TestSessionPodOmitsTheKeyEnvWhenThereIsNoConvention(t *testing.T) {
+	s := newSession()
+	s.Spec.Provider = "bedrock"
+	for _, e := range podTemplateFor(s).Spec.Containers[0].Env {
+		if strings.HasSuffix(e.Name, "_API_KEY") {
+			t.Errorf("invented %s for bedrock", e.Name)
+		}
 	}
 }

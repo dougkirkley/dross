@@ -211,6 +211,26 @@ func EnvFor(provider string) (baseURL, apiKey string) {
 	return "", ""
 }
 
+// APIKeyEnv is the environment variable a provider takes its key from — the
+// inverse of EnvFor's lookup, for callers that have to set the variable rather
+// than read it. A session pod is handed its credential this way: as a secret
+// reference the container resolves at start, never as an argument, which would
+// put it in the pod spec for anyone who can read one.
+func APIKeyEnv(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "azure":
+		return "AZURE_OPENAI_API_KEY"
+	case "gemini":
+		return "GEMINI_API_KEY"
+	}
+	// bedrock takes the AWS chain, and an unknown provider has no convention.
+	return ""
+}
+
 // Resolve merges the three layers for a single provider slot. flagChanged marks
 // whether each flag was explicitly set on the command line; when it was, the
 // flag value wins outright. Otherwise env wins over the file, which wins over

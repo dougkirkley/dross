@@ -33,6 +33,14 @@ type PodSessions struct {
 	Image     string
 	ServerURL string
 
+	// Provider, BaseURL and APIKey are the model backend the server itself uses.
+	// A session pod is handed the same one, or it would fall back to the CLI's
+	// built-in default and fail on the first prompt with no credentials. The key
+	// goes into the session's Secret; the other two into its spec.
+	Provider string
+	BaseURL  string
+	APIKey   string
+
 	// Defaults applied to each session's workload.
 	Storage      string
 	StorageClass string
@@ -87,9 +95,16 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 	if err != nil {
 		return fmt.Errorf("mint session credential: %w", err)
 	}
+	data := map[string]string{"token": tok}
+	if p.APIKey != "" {
+		// Alongside the relay credential rather than in the spec: both are
+		// secrets the pod resolves at start, and one Secret per session keeps
+		// their lifetime tied to the session that owns them.
+		data["api-key"] = p.APIKey
+	}
 	sec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: p.namespace, Name: name + "-token"},
-		StringData: map[string]string{"token": tok},
+		StringData: data,
 		Type:       corev1.SecretTypeOpaque,
 	}
 	if err := p.c.Create(ctx, sec); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -104,6 +119,8 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 			Image:        p.Image,
 			ServerURL:    p.ServerURL,
 			TokenSecret:  sec.Name,
+			Provider:     p.Provider,
+			BaseURL:      p.BaseURL,
 			Model:        model,
 			Storage:      p.Storage,
 			StorageClass: p.StorageClass,
