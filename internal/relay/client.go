@@ -34,7 +34,7 @@ type DeviceOptions struct {
 	// halves of the same session. Publishing local events closes the loop —
 	// whoever is holding the phone sees what you type, and you see what they
 	// send.
-	Ready func(publish func(kind, data string))
+	Ready func(publish func(kind, data string), ask func(payload string) (string, error))
 
 	// Prompt and Interrupt, when set, hand the remote's requests to the local
 	// UI instead of running them here.
@@ -89,7 +89,7 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	defer c.Close(websocket.StatusNormalClosure, "")
 	c.SetReadLimit(4 << 20)
 
-	d := &device{opts: opts, c: c, runs: map[string]context.CancelFunc{}}
+	d := &device{opts: opts, c: c, runs: map[string]context.CancelFunc{}, asks: map[string]chan string{}}
 	if err := d.send(ctx, Frame{Type: "hello", Device: opts.Name}); err != nil {
 		return err
 	}
@@ -97,7 +97,10 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	d.startSession(ctx, sessionID)
 	opts.log(fmt.Sprintf("linked %q to %s", opts.Name, opts.Server))
 	if opts.Ready != nil {
-		opts.Ready(func(kind, data string) { d.publishLocal(ctx, sessionID, kind, data) })
+		opts.Ready(
+			func(kind, data string) { d.publishLocal(ctx, sessionID, kind, data) },
+			func(payload string) (string, error) { return d.askRemote(ctx, sessionID, payload) },
+		)
 	}
 
 	for {
@@ -116,6 +119,8 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 				break
 			}
 			d.run(ctx, f.SessionID, f.Text)
+		case "answer":
+			d.deliverAnswer(f.AskID, f.Text)
 		case "interrupt":
 			if opts.Interrupt != nil {
 				opts.Interrupt(f.SessionID)
@@ -133,6 +138,10 @@ type device struct {
 	sendMu sync.Mutex
 	mu     sync.Mutex
 	runs   map[string]context.CancelFunc // sessionID -> cancel
+
+	askMu  sync.Mutex
+	asks   map[string]chan string // askID -> waiting run
+	askSeq int
 }
 
 func (d *device) send(ctx context.Context, f Frame) error {
@@ -229,4 +238,52 @@ func (d *device) publishLocal(ctx context.Context, id, kind, data string) {
 		}})
 	}
 	d.send(ctx, Frame{Type: "event", SessionID: id, Kind: kind, Data: data})
+}
+
+// askRemote puts a question to whoever is driving this session and waits for
+// their reply.
+//
+// The run is blocked while this is outstanding, which is the point: a gate that
+// returned early would be a gate that did not gate. It ends on an answer, on
+// the link dropping, or on the run being cancelled — the caller treats an error
+// as a refusal, so every one of those fails closed.
+func (d *device) askRemote(ctx context.Context, sessionID, payload string) (string, error) {
+	d.askMu.Lock()
+	d.askSeq++
+	id := fmt.Sprintf("%s-%d", sessionID, d.askSeq)
+	reply := make(chan string, 1)
+	d.asks[id] = reply
+	d.askMu.Unlock()
+
+	defer func() {
+		d.askMu.Lock()
+		delete(d.asks, id)
+		d.askMu.Unlock()
+	}()
+
+	if err := d.send(ctx, Frame{Type: "ask", SessionID: sessionID, AskID: id, Data: payload}); err != nil {
+		return "", fmt.Errorf("ask: %w", err)
+	}
+	select {
+	case ans := <-reply:
+		return ans, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// deliverAnswer wakes the run waiting on an ask. An answer to a question nobody
+// is waiting for is dropped: the run was cancelled or already gave up, and
+// applying it to whatever came next would answer the wrong question.
+func (d *device) deliverAnswer(id, text string) {
+	d.askMu.Lock()
+	reply := d.asks[id]
+	d.askMu.Unlock()
+	if reply == nil {
+		return
+	}
+	select {
+	case reply <- text:
+	default:
+	}
 }

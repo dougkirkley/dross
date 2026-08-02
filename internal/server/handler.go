@@ -151,6 +151,32 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "interrupted"})
 }
 
+// handleAnswer replies to a permission gate a device session is blocked on.
+//
+// Owner-scoped through mgr.get like every other session route: answering a gate
+// is approving an action, so it has to be at least as protected as reading the
+// session it belongs to.
+func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.mgr.get(r.PathValue("id"), auth.Identity(r))
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		AskID  string `json:"ask_id"`
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if !s.mgr.answerDevice(sess.ID, body.AskID, body.Answer) {
+		http.Error(w, "no question is waiting on an answer", http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "answered"})
+}
+
 // handleEvents returns event history (optionally after ?after=SEQ) for lossless
 // reconnect.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

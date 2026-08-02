@@ -23,12 +23,14 @@ type SessionInfo struct {
 //   - hello:   Device (name); the device announces itself
 //   - session: Session (upsert); a session's current snapshot
 //   - event:   SessionID, Seq, Kind, Data; one agent event
+//   - ask:     SessionID, AskID, Data; the run needs an answer before it can go on
 //
 // Server → device:
 //   - create:    Model, Worker; start a new session
 //   - prompt:    SessionID, Text; run a prompt in a session
 //   - interrupt: SessionID; cancel a running prompt
 //   - delete:    SessionID; drop a session
+//   - answer:    SessionID, AskID, Text; the reply to an ask
 type Frame struct {
 	Type   string `json:"type"`
 	Device string `json:"device,omitempty"`
@@ -39,6 +41,11 @@ type Frame struct {
 	Seq       int    `json:"seq,omitempty"`
 	Kind      string `json:"kind,omitempty"`
 	Data      string `json:"data,omitempty"`
+
+	// AskID pairs an ask with its answer. A run can only have one outstanding
+	// ask, but the id makes a late answer to an abandoned question ignorable
+	// rather than applied to the next one.
+	AskID string `json:"ask_id,omitempty"`
 
 	Text   string `json:"text,omitempty"`
 	Model  string `json:"model,omitempty"`

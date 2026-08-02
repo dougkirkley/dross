@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -128,6 +129,9 @@ func newTUICmd() *cobra.Command {
 			}
 
 			var prog *tea.Program
+			// Where a permission gate gets answered: here, or on the device
+			// that sent the prompt. The model keeps it current.
+			askRouter := tui.NewAskRouter()
 			// Skills + slash commands (Claude-Code-compatible), reloadable after a
 			// /plugin change. skillSpecs feeds the agent; skillItems the TUI.
 			var skillSpecs []agent.SkillSpec
@@ -203,7 +207,13 @@ func newTUICmd() *cobra.Command {
 					}
 					if prog != nil {
 						opts = append(opts, agent.WithAsker(func(req agent.AskRequest) (string, error) {
-							return tui.Ask(prog, req)
+							payload, err := json.Marshal(req)
+							if err != nil {
+								return tui.Ask(prog, req)
+							}
+							return askRouter.Route(string(payload), func() (string, error) {
+								return tui.Ask(prog, req)
+							})
 						}))
 					}
 					// Allowed tools, plugins and permission rules are shared with
@@ -237,6 +247,7 @@ func newTUICmd() *cobra.Command {
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
+			mdl.SetAskRouter(askRouter)
 			// Apply a mode switch to the live agent right away (not just next run).
 			mdl.SetModeSaver(func(mode string) {
 				if conv != nil {

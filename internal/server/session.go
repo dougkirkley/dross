@@ -63,6 +63,10 @@ type Session struct {
 	mgr       *Manager // back-reference, for marking the session dirty
 	device    string   // owning device id ("" = runs in this pod)
 	connected bool     // for device sessions: is that device currently linked
+	// pendingAsk is the id of the question a device session is blocked on,
+	// so a late answer to an abandoned one can be told apart from the
+	// answer to the current one.
+	pendingAsk string
 }
 
 // Status/Cost snapshots (locked reads for the JSON views).
@@ -229,7 +233,7 @@ type Manager struct {
 	// policy is the user's allowed-tools/plugins/permission rules, shared with
 	// every other place an agent is built so a session here is gated the same
 	// way it would be anywhere else.
-	policy    []agent.Option
+	policy []agent.Option
 
 	// pods provisions a workload per session; nil keeps sessions in-process,
 	// which is what a Docker or local deployment does.

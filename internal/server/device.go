@@ -128,6 +128,11 @@ func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
 			}
 		case "event":
 			s.mgr.deviceEvent(conn.id, f.SessionID, f.Kind, f.Data)
+		case "ask":
+			// A gate on the device, surfaced to whoever is watching the session.
+			// It rides the normal event stream so every client that can already
+			// read a session can show it without new plumbing.
+			s.mgr.deviceAsk(conn.id, f.SessionID, f.AskID, f.Data)
 		}
 	}
 }
@@ -212,5 +217,44 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 			return
 		}
 		s.auth.Middleware(next).ServeHTTP(w, r)
+	})
+}
+
+// deviceAsk records a pending question from a device and emits it so the
+// session's watchers can answer it.
+func (m *Manager) deviceAsk(device, sessionID, askID, payload string) {
+	s, ok := m.getAny(sessionID)
+	if !ok || s.device != device {
+		return
+	}
+	s.mu.Lock()
+	s.pendingAsk = askID
+	s.mu.Unlock()
+	// The ask id travels with the question so an answer can be matched to it
+	// rather than to whatever is outstanding when it arrives.
+	s.emit("ask", askID+"\x1f"+payload)
+}
+
+// answerDevice sends a reply to a device's pending question. It reports whether
+// the session is one that can be answered at all.
+func (m *Manager) answerDevice(sessionID, askID, text string) bool {
+	s, ok := m.getAny(sessionID)
+	if !ok || s.device == "" || m.hub == nil {
+		return false
+	}
+	s.mu.Lock()
+	pending := s.pendingAsk
+	if askID == "" {
+		askID = pending
+	}
+	if askID == pending {
+		s.pendingAsk = ""
+	}
+	s.mu.Unlock()
+	if askID == "" {
+		return false
+	}
+	return m.hub.toDevice(s.device, relay.Frame{
+		Type: "answer", SessionID: sessionID, AskID: askID, Text: text,
 	})
 }

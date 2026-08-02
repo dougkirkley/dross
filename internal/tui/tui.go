@@ -250,15 +250,18 @@ type RemoteHooks struct {
 	Log func(string)
 	// Ready hands over a publisher once the link is up, for streaming work
 	// started at this keyboard into the session the remote is watching.
-	Ready func(publish func(kind, data string))
+	Ready func(publish func(kind, data string), ask func(payload string) (string, error))
 	// Prompt and Interrupt are the remote driving this machine. Taking them
 	// means the relay builds no agent of its own.
 	Prompt    func(sessionID, text string)
 	Interrupt func(sessionID string)
 }
 
-// remoteReadyMsg hands the TUI the publisher for the now-live link.
-type remoteReadyMsg struct{ publish func(kind, data string) }
+// remoteReadyMsg hands the TUI the publisher and asker for the now-live link.
+type remoteReadyMsg struct {
+	publish func(kind, data string)
+	ask     func(payload string) (string, error)
+}
 
 // remotePromptMsg is a prompt sent from the phone or browser. It runs here,
 // through the same agent as anything typed at the keyboard.
@@ -491,6 +494,16 @@ type Model struct {
 	// remotePublish streams locally-driven work up to the linked session, so
 	// the phone sees what is typed here. Nil until /rc links.
 	remotePublish func(kind, data string)
+	// remoteAsk puts a question to the device driving the current run. Set with
+	// remotePublish; used only while a remote-origin run is in flight.
+	remoteAsk func(payload string) (string, error)
+	// remoteOrigin marks the run in flight as having come from the relay, so a
+	// gate is answered by whoever asked for the work rather than by whoever
+	// happens to be sitting here.
+	remoteOrigin bool
+	// askRouter is how the agent's asker, which runs off the Bubble Tea loop,
+	// learns where to send a gate.
+	askRouter *AskRouter
 
 	// /model picker. modelList lists the configured provider's models;
 	// modelSetup configures a provider (kind, base URL, key) and returns its
@@ -719,6 +732,17 @@ func (m *Model) SetRemote(server string, login func(ctx context.Context) error, 
 	m.remoteServer = server
 	m.remoteLogin = login
 	m.remoteLink = link
+}
+
+// SetAskRouter gives the model the router the agent's asker consults, so it can
+// keep it in step with which device started the run in flight.
+func (m *Model) SetAskRouter(r *AskRouter) { m.askRouter = r }
+
+// routeAsks points the router at the current run's origin.
+func (m *Model) routeAsks(remote bool) {
+	if m.askRouter != nil {
+		m.askRouter.SetRemote(remote, m.remoteAsk)
+	}
 }
 
 // SetReset wires /clear to drop persistent conversation memory.
@@ -1316,8 +1340,10 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.append(metaStyle.Render("linking this machine to " + m.remoteServer + " …"))
 		go func() {
 			err := m.remoteLink(context.Background(), RemoteHooks{
-				Log:   func(s string) { m.msgs <- remoteStatusMsg{s} },
-				Ready: func(pub func(kind, data string)) { m.msgs <- remoteReadyMsg{pub} },
+				Log: func(s string) { m.msgs <- remoteStatusMsg{s} },
+				Ready: func(pub func(kind, data string), ask func(string) (string, error)) {
+					m.msgs <- remoteReadyMsg{pub, ask}
+				},
 				// The relay hands prompts here rather than running them itself,
 				// so there is one agent on this machine and it is the one the
 				// user configured.
@@ -1870,6 +1896,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.title = truncate(prompt, 40)
 				}
 				m.input.Reset()
+				m.remoteOrigin = false
+				m.routeAsks(false)
 				return m, m.startPrompt(youLabel, "you", prompt)
 			}
 		}
@@ -1904,6 +1932,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.queue) > 0 {
 			next := m.queue[0]
 			m.queue = m.queue[1:]
+			m.remoteOrigin = false
+			m.routeAsks(false)
 			cmds = append(cmds, m.startPrompt(youLabel, "you", next))
 		}
 	case tea.MouseMsg:
@@ -1974,6 +2004,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.title == "" {
 			m.title = truncate(msg.text, 40)
 		}
+		m.remoteOrigin = true
+		m.routeAsks(true)
 		cmds = append(cmds, m.startPrompt(remoteLabel, "phone", msg.text))
 	case remoteInterruptMsg:
 		if m.running && m.runCancel != nil {
@@ -1982,11 +2014,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.pump())
 	case remoteReadyMsg:
-		m.remotePublish = msg.publish
+		m.remotePublish, m.remoteAsk = msg.publish, msg.ask
 		cmds = append(cmds, m.pump())
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
-			m.remoteLinked, m.remotePublish = false, nil
+			m.remoteLinked, m.remotePublish, m.remoteAsk = false, nil, nil
 		}
 		m.append(metaStyle.Render(msg.text))
 		cmds = append(cmds, m.pump())
