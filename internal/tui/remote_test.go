@@ -227,3 +227,49 @@ func TestRemoteInterruptCancelsTheRun(t *testing.T) {
 		t.Error("the interrupt was not reported in the transcript")
 	}
 }
+
+// Choosing Allow must actually allow. approve() matches the offered option
+// exactly, so the labelled "header: answer" form denied every gate it was
+// asked to approve.
+func TestSingleQuestionAnswersWithTheChoiceAlone(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	st := &askState{
+		questions: []agent.AskQuestion{{
+			Header: "bash", Question: "Allow this bash?", Options: []string{"Allow", "Deny"},
+		}},
+		sel:    [][]bool{{true, false}},
+		cursor: []int{0},
+		reply:  make(chan string, 1),
+	}
+	m.pendingAsk = st
+	m.submitAsk()
+
+	if got := <-st.reply; got != "Allow" {
+		t.Errorf("agent received %q; approve() only accepts the bare option", got)
+	}
+}
+
+// Several questions still need labels, or the answers cannot be told apart.
+func TestMultiQuestionKeepsItsLabels(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	st := &askState{
+		questions: []agent.AskQuestion{
+			{Header: "lang", Options: []string{"Go", "Rust"}},
+			{Header: "tests", Options: []string{"Yes", "No"}},
+		},
+		sel:    [][]bool{{true, false}, {false, true}},
+		cursor: []int{0, 0},
+		reply:  make(chan string, 1),
+	}
+	m.pendingAsk = st
+	m.submitAsk()
+
+	got := <-st.reply
+	if !strings.Contains(got, "lang: Go") || !strings.Contains(got, "tests: No") {
+		t.Errorf("multi-question answer lost its labels: %q", got)
+	}
+}

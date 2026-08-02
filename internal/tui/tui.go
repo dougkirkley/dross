@@ -2863,6 +2863,19 @@ func (m *Model) submitAsk() {
 		parts = append(parts, label+": "+ans)
 		m.append(youLabel.Render("you") + "  " + agentText.Render(label+" → "+ans))
 	}
+	// One question answers with the choice alone.
+	//
+	// The labelled "header: answer" form exists to tell several answers apart,
+	// and with a single question there is nothing to tell apart. It also broke
+	// permission gates outright: approve() matches the offered option exactly —
+	// deliberately, so that prose containing the word "allow" cannot approve a
+	// destructive command — and "bash: Allow" is not "Allow", so choosing Allow
+	// denied the call.
+	if len(a.questions) == 1 {
+		a.reply <- strings.Join(a.chosen(0), ", ")
+		m.pendingAsk = nil
+		return
+	}
 	a.reply <- strings.Join(parts, "\n")
 	m.pendingAsk = nil
 }
