@@ -62,9 +62,10 @@ class _SwipeToDeleteState extends State<SwipeToDelete> {
       return GestureDetector(
         onHorizontalDragUpdate: (d) => _update(d, w),
         onHorizontalDragEnd: (_) => _end(),
-        // Tapping the washed card puts it back, so the way out of an armed
-        // card is the same gesture you would try first.
-        onTap: _t > 0 ? _reset : null,
+        // No onTap here. A tap recogniser on this detector competes with the
+        // delete button's own, and the card resetting instead of deleting is
+        // how a button that is plainly there does nothing when pressed.
+        // Dismissing is handled by the layer below the button instead.
         child: Stack(children: [
           widget.child,
           // The wash: a red panel anchored to the trailing edge, as wide as the
@@ -86,14 +87,27 @@ class _SwipeToDeleteState extends State<SwipeToDelete> {
               ),
             ),
           ),
+          // Below the button and above the card: a tap anywhere else on an
+          // armed card puts it back, which is the first thing anyone tries.
+          if (_armed)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _reset,
+              ),
+            ),
+          // Last, so it is topmost and wins the tap that deletes.
           if (_armed)
             Positioned(
               top: 8,
               right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.white),
-                tooltip: 'Delete session',
-                onPressed: widget.onDelete,
+              child: Material(
+                color: Colors.transparent,
+                child: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.white),
+                  tooltip: 'Delete session',
+                  onPressed: widget.onDelete,
+                ),
               ),
             ),
         ]),

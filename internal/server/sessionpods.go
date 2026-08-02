@@ -95,11 +95,18 @@ const sessionIDLabel = dross.SessionIDLabel
 // Returns the friendly half of the workload's name, so the session can be
 // called the same thing in the UI as the pod running it.
 func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string) (string, error) {
-	friendly := friendlyName()
-	name := sessionName(p.NamePrefix, friendly)
+	// A few hundred name pairs is enough to be readable and nowhere near enough
+	// to assume uniqueness, so a taken name is drawn again. Swallowing the
+	// conflict instead — which is what this did — left two sessions pointing at
+	// one workload and showing the same name in the list.
+	friendly, name, err := p.freeName(ctx)
+	if err != nil {
+		return "", err
+	}
 	labels := map[string]string{sessionIDLabel: sessionID}
 
-	tok, err := p.MintToken(owner, sessionID, p.TokenTTL)
+	tok, mintErr := p.MintToken(owner, sessionID, p.TokenTTL)
+	err = mintErr
 	if err != nil {
 		return "", fmt.Errorf("mint session credential: %w", err)
 	}
@@ -142,10 +149,32 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 			ConfigMap:    p.ConfigMap,
 		},
 	}
-	if err := p.c.Create(ctx, s); err != nil && !apierrors.IsAlreadyExists(err) {
+	if err := p.c.Create(ctx, s); err != nil {
 		return "", fmt.Errorf("session resource: %w", err)
 	}
 	return friendly, nil
+}
+
+// freeName draws a name that is not already taken in the session namespace.
+//
+// Checked rather than assumed: with a few hundred pairs, a handful of sessions
+// is enough for a repeat, and two sessions sharing a name share the workload
+// behind it.
+func (p *PodSessions) freeName(ctx context.Context) (friendly, name string, err error) {
+	const attempts = 8
+	for i := 0; i < attempts; i++ {
+		friendly = friendlyName()
+		name = sessionName(p.NamePrefix, friendly)
+		var existing dross.Session
+		err = p.c.Get(ctx, client.ObjectKey{Namespace: p.namespace, Name: name}, &existing)
+		if apierrors.IsNotFound(err) {
+			return friendly, name, nil
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("checking session name: %w", err)
+		}
+	}
+	return "", "", fmt.Errorf("no free session name after %d attempts", attempts)
 }
 
 // legacyObjectName is how a workload was named before the label existed:

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -180,4 +181,31 @@ func TestSetBusyMarksAndClears(t *testing.T) {
 // or the session may already be gone.
 func TestSetBusyOnAMissingSessionIsFine(t *testing.T) {
 	podSessions(t).SetBusy(context.Background(), "ses_nope", true)
+}
+
+// Two sessions must not end up with the same name. Swallowing the conflict
+// pointed both at one workload and showed the pair twice in the list.
+func TestNamesDoNotCollide(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	seen := map[string]bool{}
+	for i := 0; i < 12; i++ {
+		name, err := p.Create(ctx, fmt.Sprintf("ses_%d", i), "doug@example.com", "m")
+		if err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+		if seen[name] {
+			t.Fatalf("name %q handed out twice", name)
+		}
+		seen[name] = true
+	}
+
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 12 {
+		t.Errorf("created %d workloads for 12 sessions; some shared one", len(list.Items))
+	}
 }
