@@ -440,7 +440,7 @@ func newTUICmd() *cobra.Command {
 						_, err := relay.Login(ctx, server)
 						return err
 					},
-					func(ctx context.Context, logf func(string), event func(kind, data string)) error {
+					func(ctx context.Context, logf func(string), event func(kind, data string), ready func(func(kind, data string))) error {
 						token := relay.LoadToken(server)
 						if token == "" {
 							var err error
@@ -458,6 +458,9 @@ func newTUICmd() *cobra.Command {
 							// So the linked terminal shows the work being driven
 							// through it, rather than just that a link is open.
 							Mirror: event,
+							// And the reverse: work started here is published
+							// into the same session, so both ends see all of it.
+							Ready: ready,
 						})
 					})
 			}

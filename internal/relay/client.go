@@ -32,6 +32,16 @@ type DeviceOptions struct {
 	// at it still wants to see the work, and without this the terminal shows
 	// only that a link is open while the agent runs invisibly inside it.
 	Mirror func(kind, data string)
+
+	// Ready is called once the link is up, with a function that publishes a
+	// locally-driven event into the same session the phone is watching.
+	//
+	// The relay was one-way: the phone could drive this machine, but work
+	// started at the keyboard went nowhere, so the two ends showed different
+	// halves of the same session. Publishing local events closes the loop —
+	// whoever is holding the phone sees what you type, and you see what they
+	// send.
+	Ready func(publish func(kind, data string))
 }
 
 func (o DeviceOptions) mirror(kind, data string) {
@@ -78,8 +88,12 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	if err := d.send(ctx, Frame{Type: "hello", Device: opts.Name}); err != nil {
 		return err
 	}
-	d.startSession(ctx, "ses_"+opts.Name)
+	sessionID := "ses_" + opts.Name
+	d.startSession(ctx, sessionID)
 	opts.log(fmt.Sprintf("linked %q to %s", opts.Name, opts.Server))
+	if opts.Ready != nil {
+		opts.Ready(func(kind, data string) { d.publishLocal(ctx, sessionID, kind, data) })
+	}
 
 	for {
 		var f Frame
@@ -186,4 +200,26 @@ func firstLine(s string) string {
 		s = s[:60]
 	}
 	return strings.TrimSpace(s)
+}
+
+// publishLocal streams an event produced by work started at this machine into
+// the session the server is mirroring, and keeps that session's status honest
+// so the phone shows it running rather than idle.
+//
+// Status is derived here rather than asked of the caller: the local UI should
+// not have to know the relay's session vocabulary to stay in sync.
+func (d *device) publishLocal(ctx context.Context, id, kind, data string) {
+	switch kind {
+	case "prompt":
+		d.send(ctx, Frame{Type: "session", Session: &SessionInfo{
+			ID: id, Model: d.opts.LeadModel, Provider: d.opts.Lead.Name(),
+			Workspace: d.opts.Repo, Status: "running", Title: firstLine(data),
+		}})
+	case "done", "error":
+		defer d.send(ctx, Frame{Type: "session", Session: &SessionInfo{
+			ID: id, Model: d.opts.LeadModel, Provider: d.opts.Lead.Name(),
+			Workspace: d.opts.Repo, Status: "idle",
+		}})
+	}
+	d.send(ctx, Frame{Type: "event", SessionID: id, Kind: kind, Data: data})
 }

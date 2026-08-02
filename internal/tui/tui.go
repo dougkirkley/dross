@@ -247,6 +247,9 @@ type remoteStatusMsg struct{ text string }
 // so a linked terminal shows the work instead of going silent.
 type remoteEventMsg struct{ kind, data string }
 
+// remoteReadyMsg hands the TUI the publisher for the now-live link.
+type remoteReadyMsg struct{ publish func(kind, data string) }
+
 // shimmerMsg drives the animated holographic shimmer on the welcome screen.
 type shimmerMsg struct{}
 
@@ -465,9 +468,12 @@ type Model struct {
 	// remote device linking (/login + /rc). Nil when the TUI was started
 	// without a --server, in which case those commands report as unavailable.
 	remoteServer string
-	remoteLogin  func(ctx context.Context) error                                                  // SSO sign-in, stores token
-	remoteLink   func(ctx context.Context, log func(string), event func(kind, data string)) error // advertise this machine
+	remoteLogin  func(ctx context.Context) error                                                                                       // SSO sign-in, stores token
+	remoteLink   func(ctx context.Context, log func(string), event func(kind, data string), ready func(func(kind, data string))) error // advertise this machine
 	remoteLinked bool
+	// remotePublish streams locally-driven work up to the linked session, so
+	// the phone sees what is typed here. Nil until /rc links.
+	remotePublish func(kind, data string)
 
 	// /model picker. modelList lists the configured provider's models;
 	// modelSetup configures a provider (kind, base URL, key) and returns its
@@ -692,7 +698,7 @@ func (m *Model) SetPhrases(p []string) {
 // SetRemote wires the /login and /rc slash commands. login signs the user in
 // via SSO (storing a session token); link advertises this machine to the server
 // as available for the logged-in user, streaming status through its log arg.
-func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string), event func(kind, data string)) error) {
+func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string), event func(kind, data string), ready func(func(kind, data string))) error) {
 	m.remoteServer = server
 	m.remoteLogin = login
 	m.remoteLink = link
@@ -1294,7 +1300,8 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		go func() {
 			err := m.remoteLink(context.Background(),
 				func(s string) { m.msgs <- remoteStatusMsg{s} },
-				func(kind, data string) { m.msgs <- remoteEventMsg{kind, data} })
+				func(kind, data string) { m.msgs <- remoteEventMsg{kind, data} },
+				func(pub func(kind, data string)) { m.msgs <- remoteReadyMsg{pub} })
 			if err != nil {
 				m.msgs <- remoteStatusMsg{"link ended: " + err.Error()}
 			} else {
@@ -1949,6 +1956,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shimmerMsg:
 		m.shimmer++
 		return m, shimmerTick()
+	case remoteReadyMsg:
+		m.remotePublish = msg.publish
+		cmds = append(cmds, m.pump())
 	case remoteEventMsg:
 		// Same renderer as a local run, so remote work reads identically —
 		// tool lines, diffs and prose all behave as they normally do.
@@ -1960,7 +1970,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.pump())
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
-			m.remoteLinked = false
+			m.remoteLinked, m.remotePublish = false, nil
 		}
 		m.append(metaStyle.Render(msg.text))
 		cmds = append(cmds, m.pump())
@@ -3480,9 +3490,30 @@ func (m Model) startRun(ctx context.Context, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		mode := modeLabels[m.modeIdx]
 		go func() {
+			pub := m.remotePublish
+			if pub != nil {
+				// The prompt first, so the phone sees the request before the
+				// work it produced.
+				pub("prompt", prompt)
+			}
 			res, err := m.run(ctx, prompt, mode, func(e agent.Event) {
 				m.msgs <- EventMsg(e)
+				if pub != nil {
+					pub(e.Kind, e.Data)
+				}
 			})
+			if pub != nil {
+				// Close the run on the far end too, or the session sits
+				// "running" on the phone forever.
+				switch {
+				case err != nil:
+					pub("error", err.Error())
+				case res != nil:
+					pub("done", fmt.Sprintf("$%.4f · %d turns", res.Cost(), res.Turns))
+				default:
+					pub("done", "")
+				}
+			}
 			m.msgs <- doneMsg{res: res, err: err}
 		}()
 		return nil
