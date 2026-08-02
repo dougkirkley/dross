@@ -108,6 +108,7 @@ class AppState extends ChangeNotifier {
     // The web build is served by `dross serve`; default to its own origin.
     if (baseUrl.isEmpty && kIsWeb) baseUrl = defaultWebServer();
     _chatViews.addAll(p.getStringList('chatViews') ?? const []);
+    await _loadRead();
     token = await _secure.read(key: 'remoteToken') ?? '';
     notifyListeners();
     if (remoteConfigured && authed) await refreshSessions();
@@ -299,10 +300,54 @@ class AppState extends ChangeNotifier {
 
   // --- attach / stream ------------------------------------------------
 
+  /// When each session was last read, by id. Persisted, because an unread
+  /// badge that forgets on restart tells you least at the moment you most want
+  /// it: opening the app after being away.
+  final Map<String, DateTime> _read = {};
+  static const _readKey = 'sessionsRead';
+
+  Future<void> _loadRead() async {
+    final p = await SharedPreferences.getInstance();
+    for (final entry in p.getStringList(_readKey) ?? const <String>[]) {
+      final i = entry.indexOf('=');
+      if (i <= 0) continue;
+      final at = DateTime.tryParse(entry.substring(i + 1));
+      if (at != null) _read[entry.substring(0, i)] = at;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _saveRead() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_readKey,
+        [for (final e in _read.entries) '${e.key}=${e.value.toIso8601String()}']);
+  }
+
+  /// Whether a session has produced something since it was last opened.
+  ///
+  /// Compared against the session's own updated time rather than counted from
+  /// events, so it works for sessions the client has never streamed — which is
+  /// most of them, most of the time.
+  bool unread(Session s) {
+    final at = s.updated;
+    if (at == null) return false;
+    if (current?.id == s.id) return false; // being read right now
+    final seen = _read[s.id];
+    return seen == null || at.isAfter(seen);
+  }
+
+  /// Marks a session read as of now.
+  void markRead(Session s) {
+    _read[s.id] = DateTime.now().toUtc();
+    _saveRead();
+    notifyListeners();
+  }
+
   Future<void> attach(Session s) async {
     _sub?.cancel();
     _sub = null;
     current = s;
+    markRead(s);
     events.clear();
     queue.clear();
     remotePending.clear();

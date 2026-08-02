@@ -165,10 +165,26 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(sess.displayTitle,
-                                style: T.rowTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
+                            Row(children: [
+                              // A dot rather than a count: what matters is that
+                              // the session has said something since you last
+                              // looked, not how many events that took.
+                              if (context.watch<AppState>().unread(sess)) ...[
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                      color: T.accentHi, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              Expanded(
+                                child: Text(sess.displayTitle,
+                                    style: T.rowTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ]),
                             const SizedBox(height: 4),
                             _statusLine(sess),
                           ],
