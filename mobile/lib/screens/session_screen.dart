@@ -69,12 +69,20 @@ class _SessionScreenState extends State<SessionScreen> {
         child: Column(
           children: [
             FlatHeader(
-              title: sess?.model ?? 'session',
+              // The session's own name when it has one, so a renamed session is
+              // identifiable from the screen it is open on.
+              title: (sess?.title ?? '').isNotEmpty
+                  ? sess!.title
+                  : (sess?.model ?? 'session'),
               subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
               leading: CircleIconButton(
                   icon: Icons.chevron_left,
                   onTap: () => Navigator.pop(context)),
-              trailing: null,
+              trailing: sess == null
+                  ? null
+                  : CircleIconButton(
+                      icon: Icons.drive_file_rename_outline,
+                      onTap: () => _rename(context, sess)),
             ),
             Expanded(
               child: Builder(builder: (_) {
@@ -118,6 +126,39 @@ class _SessionScreenState extends State<SessionScreen> {
     ));
   }
 
+  /// Rename the session. The id is untouched — this is a label for a human,
+  /// and everything else keys on the id.
+  Future<void> _rename(BuildContext context, Session sess) async {
+    final ctrl = TextEditingController(text: sess.title);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Rename session', style: T.title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: T.body,
+          decoration: const InputDecoration(
+            hintText: 'a name you will recognise',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.pop(dctx, v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dctx, ctrl.text),
+              child: const Text('Rename')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || !context.mounted) return;
+    await context.read<AppState>().renameSession(sess.id, name);
+  }
+
   Widget _tasksLink(
           BuildContext context, List<ShellTask> shells, int running) =>
       Padding(
@@ -143,7 +184,7 @@ class _SessionScreenState extends State<SessionScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(currentActivityLabel(s.events),
-                style: T.termMeta, maxLines: 1, overflow: TextOverflow.ellipsis),
+                style: metaFor(context), maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ]),
       );
@@ -170,7 +211,7 @@ class _SessionScreenState extends State<SessionScreen> {
                       onTap: () => _moveToInput(
                           context.read<AppState>().removeQueued(i)),
                       child: Text(s.queue[i],
-                          style: T.termMeta,
+                          style: metaFor(context),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis),
                     ),
@@ -227,7 +268,7 @@ class _SessionScreenState extends State<SessionScreen> {
                   decoration: BoxDecoration(
                       color: T.surfaceAlt,
                       borderRadius: BorderRadius.circular(T.rBubble)),
-                  child: Text(e.data, style: T.termBody),
+                  child: Text(e.data, style: bodyFor(context)),
                 ),
               );
         break;
@@ -328,7 +369,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     focusNode: _inputFocus,
                     minLines: 1,
                     maxLines: 5,
-                    style: T.termBody,
+                    style: bodyFor(context),
                     decoration: InputDecoration.collapsed(
                         hintText: running
                             ? 'Queue after this turn…'

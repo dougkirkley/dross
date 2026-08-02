@@ -94,6 +94,15 @@ class DrossClient {
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
+  /// Rename a session. Only the display name changes; the id the relay, the
+  /// workload label and the stored events all key on is untouched.
+  Future<Session> renameSession(String id, String title) async {
+    final r = await _http.patch(_uri('api/sessions/$id'),
+        headers: _headers, body: jsonEncode({'title': title}));
+    _check(r);
+    return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
   /// The models the server offers (GET /api/models -> {models, current}).
   Future<List<String>> serverModels() async {
     final r = await _http.get(_uri('api/models'), headers: _headers);

@@ -282,6 +282,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Renames a session for display. The id stays as it is, so nothing that
+  /// keys on it — the relay device, the workload, the stored events — moves.
+  Future<void> renameSession(String id, String title) async {
+    try {
+      final updated = await _client.renameSession(id, title.trim());
+      if (current?.id == updated.id) current = updated;
+      final i = sessions.indexWhere((x) => x.id == updated.id);
+      if (i >= 0) sessions[i] = updated;
+      notifyListeners();
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
+  }
+
   // --- attach / stream ------------------------------------------------
 
   Future<void> attach(Session s) async {

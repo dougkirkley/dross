@@ -27,3 +27,9 @@ class Readable extends StatelessWidget {
 /// tablet in landscape gets the desktop one.
 bool isWide(BuildContext context) =>
     MediaQuery.of(context).size.width >= T.wideAt;
+
+// Transcript type, chosen by the width it will be read at. The desktop
+// transcript matches the terminal; the phone one reads like a message thread.
+TextStyle proseFor(BuildContext c) => isWide(c) ? T.termProse : T.prose;
+TextStyle bodyFor(BuildContext c) => isWide(c) ? T.termBody : T.body;
+TextStyle metaFor(BuildContext c) => isWide(c) ? T.termMeta : T.meta;

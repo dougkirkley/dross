@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme.dart';
+import 'readable.dart';
 
 /// ProseText renders assistant markdown — headers, bold/italic, inline `code`,
 /// fenced code blocks, lists, blockquotes, and links — themed to match the app,
@@ -41,12 +42,12 @@ class ProseText extends StatelessWidget {
         }
       },
       styleSheet: MarkdownStyleSheet(
-        p: T.prose,
-        strong: T.proseBold,
-        em: T.prose.copyWith(fontStyle: FontStyle.italic),
-        a: T.prose
+        p: proseFor(context),
+        strong: proseFor(context).copyWith(fontWeight: FontWeight.w600),
+        em: proseFor(context).copyWith(fontStyle: FontStyle.italic),
+        a: proseFor(context)
             .copyWith(color: T.accent, decoration: TextDecoration.underline),
-        listBullet: T.prose,
+        listBullet: proseFor(context),
         code: T.mono.copyWith(
             color: T.accentHi, backgroundColor: T.surfaceAlt, fontSize: 14),
         codeblockPadding: const EdgeInsets.all(12),

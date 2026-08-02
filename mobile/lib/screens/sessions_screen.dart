@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/readable.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
@@ -41,31 +42,44 @@ class _SessionsScreenState extends State<SessionsScreen> {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
+    final wide = isWide(context);
     return Scaffold(
-      drawer: const AppDrawer(),
+      // At desktop widths the sidebar is simply there, beside the content. A
+      // drawer is a way to borrow space a phone does not have; on a wide window
+      // hiding it behind a button costs a click to reach settings that would
+      // otherwise always be in view.
+      drawer: wide ? null : const AppDrawer(),
       body: SafeArea(
-        child: Column(
-          children: [
-            FlatHeader(
-              title: widget.chat ? 'Chat' : 'Code',
-              leading: Builder(
-                builder: (ctx) => CircleIconButton(
-                    icon: Icons.menu,
-                    onTap: () => Scaffold.of(ctx).openDrawer()),
+        child: Row(children: [
+          if (wide) const SizedBox(width: 300, child: AppDrawer()),
+          if (wide) const VerticalDivider(width: 1, color: T.border),
+          Expanded(
+              child: Column(
+            children: [
+              FlatHeader(
+                title: widget.chat ? 'Chat' : 'Code',
+                // No hamburger when the sidebar is already open.
+                leading: wide
+                    ? null
+                    : Builder(
+                        builder: (ctx) => CircleIconButton(
+                            icon: Icons.menu,
+                            onTap: () => Scaffold.of(ctx).openDrawer()),
+                      ),
               ),
-            ),
-            Expanded(
-              child: !s.remoteConfigured
-                  ? _needsConfig(context)
-                  : RefreshIndicator(
-                      color: T.accent,
-                      backgroundColor: T.surface,
-                      onRefresh: s.refreshApp,
-                      child: _body(context, s),
-                    ),
-            ),
-          ],
-        ),
+              Expanded(
+                child: !s.remoteConfigured
+                    ? _needsConfig(context)
+                    : RefreshIndicator(
+                        color: T.accent,
+                        backgroundColor: T.surface,
+                        onRefresh: s.refreshApp,
+                        child: _body(context, s),
+                      ),
+              ),
+            ],
+          )),
+        ]),
       ),
       floatingActionButton: s.remoteConfigured
           ? PillButton(
@@ -79,55 +93,55 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _body(BuildContext context, AppState s) {
     final list = widget.chat ? s.chatSessions : s.codeSessions;
     return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
-        children: [
-          const Text('Devices', style: T.meta),
-          const SizedBox(height: 10),
-          _card(
-            child: const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Text('No recently connected devices',
-                    style: TextStyle(color: T.textDim)),
-              ),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+      children: [
+        const Text('Devices', style: T.meta),
+        const SizedBox(height: 10),
+        _card(
+          child: const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text('No recently connected devices',
+                  style: TextStyle(color: T.textDim)),
             ),
           ),
-          const SizedBox(height: 28),
-          Row(children: [
-            const Text('Sessions', style: T.meta),
-            const Spacer(),
-            if (s.loadingSessions) const DrossSpinner(size: 18),
-          ]),
-          const SizedBox(height: 10),
-          if (!s.sessionsLoaded)
+        ),
+        const SizedBox(height: 28),
+        Row(children: [
+          const Text('Sessions', style: T.meta),
+          const Spacer(),
+          if (s.loadingSessions) const DrossSpinner(size: 18),
+        ]),
+        const SizedBox(height: 10),
+        if (!s.sessionsLoaded)
+          _card(
+              child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 28),
+            child: Center(child: DrossSpinner(size: 32)),
+          ))
+        else ...[
+          if (s.error != null && list.isEmpty)
+            _card(
+                child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Error: ${s.error}',
+                  style: const TextStyle(color: T.danger)),
+            )),
+          if (list.isEmpty && s.error == null)
             _card(
                 child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: DrossSpinner(size: 32)),
-            ))
-          else ...[
-            if (s.error != null && list.isEmpty)
-              _card(
-                  child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text('Error: ${s.error}',
-                    style: const TextStyle(color: T.danger)),
-              )),
-            if (list.isEmpty && s.error == null)
-              _card(
-                  child: const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('No sessions yet. Tap New session.',
-                    style: TextStyle(color: T.textDim)),
-              )),
-            for (final sess in list) ...[
-              _sessionCard(context, sess),
-              const SizedBox(height: 14),
-            ],
+              padding: EdgeInsets.all(20),
+              child: Text('No sessions yet. Tap New session.',
+                  style: TextStyle(color: T.textDim)),
+            )),
+          for (final sess in list) ...[
+            _sessionCard(context, sess),
+            const SizedBox(height: 14),
           ],
         ],
-      );
+      ],
+    );
   }
 
   Widget _sessionCard(BuildContext context, Session sess) => Dismissible(
@@ -164,7 +178,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Text(sess.updated != null ? relTimeLong(sess.updated!) : '',
+                      Text(
+                          sess.updated != null
+                              ? relTimeLong(sess.updated!)
+                              : '',
                           style: T.metaFaint),
                       IconButton(
                         icon: const Icon(Icons.delete_outline,
@@ -179,28 +196,28 @@ class _SessionsScreenState extends State<SessionsScreen> {
                       ),
                     ],
                   ),
-                if (sess.last.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: T.bg,
-                      borderRadius: BorderRadius.circular(10),
+                  if (sess.last.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: T.bg,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(sess.last,
+                          style: T.body,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
                     ),
-                    child: Text(sess.last,
-                        style: T.body,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
   // Wraps a card so tapping it attaches to the session and opens it.
   Widget _openTap(BuildContext context, Session sess, Widget child) => InkWell(
@@ -297,8 +314,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Connect to dross serve', style: T.title),
             const SizedBox(height: 8),
-            const Text('Remote mode attaches to your server for full, repo-backed sessions.',
-                style: T.meta, textAlign: TextAlign.center),
+            const Text(
+                'Remote mode attaches to your server for full, repo-backed sessions.',
+                style: T.meta,
+                textAlign: TextAlign.center),
             const SizedBox(height: 20),
             PillButton(
                 label: 'Open Settings',

@@ -78,7 +78,8 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Model string `json:"model"`
+		Model string  `json:"model"`
+		Title *string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -86,6 +87,12 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if m := strings.TrimSpace(body.Model); m != "" {
 		sess.setModel(m)
+	}
+	// A pointer, so that clearing the name is expressible: sending "" resets it
+	// and the next prompt titles the session again, while omitting the field
+	// leaves the name alone.
+	if body.Title != nil {
+		sess.setTitle(truncate(oneLine(*body.Title), 60))
 	}
 	writeJSON(w, http.StatusOK, sess.snapshot())
 }

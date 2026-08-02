@@ -137,7 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
               // Dross does work.
               Flexible(
                 child: Text(currentActivityLabel(s.events),
-                    style: T.termMeta,
+                    style: metaFor(context),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
               ),
@@ -159,7 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
             color: T.surfaceAlt,
             borderRadius: BorderRadius.circular(T.rBubble),
           ),
-          child: Text(e.data, style: T.termBody),
+          child: Text(e.data, style: bodyFor(context)),
         ),
       );
     }
@@ -193,7 +193,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         focusNode: _focus,
                         minLines: 1,
                         maxLines: 6,
-                        style: T.termBody,
+                        style: bodyFor(context),
                         decoration: InputDecoration.collapsed(
                           hintText: (s.events.isNotEmpty)
                               ? 'Reply to Dross'

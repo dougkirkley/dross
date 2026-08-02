@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/readable.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
@@ -33,50 +34,65 @@ class _ChatsScreenState extends State<ChatsScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final chats = s.chatSessions;
+    final wide = isWide(context);
     return Scaffold(
-      drawer: const AppDrawer(),
+      // At desktop widths the sidebar is simply there, beside the content. A
+      // drawer is a way to borrow space a phone does not have; on a wide window
+      // hiding it behind a button costs a click to reach settings that would
+      // otherwise always be in view.
+      drawer: wide ? null : const AppDrawer(),
       body: SafeArea(
-        child: Column(
-          children: [
-            FlatHeader(
-              title: 'Chats',
-              leading: Builder(
-                builder: (ctx) => CircleIconButton(
-                    icon: Icons.menu,
-                    onTap: () => Scaffold.of(ctx).openDrawer()),
-              ),
-            ),
-            Expanded(
-              child: !s.sessionsLoaded
-                  ? const Center(child: DrossSpinner(size: 40))
-                  : RefreshIndicator(
-                      color: T.accent,
-                      backgroundColor: T.surface,
-                      onRefresh: s.refreshApp,
-                      child: chats.isEmpty
-                      // The empty state is exactly when a refresh is wanted, so
-                      // give it scroll physics rather than leaving it inert.
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            SizedBox(
-                                height:
-                                    MediaQuery.of(context).size.height * 0.65,
-                                child: _empty()),
-                          ],
-                        )
-                      : ListView.separated(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
-                        itemCount: chats.length,
-                        separatorBuilder: (_, __) =>
-                            const Divider(height: 1, color: T.borderFaint),
-                        itemBuilder: (_, i) => _row(context, chats[i]),
+        child: Row(children: [
+          if (wide) const SizedBox(width: 300, child: AppDrawer()),
+          if (wide) const VerticalDivider(width: 1, color: T.border),
+          Expanded(
+              child: Column(
+            children: [
+              FlatHeader(
+                title: 'Chats',
+                // No hamburger when the sidebar is already open.
+                leading: wide
+                    ? null
+                    : Builder(
+                        builder: (ctx) => CircleIconButton(
+                            icon: Icons.menu,
+                            onTap: () => Scaffold.of(ctx).openDrawer()),
                       ),
-                    ),
-            ),
-          ],
-        ),
+              ),
+              Expanded(
+                child: !s.sessionsLoaded
+                    ? const Center(child: DrossSpinner(size: 40))
+                    : RefreshIndicator(
+                        color: T.accent,
+                        backgroundColor: T.surface,
+                        onRefresh: s.refreshApp,
+                        child: chats.isEmpty
+                            // The empty state is exactly when a refresh is wanted, so
+                            // give it scroll physics rather than leaving it inert.
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  SizedBox(
+                                      height:
+                                          MediaQuery.of(context).size.height *
+                                              0.65,
+                                      child: _empty()),
+                                ],
+                              )
+                            : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 8, 20, 120),
+                                itemCount: chats.length,
+                                separatorBuilder: (_, __) => const Divider(
+                                    height: 1, color: T.borderFaint),
+                                itemBuilder: (_, i) => _row(context, chats[i]),
+                              ),
+                      ),
+              ),
+            ],
+          )),
+        ]),
       ),
       floatingActionButton: PillButton(
         label: 'New chat',
@@ -112,7 +128,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 4),
-                      Text(sess.updated != null ? relTimeLong(sess.updated!) : '',
+                      Text(
+                          sess.updated != null
+                              ? relTimeLong(sess.updated!)
+                              : '',
                           style: T.metaFaint),
                     ],
                   ),
@@ -153,8 +172,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
               const DrossLogo(size: 132),
               const SizedBox(height: 28),
               Text('Cost-aware coding,\nin your pocket.',
-                  style: T.prose.copyWith(
-                      fontSize: 22, height: 1.35, color: T.textDim),
+                  style: T.prose
+                      .copyWith(fontSize: 22, height: 1.35, color: T.textDim),
                   textAlign: TextAlign.center),
               const SizedBox(height: 14),
               const Text('Start a conversation with your agent.',

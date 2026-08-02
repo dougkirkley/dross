@@ -69,28 +69,37 @@ class T {
   static const rBubble = 20.0;
   static const rPill = 24.0;
 
-  // Bundled type: Inter for the app's chrome, JetBrains Mono for everything in
-  // the conversation.
+  // Bundled type: Inter for chrome, a serif for reading, JetBrains Mono for
+  // code and for the desktop transcript.
   //
-  // The transcript is mono because it is the same transcript as the terminal —
-  // the client is a view onto a session that also renders in a TUI, and prose
-  // set in a serif made the two read as different products. Chrome stays sans:
-  // sheets, drawers and pickers are touch UI with no terminal counterpart, and
-  // setting those in mono would be costume rather than continuity.
-  //
-  // The serif tokens remain for anything that wants a reading face later.
+  // Which one the conversation uses depends on the width it is being read at.
+  // On a desktop the browser sits beside a terminal rendering the same session,
+  // and mono keeps the two reading as one product. On a phone there is no
+  // terminal to match and the thread is read like messages, so it takes the
+  // serif. Chrome stays sans at both sizes.
   static const sans = 'Inter';
   static const serif = 'SourceSerif4';
   static const monoFamily = 'JetBrainsMono';
   static const serifFallback = <String>['Georgia', 'Charter', 'serif'];
   static const monoFallback = <String>['Menlo', 'Consolas', 'monospace'];
 
-  /// Assistant prose in the conversation.
+  /// Assistant prose on a phone: a reading face, because a phone conversation
+  /// is read like a message thread and has no terminal beside it to match.
   static TextStyle get prose => const TextStyle(
+        fontFamily: serif,
+        fontFamilyFallback: serifFallback,
+        fontSize: 19,
+        height: 1.55,
+        letterSpacing: 0.1,
+        color: text,
+      );
+
+  /// Assistant prose at desktop widths, where the browser sits next to the
+  /// terminal rendering the same session. Smaller than the serif: a mono face
+  /// sets wider, so matching its size would shorten the line to a stub.
+  static TextStyle get termProse => const TextStyle(
         fontFamily: monoFamily,
         fontFamilyFallback: monoFallback,
-        // Smaller than the serif it replaces: a mono face sets wider, so
-        // matching its size would have shortened the line to a stub.
         fontSize: 15,
         height: 1.6,
         color: text,

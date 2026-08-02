@@ -62,3 +62,37 @@ func TestAnswerWithNothingPendingFails(t *testing.T) {
 		t.Error("answered a session with no question outstanding")
 	}
 }
+
+// Renaming changes the display name and nothing else. The id is what the relay
+// device, the workload label and every stored event key on, so a rename that
+// moved it would strand all three.
+func TestRenameLeavesTheSessionIDAlone(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	s := m.create(CreateReq{}, "doug@example.com")
+	id := s.ID
+
+	s.setTitle("deploy the operator")
+
+	if s.ID != id {
+		t.Errorf("id changed from %q to %q", id, s.ID)
+	}
+	if got := s.snapshot().Title; got != "deploy the operator" {
+		t.Errorf("title = %q", got)
+	}
+	if _, ok := m.get(id, "doug@example.com"); !ok {
+		t.Error("session is no longer findable by its id after a rename")
+	}
+}
+
+// Clearing the name lets the next prompt title the session again, which is the
+// only way back to the default once it has been renamed.
+func TestClearingTheNameRestoresAutoTitling(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	s := m.create(CreateReq{}, "doug@example.com")
+	s.setTitle("something")
+	s.setTitle("")
+
+	if got := s.snapshot().Title; got != "" {
+		t.Errorf("title = %q; want it cleared", got)
+	}
+}

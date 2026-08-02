@@ -142,6 +142,19 @@ func (s *Session) markDevice(id string) {
 	}
 }
 
+// setTitle renames a session for display. The id is untouched: it is what the
+// relay device, the workload label and every stored event key on, so a rename
+// must not be able to move a session out from under them.
+func (s *Session) setTitle(t string) {
+	s.mu.Lock()
+	s.title = t
+	s.updated = time.Now()
+	s.mu.Unlock()
+	if s.mgr != nil {
+		s.mgr.markDirty(s.ID)
+	}
+}
+
 func (s *Session) setStatus(st string) {
 	s.mu.Lock()
 	s.status = st
