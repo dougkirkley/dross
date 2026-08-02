@@ -3,7 +3,13 @@
 // so commands can be built and exercised in tests without a process.
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+	"os/signal"
+	"syscall"
+
+	"github.com/spf13/cobra"
+)
 
 const defaultModel = "claude-opus-5"
 
@@ -53,4 +59,13 @@ func NewRootCmd() *cobra.Command {
 }
 
 // Execute runs the CLI.
-func Execute() error { return NewRootCmd().Execute() }
+//
+// SIGTERM cancels the command's context rather than killing the process, which
+// is what lets a session pod finish the answer it is part-way through when
+// Kubernetes replaces it. Not SIGINT: the TUI reads ctrl+c as a keystroke and
+// handles it itself, and a signal handler would take that away.
+func Execute() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
+	return NewRootCmd().ExecuteContext(ctx)
+}

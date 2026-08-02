@@ -97,3 +97,55 @@ func TestRunDeviceRetriesUntilCancelled(t *testing.T) {
 		t.Error("never said it was reconnecting")
 	}
 }
+
+// Shutting down waits for the turn in flight. A session pod is usually being
+// replaced when this happens, and the answer being written is the thing worth
+// saving — Kubernetes gives the pod a grace period precisely so it can.
+func TestDrainWaitsForRunsInFlight(t *testing.T) {
+	d := &device{runs: map[string]context.CancelFunc{}}
+	d.runs["ses_a"] = func() {}
+
+	var logged []string
+	var mu sync.Mutex
+	opts := DeviceOptions{Log: func(m string) {
+		mu.Lock()
+		logged = append(logged, m)
+		mu.Unlock()
+	}}
+
+	done := make(chan struct{})
+	go func() { d.drain(opts); close(done) }()
+
+	select {
+	case <-done:
+		t.Fatal("drain returned while a run was still going")
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	// The run finishes, as it would by deleting itself from the map.
+	d.mu.Lock()
+	delete(d.runs, "ses_a")
+	d.mu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not return once the run finished")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(strings.Join(logged, "\n"), "drained") {
+		t.Errorf("drain said nothing about finishing: %v", logged)
+	}
+}
+
+// With nothing running, shutdown is immediate — a pod with no work to finish
+// should not sit out its grace period.
+func TestDrainReturnsImmediatelyWhenIdle(t *testing.T) {
+	d := &device{runs: map[string]context.CancelFunc{}}
+	start := time.Now()
+	d.drain(DeviceOptions{})
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("idle drain took %s", took)
+	}
+}

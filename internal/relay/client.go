@@ -162,6 +162,13 @@ func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
 	for {
 		var f Frame
 		if err := wsjson.Read(ctx, c, &f); err != nil {
+			if ctx.Err() != nil {
+				// Being shut down, not dropped. Finish whatever is running
+				// before letting the process go: the pod is usually being
+				// replaced, and the answer in flight is the thing worth saving.
+				d.drain(opts)
+				return nil
+			}
 			// Say so: an unexplained exit reads as a crash, and the reason for
 			// the drop is the useful part.
 			opts.log(fmt.Sprintf("disconnected from %s: %v", opts.Server, err))
@@ -217,7 +224,16 @@ func (d *device) startSession(ctx context.Context, id string) {
 
 // run executes a prompt in a session locally and streams its events back.
 func (d *device) run(ctx context.Context, id, text string) {
-	runCtx, cancel := context.WithCancel(ctx)
+	// Detached from the connection's context on purpose. Shutting down cancels
+	// that context, and a run descending from it would be killed by the very
+	// signal drain exists to survive — the answer abandoned half-written rather
+	// than finished.
+	//
+	// It also means a dropped connection no longer aborts the work. That is the
+	// better end of the trade: the edit lands in the workspace, which outlives
+	// both the connection and the pod, where cancelling leaves it half-applied.
+	// Interrupts still work — they cancel this run directly, not its parent.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	d.mu.Lock()
 	d.runs[id] = cancel
 	d.mu.Unlock()
@@ -356,4 +372,45 @@ func advertisedSessionID(name string) string {
 		return name
 	}
 	return "ses_" + name
+}
+
+// drainWait bounds how long a shutting-down device waits for its work.
+//
+// Longer than a quick turn and shorter than the pod's grace period, so
+// Kubernetes is not the thing that decides: past this the process gives up and
+// exits, rather than being killed part-way through writing a file.
+const drainWait = 90 * time.Second
+
+// drain waits for in-flight runs to finish while the device is shutting down.
+//
+// The connection is already gone by this point, so the events these runs
+// produce cannot be delivered — but the work itself lands in the workspace,
+// which outlives the pod, and a half-applied edit is worse than a late one.
+func (d *device) drain(opts DeviceOptions) {
+	d.mu.Lock()
+	n := len(d.runs)
+	d.mu.Unlock()
+	if n == 0 {
+		return
+	}
+	opts.log(fmt.Sprintf("draining: waiting for %d run(s) to finish…", n))
+
+	deadline := time.After(drainWait)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-tick.C:
+			d.mu.Lock()
+			n = len(d.runs)
+			d.mu.Unlock()
+			if n == 0 {
+				opts.log("drained")
+				return
+			}
+		case <-deadline:
+			opts.log(fmt.Sprintf("drain timed out with %d run(s) still going", n))
+			return
+		}
+	}
 }

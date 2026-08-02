@@ -15,6 +15,10 @@ import (
 // root, and no service-account token — it has no business talking to the API
 // server. It dials out to the relay instead of listening, so nothing needs to
 // reach it either.
+// drainGrace is how long Kubernetes waits for a session to finish its turn
+// before killing it. Comfortably past the device's own 90s drain deadline.
+var drainGrace = int64(120)
+
 func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	run := int64(10001)
 	yes := true
@@ -115,8 +119,13 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 			AutomountServiceAccountToken: &no,
 			// Always: a session survives a crash or a node reboot; the
 			// StatefulSet brings it back with the same name and volume.
-			RestartPolicy:      corev1.RestartPolicyAlways,
-			EnableServiceLinks: &no,
+			RestartPolicy: corev1.RestartPolicyAlways,
+			// Long enough for the agent to finish the turn it is part-way
+			// through when the pod is replaced. Past the device's own drain
+			// deadline, so the process decides when to give up rather than
+			// being killed mid-write.
+			TerminationGracePeriodSeconds: &drainGrace,
+			EnableServiceLinks:            &no,
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:   &yes,
 				RunAsUser:      &run,
