@@ -94,6 +94,23 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 	var have appsv1.StatefulSet
 	err = r.Get(ctx, req.NamespacedName, &have)
 	if err == nil {
+		// Only the image is reconciled onto an existing workload. Everything
+		// else in the template is fixed when the session is created, and
+		// rewriting the lot would restart a session for a change to a resource
+		// limit or a label; the image is rolled precisely because the binary
+		// running is the wrong one.
+		c := have.Spec.Template.Spec.Containers
+		if len(c) > 0 && c[0].Image != s.Spec.Image {
+			c[0].Image = s.Spec.Image
+			if err := r.Update(ctx, &have); err != nil {
+				if apierrors.IsConflict(err) {
+					return subreconciler.Retry()
+				}
+				return subreconciler.Fail(fmt.Errorf("statefulset image: %w", err))
+			}
+			log.FromContext(ctx).Info("session image updated",
+				"session", s.Spec.SessionID, "image", s.Spec.Image)
+		}
 		return subreconciler.ContinueReconciling()
 	}
 	if !apierrors.IsNotFound(err) {

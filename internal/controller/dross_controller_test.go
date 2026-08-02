@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
@@ -201,5 +202,171 @@ func TestDrossWithoutImageFails(t *testing.T) {
 	var dep appsv1.Deployment
 	if err := c.Get(context.Background(), key, &dep); err == nil {
 		t.Error("created a deployment for a Dross with no image")
+	}
+}
+
+// A session's image is fixed in its spec at creation, so without rolling, a fix
+// to the agent reaches new sessions only and everything already running stays
+// on the binary it started with — for as long as the session lives.
+func TestBumpingTheServerRollsItsSessions(t *testing.T) {
+	d := newDross()
+	old := &dross.Session{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "dross", Name: "dross-web-old-one"},
+		Spec:       dross.SessionSpec{SessionID: "ses_a", Image: "registry.example/dross-web:1.0.0"},
+	}
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).
+		WithObjects(d, old).WithStatusSubresource(d).Build()
+	r := &DrossReconciler{Client: c}
+	key := types.NamespacedName{Namespace: d.Namespace, Name: d.Name}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var got dross.Session
+	if err := c.Get(context.Background(),
+		types.NamespacedName{Namespace: "dross", Name: "dross-web-old-one"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Image != d.Spec.Image {
+		t.Errorf("session image = %q; want the server's %q", got.Spec.Image, d.Spec.Image)
+	}
+}
+
+// A session already being deleted must be left alone: writing to it would only
+// race the collection that is removing it.
+func TestRollSkipsSessionsBeingDeleted(t *testing.T) {
+	d := newDross()
+	now := metav1.Now()
+	going := &dross.Session{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "dross", Name: "dross-web-going",
+			DeletionTimestamp: &now, Finalizers: []string{"dross.sh/test"},
+		},
+		Spec: dross.SessionSpec{SessionID: "ses_b", Image: "old"},
+	}
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).
+		WithObjects(d, going).WithStatusSubresource(d).Build()
+	r := &DrossReconciler{Client: c}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: d.Namespace, Name: d.Name},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var got dross.Session
+	if err := c.Get(context.Background(),
+		types.NamespacedName{Namespace: "dross", Name: "dross-web-going"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Image != "old" {
+		t.Error("rewrote a session that was being deleted")
+	}
+}
+
+// The workload has to follow its Session, or the spec says one image and the
+// pod goes on running another.
+func TestSessionImageChangeUpdatesTheWorkload(t *testing.T) {
+	s := newSession()
+	s.Spec.Image = "registry.example/dross-web:1.0.0"
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).WithObjects(s).WithStatusSubresource(s).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: s.Namespace, Name: s.Name}
+	ctx := context.Background()
+
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	var live dross.Session
+	if err := c.Get(ctx, key, &live); err != nil {
+		t.Fatal(err)
+	}
+	live.Spec.Image = "registry.example/dross-web:2.0.0"
+	if err := c.Update(ctx, &live); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+
+	var set appsv1.StatefulSet
+	if err := c.Get(ctx, key, &set); err != nil {
+		t.Fatal(err)
+	}
+	if got := set.Spec.Template.Spec.Containers[0].Image; got != "registry.example/dross-web:2.0.0" {
+		t.Errorf("workload image = %q; it did not follow the session", got)
+	}
+}
+
+// One session at a time. Every session is its own workload, so bumping them all
+// together takes the whole server's worth of sessions down at once, and they
+// come back slowly — an image pull and a volume attach each.
+func TestRollTakesOneSessionAtATime(t *testing.T) {
+	d := newDross()
+	var objs []client.Object
+	objs = append(objs, d)
+	for _, n := range []string{"a", "b", "c"} {
+		objs = append(objs, &dross.Session{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "dross", Name: "dross-web-" + n},
+			Spec:       dross.SessionSpec{SessionID: "ses_" + n, Image: "old"},
+		})
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme(t)).
+		WithObjects(objs...).WithStatusSubresource(d).Build()
+	r := &DrossReconciler{Client: c}
+	key := types.NamespacedName{Namespace: d.Namespace, Name: d.Name}
+	ctx := context.Background()
+
+	rolled := func() int {
+		var l dross.SessionList
+		if err := c.List(ctx, &l); err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, s := range l.Items {
+			if s.Spec.Image == d.Spec.Image {
+				n++
+			}
+		}
+		return n
+	}
+
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rolled(); got != 1 {
+		t.Fatalf("rolled %d sessions in one pass; want 1", got)
+	}
+
+	// The one in flight is not Running yet, so the next pass must hold.
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rolled(); got != 1 {
+		t.Errorf("rolled %d while one was still coming up; want 1", got)
+	}
+
+	// Mark it up; the next pass takes the second.
+	var l dross.SessionList
+	if err := c.List(ctx, &l); err != nil {
+		t.Fatal(err)
+	}
+	for i := range l.Items {
+		if l.Items[i].Spec.Image == d.Spec.Image {
+			l.Items[i].Status.Phase = "Running"
+			if err := c.Update(ctx, &l.Items[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rolled(); got != 2 {
+		t.Errorf("rolled %d after the first settled; want 2", got)
 	}
 }
