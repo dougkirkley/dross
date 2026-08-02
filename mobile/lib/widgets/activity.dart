@@ -288,192 +288,158 @@ String _trim(String s, [int max = 56]) {
 }
 
 /// The collapsed activity line under a message.
-class ActivityBlock extends StatelessWidget {
+///
+/// Tapping expands it in place rather than opening a view of its own. What ran
+/// is part of reading the conversation — it belongs in the flow, next to the
+/// reply it produced, not behind a route that loses your place to show it.
+class ActivityBlock extends StatefulWidget {
   const ActivityBlock(this.activity, {super.key});
   final Activity activity;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => _showSteps(context, activity),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
-          children: [
-            Flexible(
-              child: Text(activity.summary,
-                  style: T.meta, overflow: TextOverflow.ellipsis),
-            ),
-            if (activity.added > 0 || activity.removed > 0) ...[
-              const SizedBox(width: 8),
-              Text('+${activity.added}',
-                  style: const TextStyle(color: T.ok, fontSize: 13)),
-              const SizedBox(width: 4),
-              Text('-${activity.removed}',
-                  style: const TextStyle(color: T.danger, fontSize: 13)),
-            ],
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18, color: T.textFaint),
-          ],
-        ),
-      ),
-    );
-  }
+  State<ActivityBlock> createState() => _ActivityBlockState();
 }
 
-void _showSteps(BuildContext context, Activity a) {
-  showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (_) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(children: [
-              CircleIconButton(
-                  icon: Icons.close, onTap: () => Navigator.pop(context)),
-              Expanded(
-                  child: Text(a.summary,
-                      style: T.title, textAlign: TextAlign.center)),
-              const SizedBox(width: 44),
-            ]),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                color: T.surface,
-                borderRadius: BorderRadius.circular(T.rCard),
-                border: Border.all(color: T.border),
-              ),
-              child: Column(
-                children: [
-                  for (var i = 0; i < a.steps.length; i++) ...[
-                    _stepRow(context, a.steps[i]),
-                    if (i != a.steps.length - 1)
-                      const Divider(
-                          height: 1, color: T.borderFaint, indent: 52),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-Widget _stepRow(BuildContext context, ActStep s) {
-  final edit = s.edit;
-  final tappable = edit != null || s.hasDetail;
-  return InkWell(
-    onTap: !tappable
-        ? null
-        : () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) =>
-                    edit != null ? EditDiffView(edit) : ToolDetailView(s))),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        children: [
-          Icon(s.icon, size: 20, color: s.color),
-          const SizedBox(width: 14),
-          Expanded(child: Text(s.label, style: T.body)),
-          if (edit != null) ...[
-            Text('+${edit.added}', style: const TextStyle(color: T.ok, fontSize: 13)),
-            const SizedBox(width: 4),
-            Text('-${edit.removed}',
-                style: const TextStyle(color: T.danger, fontSize: 13)),
-            const SizedBox(width: 6),
-          ],
-          if (tappable)
-            const Icon(Icons.chevron_right, size: 18, color: T.textFaint),
-        ],
-      ),
-    ),
-  );
-}
-
-/// Drill-in for a single tool step: its input (command/path/query) and the
-/// captured output, both monospace and scrollable. Reads show the file content;
-/// commands show stdout/stderr.
-class ToolDetailView extends StatelessWidget {
-  const ToolDetailView(this.step, {super.key});
-  final ActStep step;
+class _ActivityBlockState extends State<ActivityBlock> {
+  bool _open = false;
 
   @override
   Widget build(BuildContext context) {
-    final out = (step.output ?? '').trimRight();
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FlatHeader(
-              title: _title(step.label),
-              leading: CircleIconButton(
-                  icon: Icons.close, onTap: () => Navigator.pop(context)),
-            ),
-            if (step.detail != null && step.detail!.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-                child: Text('Input', style: T.meta),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: T.surface,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: T.border),
-                  ),
-                  child: Text(step.detail!,
-                      style: T.mono.copyWith(color: T.text)),
+    final a = widget.activity;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _open = !_open),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(a.summary,
+                      style: T.meta, overflow: TextOverflow.ellipsis),
                 ),
-              ),
-            ],
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-              child: Text('Output', style: T.meta),
+                if (a.added > 0 || a.removed > 0) ...[
+                  const SizedBox(width: 8),
+                  Text('+${a.added}',
+                      style: const TextStyle(color: T.ok, fontSize: 13)),
+                  const SizedBox(width: 4),
+                  Text('-${a.removed}',
+                      style: const TextStyle(color: T.danger, fontSize: 13)),
+                ],
+                const SizedBox(width: 4),
+                // Points down when open: the content is below, not elsewhere.
+                Icon(_open ? Icons.expand_more : Icons.chevron_right,
+                    size: 18, color: T.textFaint),
+              ],
             ),
-            Expanded(
-              child: out.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: Text('[no output]', style: T.metaFaint),
-                    )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                        child: Text(out,
-                            style: T.mono.copyWith(color: T.text, height: 1.4)),
-                      ),
-                    ),
-            ),
-          ],
+          ),
         ),
-      ),
+        if (_open)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [for (final s in a.steps) _InlineStep(s)],
+            ),
+          ),
+      ],
     );
-  }
-
-  static String _title(String label) {
-    if (label.startsWith('Read')) return 'Read';
-    if (label.startsWith('Ran')) return 'Command';
-    if (label.startsWith('Delegated')) return 'Delegate';
-    if (label.startsWith('Searched')) return 'Web search';
-    return label;
   }
 }
 
-/// Full diff view for one edit: file path + the unified diff with green/red
-/// lines and a line-number gutter.
+/// One step, expanded in place: the command, then what it printed.
+///
+/// A step with a diff still opens the diff view. A diff is a side-by-side
+/// reading task that wants the room; shell output is a few lines you glance at
+/// and move on from, which is the distinction that decides where it goes.
+class _InlineStep extends StatefulWidget {
+  const _InlineStep(this.step);
+  final ActStep step;
+
+  @override
+  State<_InlineStep> createState() => _InlineStepState();
+}
+
+class _InlineStepState extends State<_InlineStep> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.step;
+    final edit = s.edit;
+    final out = s.output?.trimRight() ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: edit != null
+              ? () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => EditDiffView(edit)))
+              : (s.hasDetail ? () => setState(() => _open = !_open) : null),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // The gutter from the terminal: this line belongs to the one
+                // above it.
+                const Text('└ ', style: TextStyle(color: T.textFaint)),
+                Icon(s.icon, size: 16, color: s.color),
+                const SizedBox(width: 8),
+                Expanded(child: Text(s.label, style: T.body)),
+                if (edit != null) ...[
+                  Text('+${edit.added}',
+                      style: const TextStyle(color: T.ok, fontSize: 13)),
+                  const SizedBox(width: 4),
+                  Text('-${edit.removed}',
+                      style: const TextStyle(color: T.danger, fontSize: 13)),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.chevron_right, size: 16, color: T.textFaint),
+                ] else if (s.hasDetail)
+                  Icon(_open ? Icons.expand_less : Icons.expand_more,
+                      size: 16, color: T.textFaint),
+              ],
+            ),
+          ),
+        ),
+        if (_open && edit == null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(left: 16, bottom: 6),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: T.surface,
+              borderRadius: BorderRadius.circular(T.rCard),
+              border: Border.all(color: T.borderFaint),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (s.detail != null && s.detail!.isNotEmpty)
+                  SelectableText('\$ ${s.detail}',
+                      style: T.mono.copyWith(color: T.textFaint)),
+                if (s.detail != null && s.detail!.isNotEmpty && out.isNotEmpty)
+                  const SizedBox(height: 8),
+                if (out.isNotEmpty)
+                  // Wide output scrolls in its own box rather than forcing the
+                  // conversation to wrap around it.
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SelectableText(out,
+                        style: T.mono.copyWith(color: T.text, height: 1.4)),
+                  )
+                else if (s.detail == null || s.detail!.isEmpty)
+                  const Text('[no output]', style: T.metaFaint),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class EditDiffView extends StatelessWidget {
   const EditDiffView(this.edit, {super.key});
   final EditInfo edit;
