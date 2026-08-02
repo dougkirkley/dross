@@ -94,6 +94,12 @@ func (s *Server) buildHandler() http.Handler {
 
 	if s.auth == nil {
 		root.HandleFunc("GET /a/{id}", s.handleArtifactGet)
+		// The relay too. This used to be registered only on the authenticated
+		// path below, so a server started without SSO — a local run, Docker,
+		// a test — answered 404 here and no machine could ever link to it.
+		// deviceAuth is a pass-through when there is no authenticator, so the
+		// same handler is correct for both.
+		root.Handle("GET /api/device/connect", s.deviceAuth(http.HandlerFunc(s.handleDeviceConnect)))
 		root.Handle("/api/", api)
 		root.Handle("/", rootFallback)
 		return root

@@ -103,6 +103,25 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		)
 	}
 
+	// Prompts are handed to a worker rather than run on the read loop.
+	//
+	// The loop has to stay free to read: a run blocked on a permission gate is
+	// waiting for an answer frame that arrives on this very connection, so
+	// dispatching the prompt inline deadlocks the thing it is waiting for. The
+	// same goes for an interrupt sent mid-run. One worker rather than a
+	// goroutine each, so prompts still arrive in the order they were sent.
+	prompts := make(chan Frame, 64)
+	defer close(prompts)
+	go func() {
+		for f := range prompts {
+			if opts.Prompt != nil {
+				opts.Prompt(f.SessionID, f.Text)
+				continue
+			}
+			d.run(ctx, f.SessionID, f.Text)
+		}
+	}()
+
 	for {
 		var f Frame
 		if err := wsjson.Read(ctx, c, &f); err != nil {
@@ -113,12 +132,13 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		}
 		switch f.Type {
 		case "prompt":
-			if opts.Prompt != nil {
-				// The UI owns the agent; it echoes and publishes the run itself.
-				opts.Prompt(f.SessionID, f.Text)
-				break
+			// The UI owns the agent when it took the hook; it echoes and
+			// publishes the run itself.
+			select {
+			case prompts <- f:
+			case <-ctx.Done():
+				return nil
 			}
-			d.run(ctx, f.SessionID, f.Text)
 		case "answer":
 			d.deliverAnswer(f.AskID, f.Text)
 		case "interrupt":
