@@ -1,0 +1,54 @@
+name: image
+
+# Publishes the server and operator images to GHCR on every push to main.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile copies mobile/build/web into the go:embed directory
+      # rather than building it, so the bundle has to exist before the image
+      # does. Skipping this does not fail: it ships whatever the placeholder
+      # holds, and only the Dart half of a release goes missing.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter build web --release
+        working-directory: mobile
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # linux/amd64 only: the cluster's nodes are amd64, and building the arm
+      # variant nobody runs would roughly double the job.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-web:latest
+            ghcr.io/${{ github.repository }}-web:${{ github.sha }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.operator
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-operator:latest
+            ghcr.io/${{ github.repository }}-operator:${{ github.sha }}
