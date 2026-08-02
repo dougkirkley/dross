@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/ask_card.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/prose.dart';
@@ -192,6 +193,9 @@ class _SessionScreenState extends State<SessionScreen> {
     final indent = e.isWorker ? const EdgeInsets.only(left: 20) : EdgeInsets.zero;
     Widget content;
     switch (e.baseKind) {
+      case 'ask':
+        // Blocking the run, so it gets its own card rather than a text row.
+        return AskCard(e.data);
       case 'prompt':
         content = Align(
           alignment: Alignment.centerRight,

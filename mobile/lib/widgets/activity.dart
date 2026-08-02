@@ -129,6 +129,9 @@ List<Object> buildTimeline(List<Event> events) {
       case 'review':
       case 'error':
       case 'checkpoint':
+      // A permission gate: the run is blocked on it, so it has to break the
+      // activity run and stand on its own rather than fold into a summary line.
+      case 'ask':
         flush();
         out.add(e);
       case 'done':

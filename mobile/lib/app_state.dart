@@ -432,6 +432,22 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Answer a permission gate raised by the machine running this session.
+  ///
+  /// Failures are surfaced rather than swallowed: the run is blocked until the
+  /// answer arrives, so silently dropping one would leave it hanging with no
+  /// sign of why.
+  Future<String?> answerAsk(String askId, String answer) async {
+    final s = current;
+    if (s == null) return 'no session';
+    try {
+      await _client.answer(s.id, askId, answer);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   // --- attachments ----------------------------------------------------
 
   /// Uploads [f] into the server workspace and stages it for the next prompt.

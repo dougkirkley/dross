@@ -120,6 +120,18 @@ class DrossClient {
     _check(r);
   }
 
+  /// Answer a permission gate a linked machine is blocked on. The ask id pins
+  /// the reply to the question that raised it, so an answer sent late lands
+  /// nowhere rather than approving whatever is asked next.
+  Future<void> answer(String id, String askId, String answer) async {
+    final r = await _http.post(
+      _uri('api/sessions/$id/answer'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'ask_id': askId, 'answer': answer}),
+    );
+    _check(r);
+  }
+
   Future<List<Event>> events(String id, {int after = 0}) async {
     final r = await _http.get(_uri('api/sessions/$id/events?after=$after'), headers: _headers);
     _check(r);
