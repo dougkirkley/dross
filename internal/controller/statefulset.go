@@ -39,7 +39,15 @@ func statefulSetFor(s *dross.Session) *appsv1.StatefulSet {
 			Labels:    podLabelsFor(s),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:    &one,
+			Replicas: &one,
+			// Explicit, though it is also the default: an image change to this
+			// workload replaces the pod by itself, rather than waiting for
+			// someone to delete it. A StatefulSet takes the old pod down before
+			// bringing the new one up, which is what the workspace volume needs
+			// — it is ReadWriteOnce and cannot be attached to both at once.
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.RollingUpdateStatefulSetStrategyType,
+			},
 			ServiceName: s.Name,
 			Selector:    &metav1.LabelSelector{MatchLabels: labelsFor(s)},
 			Template:    podTemplateFor(s),

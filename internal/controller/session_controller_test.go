@@ -292,3 +292,13 @@ func TestSelectorLeavesTheSessionIDOut(t *testing.T) {
 		}
 	}
 }
+
+// A session's workload must replace its own pod when the image changes. Left to
+// OnDelete it would sit on the old binary until somebody deleted the pod by
+// hand, which is not a rollout.
+func TestSessionWorkloadRollsItsOwnPod(t *testing.T) {
+	set := statefulSetFor(newSession())
+	if got := set.Spec.UpdateStrategy.Type; got != appsv1.RollingUpdateStatefulSetStrategyType {
+		t.Errorf("update strategy = %q; want RollingUpdate", got)
+	}
+}
