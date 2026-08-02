@@ -411,7 +411,14 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null) return;
     try {
-      current = await _client.getSession(s.id);
+      final fresh = await _client.getSession(s.id);
+      current = fresh;
+      // And the copy in the list, which is what the cards are built from.
+      // Refreshing only `current` left the list holding the session as it was
+      // when it was created — so a session titled from its first prompt still
+      // read as untitled on the card behind it.
+      final i = sessions.indexWhere((x) => x.id == fresh.id);
+      if (i >= 0) sessions[i] = fresh;
       notifyListeners();
     } catch (_) {}
   }

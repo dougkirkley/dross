@@ -28,8 +28,23 @@ class _SessionScreenState extends State<SessionScreen> {
   final _inputFocus = FocusNode();
   final _scroll = ScrollController();
 
+  AppState? _app;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Held so dispose can reach it: by then this element is off the tree and
+    // its context can no longer look anything up.
+    _app = context.read<AppState>();
+  }
+
   @override
   void dispose() {
+    // Read on the way out. The reply usually lands while the session is open,
+    // after it was marked read on entry, so without this a session you just
+    // finished reading shows as unread the moment you leave it.
+    final s = _app?.current;
+    if (s != null) _app?.markRead(s);
     _input.dispose();
     _inputFocus.dispose();
     _scroll.dispose();
