@@ -417,6 +417,14 @@ func newTUICmd() *cobra.Command {
 				groups = append(groups, tui.ModelGroup{Provider: id, Models: c.Models})
 			}
 			mdl.SetProviders(groups)
+			// $DROSS_SERVER, the same variable `dross rc` honours. Which server
+			// this machine links to is a property of the machine, not of each
+			// invocation, so it belongs in the environment — and reading it in
+			// only one of the two commands that link meant exporting it worked
+			// for `dross rc` and silently did nothing for /rc in the TUI.
+			if server == "" {
+				server = os.Getenv("DROSS_SERVER")
+			}
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {
@@ -514,7 +522,7 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&provName, "provider", "", "provider (default: none — set up via /model)")
 	f.StringVar(&baseURL, "base-url", "", "provider base URL")
 	f.StringVar(&apiKey, "api-key", "", "provider API key")
-	f.StringVar(&server, "server", "", "dross server for /login and /rc device linking")
+	f.StringVar(&server, "server", "", "dross server for /login and /rc device linking (default: $DROSS_SERVER)")
 	f.StringVar(&workerProv, "worker-provider", "openai", "worker backend (for /rc)")
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation over /rc)")
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")
