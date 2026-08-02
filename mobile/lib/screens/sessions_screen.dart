@@ -183,17 +183,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
                               ? relTimeLong(sess.updated!)
                               : '',
                           style: T.metaFaint),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            size: 20, color: T.textDim),
-                        tooltip: 'Delete session',
-                        onPressed: () async {
-                          if (await _confirmSheet(context, sess) &&
-                              context.mounted) {
-                            context.read<AppState>().deleteSession(sess);
-                          }
-                        },
-                      ),
                     ],
                   ),
                   if (sess.last.isNotEmpty) ...[
