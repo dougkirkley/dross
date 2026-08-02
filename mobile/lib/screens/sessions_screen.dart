@@ -246,7 +246,11 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _statusLine(Session sess) {
     final Color color;
     final String label;
-    if (sess.status == 'error') {
+    if (sess.device.isNotEmpty && !sess.connected && sess.last.isNotEmpty) {
+      // Had a workload and does not now: it is being brought back, either
+      // restarted or replaced to move it onto a new version.
+      (color, label) = (T.accentHi, 'restarting');
+    } else if (sess.status == 'error') {
       // Ahead of the connection state: a linked session that failed is still
       // connected, and saying only that would report the least useful half of
       // what happened. The card no longer carries a status icon, so this line

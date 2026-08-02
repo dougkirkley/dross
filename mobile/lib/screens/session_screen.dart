@@ -98,7 +98,7 @@ class _SessionScreenState extends State<SessionScreen> {
             // Same signal at the top of the window the session owns, so a run
             // is visible without going back to the list to see its card.
             if (sess?.isRunning ?? false) const RunningBar(),
-            if (_starting(sess)) const _StartingPanel(),
+            if (_starting(sess)) _StartingPanel(resuming: s.events.isNotEmpty),
             Expanded(
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);
@@ -584,13 +584,20 @@ class _SessionScreenState extends State<SessionScreen> {
       );
 }
 
-/// Shown while a pod-backed session is still coming up.
+/// Shown while a pod-backed session has no workload attached.
 ///
-/// The wait is real — a workload has to be scheduled, an image pulled and a
-/// volume attached — and without saying so the session looks ready and the send
-/// button looks broken.
+/// Two ways to arrive here and they deserve different words. A new session is
+/// waiting on a workload being scheduled for the first time. One with a
+/// conversation behind it has had its workload taken away — restarted, or
+/// replaced to move it onto a new version — and what the reader wants to know
+/// is whether the work is gone. It is not: the workspace is on a volume that
+/// outlives the pod.
+///
+/// Which of the two is inferred from whether the session has said anything
+/// yet, not reported by the operator doing the replacing.
 class _StartingPanel extends StatelessWidget {
-  const _StartingPanel();
+  const _StartingPanel({required this.resuming});
+  final bool resuming;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -602,14 +609,21 @@ class _StartingPanel extends StatelessWidget {
           borderRadius: BorderRadius.circular(T.rCard),
           border: Border.all(color: T.border),
         ),
-        child: const Column(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RunningBar(),
-            SizedBox(height: 10),
-            Text('Starting session…', style: T.body),
-            SizedBox(height: 4),
-            Text('Waiting for its workspace to come up.', style: T.metaFaint),
+            const RunningBar(),
+            const SizedBox(height: 10),
+            Text(resuming ? 'Session is restarting…' : 'Starting session…',
+                style: T.body),
+            const SizedBox(height: 4),
+            Text(
+              resuming
+                  ? 'Its workspace is being brought back. Files are kept; a '
+                      'reply that was in progress is not.'
+                  : 'Waiting for its workspace to come up.',
+              style: T.metaFaint,
+            ),
           ],
         ),
       );
