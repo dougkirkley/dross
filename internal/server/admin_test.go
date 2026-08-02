@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -51,7 +53,7 @@ func adminServer(t *testing.T) (*Server, *Users, *recorder) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users.Ensure("doug@example.com", StatusApproved)
+	users.Ensure("doug@example.com", StatusApproved, RoleAdmin)
 	mails := &recorder{}
 	srv := New(storage.NewSessionStore(t.TempDir()),
 		NewManager(&fakeProvider{}, nil, "m", t.TempDir()), nil, testArts(t))
@@ -207,4 +209,199 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for background work")
+}
+
+// The role on the record is what makes an admin, not the flag: that is what
+// lets one be handed out later without a redeploy.
+func TestAdminIsARoleOnTheRecord(t *testing.T) {
+	srv, users, _ := adminServer(t)
+	users.SignIn("sarah@example.com", "Sarah")
+	users.Decide("sarah@example.com", StatusApproved, "doug@example.com")
+
+	if !users.IsAdmin("doug@example.com") {
+		t.Fatal("the seeded admin should hold the admin role")
+	}
+	if users.IsAdmin("sarah@example.com") {
+		t.Fatal("an approved user is not an admin")
+	}
+
+	// Approved but not an admin: the API refuses her.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/api/admin/users", nil), "sarah@example.com"))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("approved non-admin on the admin API = %d; want 403", w.Code)
+	}
+
+	// Promoted, she is one — and an admin who is not approved is not an admin.
+	users.SetRole("sarah@example.com", RoleAdmin, "doug@example.com")
+	if !users.IsAdmin("sarah@example.com") {
+		t.Error("promoting did not take effect")
+	}
+	users.Decide("sarah@example.com", StatusDenied, "doug@example.com")
+	if users.IsAdmin("sarah@example.com") {
+		t.Error("a denied account still counts as an admin")
+	}
+}
+
+// The app's surface over the same decisions the page makes.
+func TestAdminJSONAPI(t *testing.T) {
+	srv, users, mails := adminServer(t)
+	users.SignIn("sarah@example.com", "Sarah")
+
+	// whoami is what the client uses to decide whether to offer the screen.
+	for who, want := range map[string]bool{"doug@example.com": true, "sarah@example.com": false} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/api/whoami", nil), who))
+		var body struct {
+			Admin bool `json:"admin"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Admin != want {
+			t.Errorf("whoami admin for %s = %v; want %v", who, body.Admin, want)
+		}
+	}
+
+	// The list puts whoever is waiting first, so the app does not have to sort
+	// to show the thing the admin came for.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/api/admin/users", nil), "doug@example.com"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list = %d; want 200", w.Code)
+	}
+	var list struct {
+		Users []struct {
+			Email, Status, Role string
+		} `json:"users"`
+		Mail bool `json:"mail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Users) != 2 || list.Users[0].Email != "sarah@example.com" ||
+		list.Users[0].Status != "pending" {
+		t.Fatalf("list = %+v; want the pending account first", list.Users)
+	}
+	if list.Users[1].Role != "admin" {
+		t.Errorf("the admin's role is not reported: %+v", list.Users[1])
+	}
+
+	decide := func(email, action, who string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/admin/users/"+email+"/decide",
+			strings.NewReader(`{"action":"`+action+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(r, who))
+		return w
+	}
+
+	if w := decide("sarah@example.com", "approve", "sarah@example.com"); w.Code != http.StatusForbidden {
+		t.Fatalf("self-approval over the API = %d; want 403", w.Code)
+	}
+	if w := decide("nobody@example.com", "approve", "doug@example.com"); w.Code != http.StatusNotFound {
+		t.Errorf("deciding an unknown account = %d; want 404", w.Code)
+	}
+	if w := decide("sarah@example.com", "shrug", "doug@example.com"); w.Code != http.StatusBadRequest {
+		t.Errorf("unknown action = %d; want 400", w.Code)
+	}
+
+	if w := decide("sarah@example.com", "approve", "doug@example.com"); w.Code != http.StatusOK {
+		t.Fatalf("approve = %d; want 200", w.Code)
+	}
+	if !users.IsApproved("sarah@example.com") {
+		t.Fatal("the API approval did not take")
+	}
+	if got := mails.all(); len(got) != 1 || got[0] != "welcome sarah@example.com" {
+		t.Fatalf("mails = %v; want one welcome", got)
+	}
+	// Same decision twice is not two welcomes, over either surface.
+	decide("sarah@example.com", "approve", "doug@example.com")
+	if got := mails.all(); len(got) != 1 {
+		t.Errorf("mails after a repeat = %v; want still one", got)
+	}
+}
+
+// A server nobody administers cannot approve anyone, so the first authenticated
+// person is offered the job — and the offer withdraws itself once taken.
+func TestFirstRunClaimsTheAdminRole(t *testing.T) {
+	users, err := NewUsers(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(storage.NewSessionStore(t.TempDir()),
+		NewManager(&fakeProvider{}, nil, "m", t.TempDir()), nil, testArts(t))
+	// No --admin-email: this is the fresh install the page exists for.
+	srv.SetAccounts(users, "", &recorder{})
+
+	if users.HasAdmin() {
+		t.Fatal("a new registry should have no admin")
+	}
+
+	// The page is offered to whoever is signed in.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/setup", nil), "first@example.com"))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "No administrator yet") {
+		t.Fatalf("GET /setup = %d, body %.120s", w.Code, w.Body.String())
+	}
+
+	claim := func(who string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(httptest.NewRequest("POST", "/setup/claim", nil), who))
+		return w
+	}
+	if w := claim("first@example.com"); w.Code != http.StatusSeeOther {
+		t.Fatalf("claim = %d; want 303", w.Code)
+	}
+	if !users.IsAdmin("first@example.com") {
+		t.Fatal("the claim did not make them an admin")
+	}
+	if u, _ := users.Get("first@example.com"); !u.Approved() {
+		t.Error("an admin who is not approved is not an admin; the claim must do both")
+	}
+
+	// Second person: the role is gone, and they are a normal pending account.
+	if w := claim("second@example.com"); w.Code != http.StatusSeeOther {
+		t.Errorf("second claim = %d; want a redirect away", w.Code)
+	}
+	if users.IsAdmin("second@example.com") {
+		t.Fatal("two administrators were minted from one first-run page")
+	}
+
+	// And the page is no longer on offer.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/setup", nil), "second@example.com"))
+	if w.Code != http.StatusFound {
+		t.Errorf("GET /setup after the claim = %d; want a redirect away", w.Code)
+	}
+}
+
+// The claim is decided under one lock, so a race cannot mint two admins.
+func TestClaimAdminIsAtomic(t *testing.T) {
+	users, err := NewUsers(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const racers = 24
+	var wg sync.WaitGroup
+	won := make([]bool, racers)
+	wg.Add(racers)
+	for i := 0; i < racers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, ok := users.ClaimAdmin(fmt.Sprintf("racer%d@example.com", i), "")
+			won[i] = ok
+		}(i)
+	}
+	wg.Wait()
+
+	n := 0
+	for _, w := range won {
+		if w {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d racers claimed the role; want exactly 1", n)
+	}
 }

@@ -181,3 +181,46 @@ class PublishResult {
         filename: j['filename'] as String? ?? '',
       );
 }
+
+/// Account is a registered user as the admin surface sees it. Mirrors what
+/// `GET /api/admin/users` returns; the server decides the order (whoever is
+/// waiting first), so the app does not re-sort and invent its own priority.
+class Account {
+  final String email;
+  final String name;
+  final String status; // pending | approved | denied
+  final String role; // user | admin
+  final DateTime? firstSeen;
+  final DateTime? lastSeen;
+  final int logins;
+  final String decidedBy;
+
+  Account({
+    required this.email,
+    this.name = '',
+    required this.status,
+    this.role = 'user',
+    this.firstSeen,
+    this.lastSeen,
+    this.logins = 0,
+    this.decidedBy = '',
+  });
+
+  bool get pending => status == 'pending';
+  bool get approved => status == 'approved';
+  bool get isAdmin => role == 'admin';
+
+  static DateTime? _time(dynamic v) =>
+      v == null ? null : DateTime.tryParse(v as String)?.toLocal();
+
+  factory Account.fromJson(Map<String, dynamic> j) => Account(
+        email: j['email'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        status: j['status'] as String? ?? 'pending',
+        role: j['role'] as String? ?? 'user',
+        firstSeen: _time(j['first_seen']),
+        lastSeen: _time(j['last_seen']),
+        logins: (j['logins'] as num?)?.toInt() ?? 0,
+        decidedBy: j['decided_by'] as String? ?? '',
+      );
+}

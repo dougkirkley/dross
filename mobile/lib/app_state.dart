@@ -67,6 +67,12 @@ class AppState extends ChangeNotifier {
   List<Session> sessions = [];
   bool loadingSessions = false;
 
+  /// Whether the signed-in account may administer accounts. Answered by the
+  /// server on every load; the app only uses it to decide whether to offer the
+  /// screen, never as the permission itself — the API refuses a non-admin
+  /// regardless of what the client believes.
+  bool isAdmin = false;
+
   /// True once the first session fetch has completed, so the lists show a
   /// loading screen (not the empty state) until sessions are actually available.
   bool sessionsLoaded = false;
@@ -111,7 +117,10 @@ class AppState extends ChangeNotifier {
     await _loadRead();
     token = await _secure.read(key: 'remoteToken') ?? '';
     notifyListeners();
-    if (remoteConfigured && authed) await refreshSessions();
+    if (remoteConfigured && authed) {
+      await refreshSessions();
+      await refreshWhoami();
+    }
   }
 
   /// Sets (or updates) the server URL — the app's only setting.
@@ -223,6 +232,25 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Asks the server what this identity may do. A failure here is not worth
+  /// surfacing: it only means the admin entry stays hidden.
+  Future<void> refreshWhoami() async {
+    try {
+      final admin = await _client.isAdmin();
+      if (admin == isAdmin) return;
+      isAdmin = admin;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Every registered account, for the admin screen.
+  Future<List<Account>> accounts() => _client.accounts();
+
+  /// Approve or deny one account. Returns the welcome mail's error when the
+  /// decision landed but the mail did not.
+  Future<String?> decideAccount(String email, String action) =>
+      _client.decideAccount(email, action);
 
   Future<Session?> createSession(
       {String? model, String? workerModel, bool chat = false}) async {

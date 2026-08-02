@@ -18,11 +18,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleWhoami reports the authenticated identity (empty when auth is off).
+// handleWhoami reports the authenticated identity (empty when auth is off) and
+// whether it may administer accounts, which is what decides if the app offers
+// the admin screen at all.
 func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"email": auth.Identity(r),
 		"auth":  s.auth != nil,
+		"admin": s.isAdmin(r),
 	})
 }
 

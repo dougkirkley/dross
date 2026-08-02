@@ -74,6 +74,15 @@ func (s *Server) apiMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleStream)
 
+	// Account administration. Registered only when there is an admin to be, and
+	// wrapped in the same check the HTML page uses: the surrounding middleware
+	// only proves the caller is signed in, which under the approval model is
+	// true of every stranger.
+	if s.users != nil && s.adminEmail != "" {
+		mux.Handle("GET /api/admin/users", s.adminOnly(http.HandlerFunc(s.handleAdminUsers)))
+		mux.Handle("POST /api/admin/users/{email}/decide", s.adminOnly(http.HandlerFunc(s.handleAdminDecideAPI)))
+	}
+
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/artifacts", s.handleArtifactPublish)
 	mux.HandleFunc("POST /api/artifacts/{id}/share", s.handleArtifactShare)
@@ -111,6 +120,20 @@ func (s *Server) buildHandler() http.Handler {
 	if s.users != nil && s.adminEmail != "" {
 		root.Handle("GET /admin", admin(s.handleAdminPage))
 		root.Handle("POST /admin/decide", admin(s.handleAdminDecide))
+	}
+	// First run. Behind authentication but not behind approval: on a server
+	// with no admin every account is pending, so the normal gate would refuse
+	// the only person who could change that. Both handlers check HasAdmin
+	// themselves, so the route is harmless once the role is taken.
+	if s.users != nil {
+		setup := func(h http.HandlerFunc) http.Handler {
+			if s.auth == nil {
+				return h
+			}
+			return s.auth.Authenticate(h)
+		}
+		root.Handle("GET /setup", setup(s.handleSetupPage))
+		root.Handle("POST /setup/claim", setup(s.handleSetupClaim))
 	}
 
 	if s.auth == nil {

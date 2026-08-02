@@ -128,7 +128,7 @@ func TestEnsureSeedsTheAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u.Ensure("doug@example.com", StatusApproved)
+	u.Ensure("doug@example.com", StatusApproved, RoleAdmin)
 	if !u.IsApproved("doug@example.com") {
 		t.Fatal("the admin should be approved before their first sign-in")
 	}
@@ -139,7 +139,7 @@ func TestEnsureSeedsTheAdmin(t *testing.T) {
 		t.Error("signing in demoted the admin")
 	}
 	// An empty admin email must not create a ghost account.
-	u.Ensure("", StatusApproved)
+	u.Ensure("", StatusApproved, RoleAdmin)
 	if len(u.List()) != 1 {
 		t.Errorf("registry has %d accounts; want 1", len(u.List()))
 	}

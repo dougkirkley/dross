@@ -71,6 +71,8 @@ type Authenticator struct {
 	allowed    map[string]bool
 	onSignIn   func(email, name string)
 	approved   Approver
+	firstRun   func() bool
+	setupPath  string
 	cookieKey  []byte
 	insecure   bool
 }
@@ -143,6 +145,17 @@ type Approver interface {
 	IsApproved(email string) bool
 }
 
+// SetFirstRun tells the middleware that nobody can approve anyone yet, and
+// where to send people while that is true. Without it a fresh install is a
+// waiting room with no staff: everyone authenticates, everyone is pending, and
+// the only person who could fix it is refused along with the rest.
+//
+// The path itself is not exempted here — it is registered outside this
+// middleware, so it answers whether or not the caller is approved.
+func (a *Authenticator) SetFirstRun(pending func() bool, path string) {
+	a.firstRun, a.setupPath = pending, path
+}
+
 // SetApproval installs the gate. Unset, every verified identity is allowed,
 // which is how a local run behaves.
 //
@@ -195,6 +208,17 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		// a machine credential with no user record, and making it have one would
 		// mean an automated check could be "approved" by mistake.
 		if a.approved != nil && !a.IsServiceIdentity(email) && !a.approved.IsApproved(email) {
+			// Nobody can approve them because nobody can approve anyone. Send
+			// them somewhere that can be acted on rather than a page that says
+			// wait for a person who does not exist.
+			if a.setupPath != "" && a.firstRun != nil && a.firstRun() {
+				if wantsHTML(r) {
+					http.Redirect(w, r, a.setupPath, http.StatusFound)
+					return
+				}
+				http.Error(w, "forbidden: this server has no administrator yet", http.StatusForbidden)
+				return
+			}
 			if wantsHTML(r) {
 				servePendingPage(w, email)
 				return
@@ -211,6 +235,26 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		w.Header().Add("Vary", "Cookie")
 		ctx := context.WithValue(r.Context(), ctxKey{}, email)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Authenticate requires a verified identity and nothing more. Used by the
+// first-run setup route, which by definition has to answer someone who is not
+// approved — refusing them there is refusing the only person who can fix it.
+func (a *Authenticator) Authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		email, _, ok := a.identify(r)
+		if !ok {
+			if wantsHTML(r) && a.oauth != nil {
+				next := url.QueryEscape(safeNext(r.URL.RequestURI()))
+				serveLoginPage(w, "/auth/login?next="+next, "/auth/login?reauth=1&next="+next)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Cache-Control", "private, no-store")
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, email)))
 	})
 }
 

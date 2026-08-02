@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,6 +30,12 @@ type UserDirectory interface {
 	List() []User
 	Get(email string) (User, bool)
 	IsApproved(email string) bool
+	IsAdmin(email string) bool
+	// HasAdmin reports whether anyone can approve anyone yet.
+	HasAdmin() bool
+	// ClaimAdmin makes an account the first administrator, and reports whether
+	// it got it. Must refuse once one exists.
+	ClaimAdmin(email, name string) (User, bool)
 	Decide(email string, status Status, by string) (User, bool)
 	MarkWelcomed(email string) bool
 }
@@ -44,6 +51,11 @@ func (s *Server) SetAccounts(dir UserDirectory, adminEmail string, n mail.Notifi
 	s.users = dir
 	s.adminEmail = strings.TrimSpace(adminEmail)
 	s.notify = n
+	if s.auth != nil {
+		// Send a pending account to the setup page instead of the holding page
+		// while there is nobody who could ever act on their request.
+		s.auth.SetFirstRun(dir.HasAdmin, "/setup")
+	}
 	s.h = s.buildHandler() // routes depend on whether an admin is configured
 }
 
@@ -52,9 +64,19 @@ func (s *Server) SetAccounts(dir UserDirectory, adminEmail string, n mail.Notifi
 // interface value, so the question has to be asked of the notifier itself.
 func (s *Server) mailEnabled() bool { return s.notify != nil && s.notify.Enabled() }
 
-// isAdmin reports whether the request's identity may decide accounts.
+// isAdmin reports whether the request's identity may decide accounts. The role
+// on the record is the answer; --admin-email is only the bootstrap, checked as
+// well so a registry that lost the record cannot lock the owner out of the page
+// that would fix it.
 func (s *Server) isAdmin(r *http.Request) bool {
-	return s.adminEmail != "" && strings.EqualFold(auth.Identity(r), s.adminEmail)
+	email := auth.Identity(r)
+	if email == "" {
+		return false
+	}
+	if s.users != nil && s.users.IsAdmin(email) {
+		return true
+	}
+	return s.adminEmail != "" && strings.EqualFold(email, s.adminEmail)
 }
 
 // adminOnly refuses a signed-in non-admin with 403 rather than 404. A 404 would
@@ -122,28 +144,122 @@ func (s *Server) handleAdminDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, changed := s.users.Decide(email, status, auth.Identity(r))
+	_, changed, mailErr := s.decide(r, email, status)
 	if !changed {
 		http.Redirect(w, r, "/admin?err="+url.QueryEscape(email+" was already "+string(status)), http.StatusSeeOther)
 		return
 	}
-
 	msg := email + " is " + string(status)
-	// The welcome goes out here rather than on their next request, so approving
-	// is the single act that both opens the door and says so. Sent inline: an
-	// approval is rare and a silent failure to tell someone is worse than a
-	// slow page. MarkWelcomed claims the send first, so a retry after a mail
-	// failure does not double-send if the first one actually landed.
+	if mailErr != nil {
+		http.Redirect(w, r, "/admin?err="+url.QueryEscape(msg+", but the welcome mail failed: "+mailErr.Error()), http.StatusSeeOther)
+		return
+	}
+	if status == StatusApproved && s.mailEnabled() {
+		msg += " and has been welcomed"
+	}
+	http.Redirect(w, r, "/admin?ok="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// decide records the decision and sends the welcome an approval owes. Shared by
+// the HTML page and the JSON API so the two cannot drift on the part that
+// matters — who was let in, and whether they were told.
+//
+// The welcome goes out here rather than on the user's next request, so approving
+// is the single act that both opens the door and says so. Sent inline: an
+// approval is rare, and silently failing to tell someone is worse than a slow
+// response. MarkWelcomed claims the send first, so retrying after a mail failure
+// cannot double-send one that actually landed.
+func (s *Server) decide(r *http.Request, email string, status Status) (User, bool, error) {
+	u, changed := s.users.Decide(email, status, auth.Identity(r))
+	if !changed {
+		return u, false, nil
+	}
 	if status == StatusApproved && s.mailEnabled() && s.users.MarkWelcomed(email) {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 		if err := s.notify.Welcome(ctx, mail.Account{Email: u.Email, Name: u.Name}); err != nil {
-			http.Redirect(w, r, "/admin?err="+url.QueryEscape(msg+", but the welcome mail failed: "+err.Error()), http.StatusSeeOther)
-			return
+			return u, true, err
 		}
-		msg += " and has been welcomed"
 	}
-	http.Redirect(w, r, "/admin?ok="+url.QueryEscape(msg), http.StatusSeeOther)
+	return u, true, nil
+}
+
+// --- JSON API ---------------------------------------------------------------
+//
+// The same surface for the app, which is where an admin actually is: signed in,
+// on a phone, next to the sessions they came for. The HTML page stays as the
+// fallback that works when the bundle does not.
+
+// handleAdminUsers lists every account, pending first.
+func (s *Server) handleAdminUsers(w http.ResponseWriter, _ *http.Request) {
+	all := s.users.List()
+	out := make([]map[string]any, 0, len(all))
+	add := func(u User) {
+		out = append(out, map[string]any{
+			"email":      u.Email,
+			"name":       u.Name,
+			"status":     string(u.Status),
+			"role":       string(u.Role),
+			"first_seen": u.FirstSeen,
+			"last_seen":  u.LastSeen,
+			"logins":     u.Logins,
+			"decided_by": u.DecidedBy,
+		})
+	}
+	for _, u := range all {
+		if u.Status == StatusPending {
+			add(u)
+		}
+	}
+	for _, u := range all {
+		if u.Status != StatusPending {
+			add(u)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": out, "mail": s.mailEnabled()})
+}
+
+// handleAdminDecideAPI approves or denies one account.
+func (s *Server) handleAdminDecideAPI(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.PathValue("email"))
+	var body struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		http.Error(w, "bad request body", http.StatusBadRequest)
+		return
+	}
+	status := StatusApproved
+	switch body.Action {
+	case "approve":
+	case "deny":
+		status = StatusDenied
+	default:
+		http.Error(w, `action must be "approve" or "deny"`, http.StatusBadRequest)
+		return
+	}
+	if email == "" {
+		http.Error(w, "no account given", http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.users.Get(email); !ok {
+		http.Error(w, "no such account", http.StatusNotFound)
+		return
+	}
+
+	u, changed, mailErr := s.decide(r, email, status)
+	resp := map[string]any{
+		"email":   u.Email,
+		"status":  string(u.Status),
+		"changed": changed,
+	}
+	// A mail failure is not a failed decision: they are in either way, and the
+	// admin needs to know which half went wrong rather than being told the
+	// whole thing failed and clicking again.
+	if mailErr != nil {
+		resp["mail_error"] = mailErr.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // AnnounceSignUp mails a new account and the admin. Fired from the sign-in hook,
@@ -174,4 +290,52 @@ func sameOrigin(origin string, r *http.Request) bool {
 		host = strings.TrimSpace(strings.Split(f, ",")[0])
 	}
 	return strings.EqualFold(u.Host, host)
+}
+
+// --- first run ---------------------------------------------------------------
+//
+// A server with no admin cannot approve anyone, so the approval gate would hold
+// every account for ever, including the one belonging to whoever could fix it.
+// While that is true, any authenticated identity is offered the job.
+//
+// This is the standard bootstrap and it has the standard risk: the first person
+// through the door takes the role. What makes it acceptable here is that the
+// door is already two locks deep — the identity provider decides who reaches
+// dross at all — and that the offer withdraws itself the instant it is taken.
+
+// handleSetupPage offers the admin role, or gets out of the way once it is gone.
+func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
+	if s.users.HasAdmin() {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'")
+	_ = ui.Setup(auth.Identity(r)).Render(r.Context(), w)
+}
+
+// handleSetupClaim takes the role, if it is still there to take.
+func (s *Server) handleSetupClaim(w http.ResponseWriter, r *http.Request) {
+	if o := r.Header.Get("Origin"); o != "" && !sameOrigin(o, r) {
+		http.Error(w, "forbidden: cross-origin request", http.StatusForbidden)
+		return
+	}
+	email := auth.Identity(r)
+	if email == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	name := ""
+	if u, ok := s.users.Get(email); ok {
+		name = u.Name
+	}
+	if _, claimed := s.users.ClaimAdmin(email, name); !claimed {
+		// Someone else got there first. They are a normal pending account now,
+		// which is exactly what the holding page is for.
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/admin?ok="+url.QueryEscape("you are the administrator"), http.StatusSeeOther)
 }

@@ -148,6 +148,35 @@ class DrossClient {
     return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  // --- accounts ---------------------------------------------------------
+
+  /// Whether the signed-in identity may administer accounts. The server
+  /// answers this, not the client: the app must never decide for itself that a
+  /// screen is allowed, it only decides whether to bother offering it.
+  Future<bool> isAdmin() async {
+    final r = await _http.get(_uri('api/whoami'), headers: _headers);
+    _check(r);
+    return (jsonDecode(r.body)['admin'] as bool?) ?? false;
+  }
+
+  /// Every registered account, whoever is waiting first.
+  Future<List<Account>> accounts() async {
+    final r = await _http.get(_uri('api/admin/users'), headers: _headers);
+    _check(r);
+    final list = (jsonDecode(r.body)['users'] as List? ?? []);
+    return list.map((e) => Account.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Approve or deny one account. Returns the welcome mail's error, if the
+  /// decision landed but telling them did not — that is worth surfacing without
+  /// implying the approval failed.
+  Future<String?> decideAccount(String email, String action) async {
+    final r = await _http.post(_uri('api/admin/users/$email/decide'),
+        headers: _headers, body: jsonEncode({'action': action}));
+    _check(r);
+    return jsonDecode(r.body)['mail_error'] as String?;
+  }
+
   Future<PublishResult> publish(String path) async {
     final r = await _http.post(_uri('api/artifacts'),
         headers: _headers, body: jsonEncode({'path': path}));

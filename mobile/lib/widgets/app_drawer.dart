@@ -7,6 +7,7 @@ import '../widgets/logo.dart';
 import '../screens/chat_screen.dart';
 import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/admin_screen.dart';
 
 /// The left navigation drawer: a Chat tab and a Code tab (both `dross serve`
 /// sessions, differing only in presentation), plus recent sessions. Mirrors the
@@ -99,6 +100,15 @@ class AppDrawer extends StatelessWidget {
                     ),
             ),
             const Divider(height: 1, color: T.borderFaint),
+            // Only for an admin, and only because the server said so. Hiding it
+            // is courtesy, not the permission: the API refuses anyone else.
+            if (s.isAdmin)
+              _navItem(context, Icons.verified_user_outlined, 'Accounts',
+                  active: false, onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const AdminScreen()));
+              }),
             _navItem(context, Icons.settings_outlined, 'Settings',
                 active: false, onTap: () {
               Navigator.pop(context);

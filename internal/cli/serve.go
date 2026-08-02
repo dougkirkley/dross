@@ -131,8 +131,11 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("user registry: %w", err)
 			}
-			// The admin cannot be left waiting for themselves to approve them.
-			users.Ensure(adminEmail, server.StatusApproved)
+			// The first admin comes from the flag, because the alternative is an
+			// account that has to be approved by someone who does not exist yet.
+			// After that the role lives on the record and can be handed out from
+			// the app.
+			users.Ensure(adminEmail, server.StatusApproved, server.RoleAdmin)
 
 			// Pod mode. Off unless a session namespace is set, so a Docker or
 			// local deployment keeps running sessions in this process and needs

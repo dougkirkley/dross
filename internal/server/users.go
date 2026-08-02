@@ -28,12 +28,27 @@ const (
 	StatusDenied   Status = "denied"
 )
 
+// Role is what an account may do once it is in. Kept separate from Status
+// because they answer different questions — may you be here, and may you decide
+// who else can. A record loaded without one is a plain user.
+//
+// Two roles is not a permission system, and is not pretending to be one. It is
+// the smallest thing that stops "admin" meaning "whichever address happens to be
+// in a flag", so an admin can be promoted from the UI instead of a redeploy.
+type Role string
+
+const (
+	RoleUser  Role = "user"
+	RoleAdmin Role = "admin"
+)
+
 // User is a registered account, keyed by the verified email from the identity
 // provider.
 type User struct {
 	Email      string    `json:"email"`
 	Name       string    `json:"name,omitempty"`
 	Status     Status    `json:"status"`
+	Role       Role      `json:"role"`
 	FirstSeen  time.Time `json:"first_seen"`
 	LastSeen   time.Time `json:"last_seen"`
 	Logins     int       `json:"logins"`
@@ -44,6 +59,10 @@ type User struct {
 
 // Approved reports whether the account may use the application.
 func (u User) Approved() bool { return u.Status == StatusApproved }
+
+// IsAdmin reports whether the account may decide other accounts. An admin who
+// is not approved is not an admin: the gate comes first.
+func (u User) IsAdmin() bool { return u.Role == RoleAdmin && u.Approved() }
 
 // Users is a small JSON-backed registry. The population is a household, so a
 // single file read into memory is the right size of solution.
@@ -80,6 +99,10 @@ func NewUsers(dir string) (*Users, error) {
 			x.Status = StatusApproved
 			migrated = true
 		}
+		if x.Role == "" {
+			x.Role = RoleUser
+			migrated = true
+		}
 		u.by[strings.ToLower(x.Email)] = x
 	}
 	if migrated {
@@ -105,7 +128,7 @@ func (u *Users) SignIn(email, name string) (User, bool) {
 	now := time.Now().UTC()
 	x, existing := u.by[key]
 	if !existing {
-		x = User{Email: email, Status: StatusPending, FirstSeen: now}
+		x = User{Email: email, Status: StatusPending, Role: RoleUser, FirstSeen: now}
 	}
 	if name != "" {
 		x.Name = name
@@ -153,10 +176,10 @@ func (u *Users) Decide(email string, status Status, by string) (User, bool) {
 	return x, true
 }
 
-// Ensure registers email at the given status if it is not known yet, and lifts
-// an existing account up to it. Used to seed the admin, who must be approved
-// before anyone is there to approve them.
-func (u *Users) Ensure(email string, status Status) {
+// Ensure registers email at the given status and role if it is not known yet,
+// and lifts an existing account up to them. Used to seed the admin, who has to
+// be approved before anyone exists to approve them.
+func (u *Users) Ensure(email string, status Status, role Role) {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return
@@ -165,15 +188,85 @@ func (u *Users) Ensure(email string, status Status) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	x, ok := u.by[key]
-	if ok && x.Status == status {
+	if ok && x.Status == status && x.Role == role {
 		return
 	}
 	if !ok {
 		x = User{Email: email, FirstSeen: time.Now().UTC()}
 	}
-	x.Status = status
+	x.Status, x.Role = status, role
 	u.by[key] = x
 	u.save()
+}
+
+// IsAdmin reports whether email belongs to an approved admin.
+func (u *Users) IsAdmin(email string) bool {
+	x, ok := u.Get(email)
+	return ok && x.IsAdmin()
+}
+
+// HasAdmin reports whether anyone can approve anyone. False is the first-run
+// state: an empty registry, or one whose admin was never seeded because the
+// flag was left unset.
+func (u *Users) HasAdmin() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, x := range u.by {
+		if x.IsAdmin() {
+			return true
+		}
+	}
+	return false
+}
+
+// ClaimAdmin makes email the first administrator, and reports whether it got
+// it. Refuses once anyone holds the role, under the same lock that reads it, so
+// two people racing the first-run page cannot both come away as admin.
+func (u *Users) ClaimAdmin(email, name string) (User, bool) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return User{}, false
+	}
+	key := strings.ToLower(email)
+
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, x := range u.by {
+		if x.IsAdmin() {
+			return User{}, false
+		}
+	}
+	now := time.Now().UTC()
+	x, ok := u.by[key]
+	if !ok {
+		x = User{Email: email, FirstSeen: now, LastSeen: now}
+	}
+	if name != "" && x.Name == "" {
+		x.Name = name
+	}
+	x.Status, x.Role = StatusApproved, RoleAdmin
+	x.DecidedAt, x.DecidedBy = now, x.Email // claimed it themselves; say so
+	u.by[key] = x
+	u.save()
+	return x, true
+}
+
+// SetRole promotes or demotes an account. Reports whether anything changed, so
+// a no-op does not read as an action in the log.
+func (u *Users) SetRole(email string, role Role, by string) (User, bool) {
+	key := strings.ToLower(strings.TrimSpace(email))
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	x, ok := u.by[key]
+	if !ok || x.Role == role {
+		return x, false
+	}
+	x.Role = role
+	x.DecidedAt = time.Now().UTC()
+	x.DecidedBy = by
+	u.by[key] = x
+	u.save()
+	return x, true
 }
 
 // MarkWelcomed records that the welcome mail went out, so a second approval (or
