@@ -61,23 +61,48 @@ class T {
   static const rBubble = 20.0;
   static const rPill = 24.0;
 
-  // Bundled type: Inter for UI, Newsreader (Tiempos-like) for assistant prose,
-  // JetBrains Mono for code. Fallbacks resolve to platform faces if an asset
-  // fails to load.
+  // Bundled type: Inter for the app's chrome, JetBrains Mono for everything in
+  // the conversation.
+  //
+  // The transcript is mono because it is the same transcript as the terminal —
+  // the client is a view onto a session that also renders in a TUI, and prose
+  // set in a serif made the two read as different products. Chrome stays sans:
+  // sheets, drawers and pickers are touch UI with no terminal counterpart, and
+  // setting those in mono would be costume rather than continuity.
+  //
+  // The serif tokens remain for anything that wants a reading face later.
   static const sans = 'Inter';
   static const serif = 'SourceSerif4';
   static const monoFamily = 'JetBrainsMono';
   static const serifFallback = <String>['Georgia', 'Charter', 'serif'];
   static const monoFallback = <String>['Menlo', 'Consolas', 'monospace'];
 
+  /// Assistant prose in the conversation.
   static TextStyle get prose => const TextStyle(
-        fontFamily: serif,
-        fontFamilyFallback: serifFallback,
-        fontSize: 19,
-        height: 1.55,
-        letterSpacing: 0.1,
+        fontFamily: monoFamily,
+        fontFamilyFallback: monoFallback,
+        // Smaller than the serif it replaces: a mono face sets wider, so
+        // matching its size would have shortened the line to a stub.
+        fontSize: 15,
+        height: 1.6,
         color: text,
       );
+
+  /// Everything else in the conversation: prompts, event rows, activity lines.
+  static const termBody = TextStyle(
+      fontFamily: monoFamily,
+      fontFamilyFallback: monoFallback,
+      fontSize: 14.5,
+      height: 1.5,
+      color: text);
+
+  /// Dim transcript text: timings, counts, the lines between turns.
+  static const termMeta = TextStyle(
+      fontFamily: monoFamily,
+      fontFamilyFallback: monoFallback,
+      fontSize: 12.5,
+      height: 1.4,
+      color: textDim);
   static TextStyle get proseBold =>
       prose.copyWith(fontWeight: FontWeight.w600);
   static const title = TextStyle(

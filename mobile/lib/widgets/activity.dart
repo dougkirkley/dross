@@ -322,7 +322,7 @@ class _ActivityBlockState extends State<ActivityBlock> {
               children: [
                 Flexible(
                   child: Text(a.summary,
-                      style: T.meta, overflow: TextOverflow.ellipsis),
+                      style: T.termMeta, overflow: TextOverflow.ellipsis),
                 ),
                 if (a.added > 0 || a.removed > 0) ...[
                   const SizedBox(width: 8),
@@ -393,7 +393,7 @@ class _InlineStepState extends State<_InlineStep> {
                 const Text('└ ', style: TextStyle(color: T.textFaint)),
                 Icon(s.icon, size: 16, color: s.color),
                 const SizedBox(width: 8),
-                Expanded(child: Text(s.label, style: T.body)),
+                Expanded(child: Text(s.label, style: T.termBody)),
                 if (edit != null) ...[
                   Text('+${edit.added}',
                       style: const TextStyle(color: T.ok, fontSize: 13)),

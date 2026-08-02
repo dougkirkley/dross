@@ -14,8 +14,9 @@ import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
-/// calls, delegation indented, cost) styled to match the app: user bubbles,
-/// serif assistant prose, monospace tool lines. The Chat view uses ChatScreen.
+/// calls, delegation indented, cost). The transcript is set in mono end to end,
+/// because it is the same transcript the TUI renders; the sheets and pickers
+/// around it stay touch UI. The Chat view uses ChatScreen.
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
   @override
@@ -142,7 +143,7 @@ class _SessionScreenState extends State<SessionScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(currentActivityLabel(s.events),
-                style: T.meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+                style: T.termMeta, maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ]),
       );
@@ -169,7 +170,7 @@ class _SessionScreenState extends State<SessionScreen> {
                       onTap: () => _moveToInput(
                           context.read<AppState>().removeQueued(i)),
                       child: Text(s.queue[i],
-                          style: T.meta,
+                          style: T.termMeta,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis),
                     ),
@@ -213,7 +214,7 @@ class _SessionScreenState extends State<SessionScreen> {
             decoration: BoxDecoration(
                 color: T.surfaceAlt,
                 borderRadius: BorderRadius.circular(T.rBubble)),
-            child: Text(e.data, style: T.body),
+            child: Text(e.data, style: T.termBody),
           ),
         );
         break;
@@ -296,7 +297,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     focusNode: _inputFocus,
                     minLines: 1,
                     maxLines: 5,
-                    style: T.body,
+                    style: T.termBody,
                     decoration: InputDecoration.collapsed(
                         hintText: running
                             ? 'Queue after this turn…'

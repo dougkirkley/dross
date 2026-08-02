@@ -12,7 +12,7 @@ import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
 
 /// Conversational view of an `dross serve` session — the same look as the old
-/// direct-mode chat (greeting, serif assistant prose, dark right-aligned user
+/// direct-mode chat (greeting, mono assistant prose, dark right-aligned user
 /// bubbles, streaming spinner), but backed by the server. All model/provider
 /// config lives on the server; the only inline control is the model chip.
 class ChatScreen extends StatefulWidget {
@@ -137,7 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
               // Dross does work.
               Flexible(
                 child: Text(currentActivityLabel(s.events),
-                    style: T.meta,
+                    style: T.termMeta,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
               ),
@@ -159,7 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
             color: T.surfaceAlt,
             borderRadius: BorderRadius.circular(T.rBubble),
           ),
-          child: Text(e.data, style: T.body),
+          child: Text(e.data, style: T.termBody),
         ),
       );
     }
@@ -193,7 +193,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         focusNode: _focus,
                         minLines: 1,
                         maxLines: 6,
-                        style: T.body,
+                        style: T.termBody,
                         decoration: InputDecoration.collapsed(
                           hintText: (s.events.isNotEmpty)
                               ? 'Reply to Dross'
