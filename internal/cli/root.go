@@ -15,11 +15,22 @@ const Version = "v0.4.0"
 // is no separate `tui` subcommand).
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "dross",
-		Short:         "Cost-aware multi-model coding agent",
+		Use:   "dross",
+		Short: "Cost-aware multi-model coding agent",
+		Long: "Cost-aware multi-model coding agent.\n\n" +
+			"Every flag can also be set from the environment, as DROSS_ plus the\n" +
+			"flag in upper case with dashes as underscores: --server reads\n" +
+			"DROSS_SERVER, --auth-client-id reads DROSS_AUTH_CLIENT_ID. A flag\n" +
+			"given on the command line overrides the environment.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		// Runs for the root and for every subcommand, against whichever command
+		// is actually executing, so its own flags and any inherited ones are
+		// covered.
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return bindEnv(cmd)
+		},
 	}
 	root.PersistentFlags().String("config", "", "path to JSON config file (default: ./dross.json or user config dir)")
 

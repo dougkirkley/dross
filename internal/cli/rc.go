@@ -51,11 +51,9 @@ func newRCCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			ctx := cmd.Context()
 
-			// Resolve the server URL: flag, else $DROSS_SERVER. Without it the
-			// login URL is malformed and no browser opens.
-			if server == "" {
-				server = os.Getenv("DROSS_SERVER")
-			}
+			// Every flag reads its own DROSS_ variable, so --server is already
+			// resolved by the time this runs. Without it the login URL is
+			// malformed and no browser opens.
 			if server == "" {
 				return fmt.Errorf("no server set: pass --server https://your-dross-host (or set DROSS_SERVER)")
 			}
@@ -67,11 +65,12 @@ func newRCCmd() *cobra.Command {
 			// $DROSS_TOKEN comes before the stored session because it is how a
 			// session pod is given its scoped credential: it has no stored
 			// session, no browser, and no way to complete a sign-in.
+			// --token is filled from DROSS_TOKEN like any other flag; this only
+			// works out which to name, since a session pod is handed its
+			// credential that way and saying so makes a failure legible.
 			source := "--token"
-			if token == "" {
-				if token = os.Getenv("DROSS_TOKEN"); token != "" {
-					source = "$DROSS_TOKEN"
-				}
+			if from := envSource(cmd, "token"); from != "" {
+				source = from
 			}
 			if token == "" {
 				if token = relay.LoadToken(server); token != "" {
