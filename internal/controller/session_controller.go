@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/opdev/subreconciler"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
+	"github.com/dougkirkley/dross/internal/subreconciler"
 )
 
 // SessionReconciler drives Session resources towards a running pod.
@@ -46,17 +46,11 @@ type SessionReconciler struct {
 // Reconcile runs the phases in order and stops at the first one that wants to
 // end the pass.
 func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	phases := []subreconciler.FnWithRequest{
+	return subreconciler.Run(ctx, req,
 		r.sessionPresent,
 		r.ensureStatefulSet,
 		r.reflectStatus,
-	}
-	for _, phase := range phases {
-		if res, err := phase(ctx, req); subreconciler.ShouldHaltOrRequeue(res, err) {
-			return subreconciler.Evaluate(res, err)
-		}
-	}
-	return subreconciler.Evaluate(subreconciler.DoNotRequeue())
+	)
 }
 
 // load fetches the Session a phase is working on.
@@ -80,12 +74,12 @@ func (r *SessionReconciler) sessionPresent(ctx context.Context, req ctrl.Request
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// ownerReferences have already taken the workload and its volume.
-			return subreconciler.DoNotRequeue()
+			return subreconciler.Done()
 		}
-		return subreconciler.RequeueWithError(err)
+		return subreconciler.Fail(err)
 	}
 	if !s.DeletionTimestamp.IsZero() {
-		return subreconciler.DoNotRequeue()
+		return subreconciler.Done()
 	}
 	return subreconciler.ContinueReconciling()
 }
@@ -94,7 +88,7 @@ func (r *SessionReconciler) sessionPresent(ctx context.Context, req ctrl.Request
 func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
 	s, err := r.load(ctx, req)
 	if err != nil {
-		return subreconciler.RequeueWithError(client.IgnoreNotFound(err))
+		return subreconciler.Fail(client.IgnoreNotFound(err))
 	}
 
 	var have appsv1.StatefulSet
@@ -103,7 +97,7 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 		return subreconciler.ContinueReconciling()
 	}
 	if !apierrors.IsNotFound(err) {
-		return subreconciler.RequeueWithError(fmt.Errorf("statefulset: %w", err))
+		return subreconciler.Fail(fmt.Errorf("statefulset: %w", err))
 	}
 
 	set := statefulSetFor(s)
@@ -113,14 +107,14 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 	// Owned by the Session, so deleting the Session reclaims the workload and,
 	// through the retention policy, its volume.
 	if err := ctrl.SetControllerReference(s, set, r.Scheme()); err != nil {
-		return subreconciler.RequeueWithError(err)
+		return subreconciler.Fail(err)
 	}
 	if err := r.Create(ctx, set); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// Raced with our own cache; the next pass sees it.
-			return subreconciler.Requeue()
+			return subreconciler.Retry()
 		}
-		return subreconciler.RequeueWithError(fmt.Errorf("statefulset: %w", err))
+		return subreconciler.Fail(fmt.Errorf("statefulset: %w", err))
 	}
 	log.FromContext(ctx).Info("created workload", "session", s.Spec.SessionID)
 	return subreconciler.ContinueReconciling()
@@ -130,15 +124,15 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 func (r *SessionReconciler) reflectStatus(ctx context.Context, req ctrl.Request) (*ctrl.Result, error) {
 	s, err := r.load(ctx, req)
 	if err != nil {
-		return subreconciler.RequeueWithError(client.IgnoreNotFound(err))
+		return subreconciler.Fail(client.IgnoreNotFound(err))
 	}
 	var set appsv1.StatefulSet
 	if err := r.Get(ctx, req.NamespacedName, &set); err != nil {
 		if apierrors.IsNotFound(err) {
 			// The previous phase only just created it; come back for the status.
-			return subreconciler.Requeue()
+			return subreconciler.Retry()
 		}
-		return subreconciler.RequeueWithError(err)
+		return subreconciler.Fail(err)
 	}
 
 	phase, message := "Pending", ""
@@ -171,9 +165,9 @@ func (r *SessionReconciler) reflectStatus(ctx context.Context, req ctrl.Request)
 	if err := r.Status().Update(ctx, s); err != nil {
 		if apierrors.IsConflict(err) {
 			// Someone else wrote first; re-read and try again.
-			return subreconciler.Requeue()
+			return subreconciler.Retry()
 		}
-		return subreconciler.RequeueWithError(err)
+		return subreconciler.Fail(err)
 	}
 	log.FromContext(ctx).V(1).Info("reconciled", "session", s.Spec.SessionID, "phase", phase)
 	return subreconciler.ContinueReconciling()

@@ -176,8 +176,8 @@ func TestReconcileOnMissingSessionCreatesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if res.Requeue {
-		t.Error("requeued for a session that does not exist")
+	if res.RequeueAfter != 0 {
+		t.Errorf("requeued after %v for a session that does not exist", res.RequeueAfter)
 	}
 	var sets appsv1.StatefulSetList
 	if err := c.List(context.Background(), &sets); err != nil {
