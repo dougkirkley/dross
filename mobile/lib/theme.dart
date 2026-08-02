@@ -46,6 +46,16 @@ class T {
   static const pill = Color(0xFFF3F1EC);
   static const pillText = Color(0xFF0E0E0E);
 
+  /// The widest the conversation is allowed to get.
+  ///
+  /// The same client runs on a phone and in a desktop browser, and left to
+  /// itself the column stretches to the window: on a wide screen a reply
+  /// spanned the full width, which is a tiring line length to read and threw
+  /// the user's bubbles and the agent's text to opposite edges. Roughly 90
+  /// characters of body text, centred, with the phone unaffected because it is
+  /// narrower than this anyway.
+  static const readWidth = 760.0;
+
   // Radii.
   static const rCard = 18.0;
   static const rBubble = 20.0;

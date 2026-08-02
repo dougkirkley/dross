@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/ask_card.dart';
+import '../widgets/readable.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/prose.dart';
@@ -61,7 +62,7 @@ class _SessionScreenState extends State<SessionScreen> {
     final sess = s.current;
     _autoScroll();
     return SelectionArea(
-      child: Scaffold(
+        child: Scaffold(
       backgroundColor: T.chatBg,
       body: SafeArea(
         child: Column(
@@ -78,41 +79,46 @@ class _SessionScreenState extends State<SessionScreen> {
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);
                 final shells = buildShells(s.events);
-                final runningShells =
-                    shells.where((x) => x.running).length;
+                final runningShells = shells.where((x) => x.running).length;
                 // Trailing items after the conversation: the live spinner (while
                 // the turn runs) and a "N running task" link (background shells).
                 final trailing = <Widget>[
                   if (sess?.isRunning ?? false) _runningRow(s),
-                  if (runningShells > 0) _tasksLink(context, shells, runningShells),
+                  if (runningShells > 0)
+                    _tasksLink(context, shells, runningShells),
                 ];
                 return RefreshIndicator(
                   onRefresh: () => context.read<AppState>().reloadCurrent(),
                   color: T.accent,
                   backgroundColor: T.surface,
-                  child: ListView.builder(
-                  controller: _scroll,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  itemCount: timeline.length + trailing.length,
-                  itemBuilder: (_, i) {
-                    if (i >= timeline.length) return trailing[i - timeline.length];
-                    final item = timeline[i];
-                    if (item is Activity) return ActivityBlock(item);
-                    return _eventRow(item as Event);
-                  },
+                  child: Readable(
+                    child: ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      itemCount: timeline.length + trailing.length,
+                      itemBuilder: (_, i) {
+                        if (i >= timeline.length) {
+                          return trailing[i - timeline.length];
+                        }
+                        final item = timeline[i];
+                        if (item is Activity) return ActivityBlock(item);
+                        return _eventRow(item as Event);
+                      },
+                    ),
                   ),
                 );
               }),
             ),
-            if (s.queue.isNotEmpty) _queueStrip(context, s),
-            _inputBar(context, s),
+            if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
+            Readable(child: _inputBar(context, s)),
           ],
         ),
       ),
     ));
   }
 
-  Widget _tasksLink(BuildContext context, List<ShellTask> shells, int running) =>
+  Widget _tasksLink(
+          BuildContext context, List<ShellTask> shells, int running) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: GestureDetector(
@@ -160,8 +166,8 @@ class _SessionScreenState extends State<SessionScreen> {
                   Expanded(
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: () =>
-                          _moveToInput(context.read<AppState>().removeQueued(i)),
+                      onTap: () => _moveToInput(
+                          context.read<AppState>().removeQueued(i)),
                       child: Text(s.queue[i],
                           style: T.meta,
                           maxLines: 1,
@@ -190,7 +196,8 @@ class _SessionScreenState extends State<SessionScreen> {
       );
 
   Widget _eventRow(Event e) {
-    final indent = e.isWorker ? const EdgeInsets.only(left: 20) : EdgeInsets.zero;
+    final indent =
+        e.isWorker ? const EdgeInsets.only(left: 20) : EdgeInsets.zero;
     Widget content;
     switch (e.baseKind) {
       case 'ask-request':
@@ -200,8 +207,7 @@ class _SessionScreenState extends State<SessionScreen> {
         content = Align(
           alignment: Alignment.centerRight,
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.82),
             decoration: BoxDecoration(
@@ -369,8 +375,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     child: Text(s.current?.model ?? 'model',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style:
-                            const TextStyle(color: T.textDim, fontSize: 13)),
+                        style: const TextStyle(color: T.textDim, fontSize: 13)),
                   ),
                 ),
                 const Spacer(),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/readable.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/logo.dart';
@@ -75,25 +76,29 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: msgs.isEmpty && !running
                       // The greeting isn't scrollable on its own, so give it
                       // scroll physics or there's nothing to pull on.
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [_greeting(sess)],
+                      ? Readable(
+                          child: ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [_greeting(sess)],
+                          ),
                         )
-                      : ListView.builder(
-                          controller: _scroll,
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                          // The orb trails the conversation: lively while Dross
-                          // is answering, calm (just blinking) once it's done.
-                          itemCount: msgs.length + 1,
-                          itemBuilder: (_, i) {
-                            if (i >= msgs.length) return _spinner(running, s);
-                            return _message(msgs[i]);
-                          },
+                      : Readable(
+                          child: ListView.builder(
+                            controller: _scroll,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                            // The orb trails the conversation: lively while Dross
+                            // is answering, calm (just blinking) once it's done.
+                            itemCount: msgs.length + 1,
+                            itemBuilder: (_, i) {
+                              if (i >= msgs.length) return _spinner(running, s);
+                              return _message(msgs[i]);
+                            },
+                          ),
                         ),
                 ),
               ),
-              _inputBar(context, s, running),
+              Readable(child: _inputBar(context, s, running)),
             ],
           ),
         ),
@@ -132,7 +137,9 @@ class _ChatScreenState extends State<ChatScreen> {
               // Dross does work.
               Flexible(
                 child: Text(currentActivityLabel(s.events),
-                    style: T.meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    style: T.meta,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
             ],
           ],
@@ -288,9 +295,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _sendButton(BuildContext context, bool running) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => running
-            ? context.read<AppState>().interrupt()
-            : _send(context),
+        onTap: () =>
+            running ? context.read<AppState>().interrupt() : _send(context),
         child: Container(
           width: 40,
           height: 40,
