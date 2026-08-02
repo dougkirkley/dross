@@ -41,6 +41,8 @@ type UserDirectory interface {
 	// pending stranger, which is the difference between this and denying them.
 	Remove(email string) bool
 	MarkWelcomed(email string) bool
+	// MarkAnnounced claims the job of reporting a sign-up, exactly once.
+	MarkAnnounced(email string) bool
 	// Ensure lifts an account to a status and role, creating it if needed. How
 	// the configured admin exists before anyone can approve them.
 	Ensure(email string, status Status, role Role)
@@ -135,7 +137,7 @@ func (s *Server) handleAdminDecide(w http.ResponseWriter, r *http.Request) {
 	// Same-origin check. The session cookie is SameSite=Lax, so a cross-site
 	// POST arrives without it and fails authentication anyway; this is the
 	// second lock, and it costs one comparison.
-	if o := r.Header.Get("Origin"); o != "" && !sameOrigin(o, r) {
+	if o := r.Header.Get("Origin"); o != "" && !s.sameOrigin(o, r) {
 		http.Error(w, "forbidden: cross-origin request", http.StatusForbidden)
 		return
 	}
@@ -395,18 +397,29 @@ func (s *Server) AnnounceSignUp(u User) {
 	}()
 }
 
-// sameOrigin reports whether the Origin header matches the host the request
-// arrived on. Behind a proxy the forwarded host is the one the browser used.
-func sameOrigin(origin string, r *http.Request) bool {
+// sameOrigin reports whether the Origin header matches the host this server is
+// reached at.
+//
+// It used to prefer X-Forwarded-Host, which reads as proxy-awareness and is
+// really an instruction from the client: anyone can send both an Origin of
+// their choosing and a matching X-Forwarded-Host, and the check agrees with
+// itself. The session cookie being SameSite=Lax is what actually stopped that
+// being exploitable, which makes this the second lock - and a second lock the
+// attacker holds the key to is not one.
+//
+// The configured public URL is the answer where there is one, because it is the
+// only host that is not attacker-supplied. Failing that, r.Host: still a header,
+// but one the gateway sets from the request line rather than one a body can
+// carry.
+func (s *Server) sameOrigin(origin string, r *http.Request) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
 		return false
 	}
-	host := r.Host
-	if f := r.Header.Get("X-Forwarded-Host"); f != "" {
-		host = strings.TrimSpace(strings.Split(f, ",")[0])
+	if s.publicHost != "" {
+		return strings.EqualFold(u.Host, s.publicHost)
 	}
-	return strings.EqualFold(u.Host, host)
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 // --- first run ---------------------------------------------------------------
@@ -470,7 +483,7 @@ func (s *Server) handleSetupClaimAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleSetupClaim takes the role, if it is still there to take.
 func (s *Server) handleSetupClaim(w http.ResponseWriter, r *http.Request) {
-	if o := r.Header.Get("Origin"); o != "" && !sameOrigin(o, r) {
+	if o := r.Header.Get("Origin"); o != "" && !s.sameOrigin(o, r) {
 		http.Error(w, "forbidden: cross-origin request", http.StatusForbidden)
 		return
 	}
@@ -490,4 +503,45 @@ func (s *Server) handleSetupClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin?ok="+url.QueryEscape("you are the administrator"), http.StatusSeeOther)
+}
+
+// WatchSignUps reports accounts that appeared without dross seeing them happen.
+//
+// While dross ran the login it was told about every sign-in and could mail on
+// the spot. Kratos registers people now, so the first dross knows of somebody is
+// that they are in the directory - which meant, for a while, that strangers
+// could arrive and nobody was told. That is a poor property for a queue whose
+// whole purpose is that a person acts on it.
+//
+// So: poll, and claim each announcement on the record. Claiming is what makes a
+// restart safe; without it every pending account would be mailed about again on
+// every boot.
+func (s *Server) WatchSignUps(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.announceNewSignUps()
+		}
+	}
+}
+
+func (s *Server) announceNewSignUps() {
+	if !s.mailEnabled() || s.users == nil {
+		return
+	}
+	for _, u := range s.users.List() {
+		// Only people who are waiting, and only once. Anyone already decided
+		// needs no announcement, whatever the flag on their record says.
+		if u.Status != StatusPending || !u.AnnouncedAt.IsZero() {
+			continue
+		}
+		if !s.users.MarkAnnounced(u.Email) {
+			continue // somebody else claimed it, or the write failed
+		}
+		s.AnnounceSignUp(u)
+	}
 }

@@ -102,6 +102,7 @@ func (s *Server) handleKratosError(w http.ResponseWriter, r *http.Request) {
 }
 
 // flowView reduces a Kratos flow to what the page draws.
+
 func flowView(f *auth.UIFlow, title, heading, lead, foot string) ui.FlowView {
 	v := ui.FlowView{
 		Title:   title,

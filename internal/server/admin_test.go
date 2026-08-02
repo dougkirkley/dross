@@ -604,3 +604,103 @@ func TestPromotingAlsoApproves(t *testing.T) {
 		t.Error("promotion did not take")
 	}
 }
+
+// Kratos registers people without telling dross, so sign-ups are noticed rather
+// than witnessed. Each one is announced once, and a restart must not announce
+// everybody again - which is why the claim is on the record, not in memory.
+func TestSignUpsAreAnnouncedOnce(t *testing.T) {
+	srv, users, mails := adminServer(t)
+	users.SignIn("stranger@example.com", "Stranger")
+
+	srv.announceNewSignUps()
+	waitFor(t, func() bool { return len(mails.all()) == 2 }) // theirs, and the admin's
+
+	// Running again changes nothing: the announcement was claimed.
+	srv.announceNewSignUps()
+	srv.announceNewSignUps()
+	if got := mails.all(); len(got) != 2 {
+		t.Fatalf("mails after repeated sweeps = %v; want the original two", got)
+	}
+
+	// A restart re-reads the same records, so the claim has to have persisted.
+	reopened, err := NewUsers(users.path[:len(users.path)-len("/users.json")])
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, ok := reopened.Get("stranger@example.com")
+	if !ok || u.AnnouncedAt.IsZero() {
+		t.Fatal("the announcement was not recorded, so a restart would mail them again")
+	}
+
+	// Somebody already decided is not announced, whatever their record says.
+	users.SignIn("decided@example.com", "Decided")
+	users.Decide("decided@example.com", StatusApproved, "doug@example.com")
+	before := len(mails.all())
+	srv.announceNewSignUps()
+	if got := mails.all(); len(got) != before {
+		t.Errorf("an already-approved account was announced: %v", got)
+	}
+}
+
+// The limiter exists because the edge allowlist that made this moot was
+// removed: the sign-in flow is now reachable by anyone, and each completed
+// registration is a database row and two emails.
+func TestLimiterStopsALoopAndNotAPerson(t *testing.T) {
+	l := newLimiter(60, 20) // a burst of 20, then one a second
+
+	for i := 0; i < 20; i++ {
+		if !l.allow("1.2.3.4") {
+			t.Fatalf("a person doing a handful of requests was refused at %d", i)
+		}
+	}
+	if l.allow("1.2.3.4") {
+		t.Error("a loop past the burst was allowed to continue")
+	}
+	// One caller's burst must not refuse everybody else.
+	if !l.allow("5.6.7.8") {
+		t.Error("a second address was refused because the first was busy")
+	}
+}
+
+// The same-origin check is the second lock on the admin forms. It used to prefer
+// X-Forwarded-Host, which is a header the caller sets - so an attacker could
+// send an Origin of their choosing and a matching X-Forwarded-Host, and the
+// check would agree with itself.
+func TestSameOriginIgnoresHeadersTheCallerControls(t *testing.T) {
+	srv, users, _ := adminServer(t)
+	users.SignIn("stranger@example.com", "Stranger")
+	srv.SetPublicURL("https://dross.sh")
+
+	forge := func() *http.Request {
+		form := "email=stranger%40example.com&action=approve"
+		r := httptest.NewRequest("POST", "/admin/decide", strings.NewReader(form))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Origin", "https://evil.example")
+		r.Header.Set("X-Forwarded-Host", "evil.example")
+		r.Host = "evil.example"
+		return r
+	}
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(forge(), "doug@example.com"))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a forged origin was accepted: %d", w.Code)
+	}
+	if users.IsApproved("stranger@example.com") {
+		t.Fatal("a cross-origin post approved an account by agreeing with itself")
+	}
+
+	// And the real origin still works, or the lock is on the wrong door.
+	good := httptest.NewRequest("POST", "/admin/decide",
+		strings.NewReader("email=stranger%40example.com&action=approve"))
+	good.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	good.Header.Set("Origin", "https://dross.sh")
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, as(good, "doug@example.com"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("a legitimate submission was refused: %d %s", w.Code, w.Body.String())
+	}
+	if !users.IsApproved("stranger@example.com") {
+		t.Error("the legitimate approval did not land")
+	}
+}

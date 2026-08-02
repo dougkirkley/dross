@@ -103,13 +103,14 @@ type kratosIdentity struct {
 }
 
 type kratosMeta struct {
-	Status     Status    `json:"status,omitempty"`
-	Role       Role      `json:"role,omitempty"`
-	LastSeen   time.Time `json:"last_seen,omitempty"`
-	Logins     int       `json:"logins,omitempty"`
-	DecidedAt  time.Time `json:"decided_at,omitempty"`
-	DecidedBy  string    `json:"decided_by,omitempty"`
-	WelcomedAt time.Time `json:"welcomed_at,omitempty"`
+	Status      Status    `json:"status,omitempty"`
+	Role        Role      `json:"role,omitempty"`
+	LastSeen    time.Time `json:"last_seen,omitempty"`
+	Logins      int       `json:"logins,omitempty"`
+	DecidedAt   time.Time `json:"decided_at,omitempty"`
+	DecidedBy   string    `json:"decided_by,omitempty"`
+	WelcomedAt  time.Time `json:"welcomed_at,omitempty"`
+	AnnouncedAt time.Time `json:"announced_at,omitempty"`
 }
 
 // user projects an identity into the shape the rest of the server uses.
@@ -385,6 +386,21 @@ func (d *KratosDirectory) Decide(email string, status Status, by string) (User, 
 		return id.user(), false
 	}
 	return u, true
+}
+
+// MarkAnnounced records that a sign-up has been reported, and reports whether
+// this call was the one that claimed it. Persisted on the record rather than
+// held in memory: a restart would otherwise mail every pending account again.
+func (d *KratosDirectory) MarkAnnounced(email string) bool {
+	id, ok := d.find(email)
+	if !ok || !id.MetadataAdmin.AnnouncedAt.IsZero() {
+		return false
+	}
+	id.MetadataAdmin.AnnouncedAt = time.Now().UTC()
+	if _, err := d.put(id); err != nil {
+		return false
+	}
+	return true
 }
 
 // Remove deletes the identity. Kratos invalidates its sessions as part of that,

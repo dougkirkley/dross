@@ -35,6 +35,18 @@ type Server struct {
 	// is what keeps this a switch rather than a rewrite.
 	kratos    *auth.KratosSessions
 	kratosURL *url.URL
+
+	// The host this server is actually reached at, from --public-url. The only
+	// host in a request that is not supplied by whoever sent it, which is what
+	// makes it the one worth comparing an Origin against.
+	publicHost string
+}
+
+// SetPublicURL records the origin dross is served from.
+func (s *Server) SetPublicURL(raw string) {
+	if u, err := url.Parse(strings.TrimRight(raw, "/")); err == nil {
+		s.publicHost = u.Host
+	}
 }
 
 // SetKratosUI wires the browser-facing half of Kratos: the flows dross draws
@@ -184,14 +196,17 @@ func (s *Server) buildHandler() http.Handler {
 	// Private artifact view: same gate as the rest of the app.
 	root.Handle("GET /a/{id}", s.auth.Middleware(http.HandlerFunc(s.handleArtifactGet)))
 	if s.kratos != nil {
+		// The one surface anybody on the internet can reach. Generous for a
+		// person - a sign-in is a handful of requests - and useless for a loop.
+		flows := newLimiter(60, 20)
 		// Kratos's own API, same-origin. Public by necessity: this is the path
 		// someone with no session uses to get one.
-		root.Handle("/kratos/", s.kratosProxy(s.kratosURL))
+		root.Handle("/kratos/", flows.limit(s.kratosProxy(s.kratosURL)))
 		// The pages it redirects browsers to. Public for the same reason.
-		root.Handle("GET /login", s.handleKratosFlow("login", "Sign in", "Dross",
-			"Sign in to continue.", "Access is limited to approved accounts."))
-		root.Handle("GET /registration", s.handleKratosFlow("registration", "Create account", "Dross",
-			"Signing in is how you ask for access.", "An admin approves new accounts."))
+		root.Handle("GET /login", flows.limit(s.handleKratosFlow("login", "Sign in", "Dross",
+			"Sign in to continue.", "Access is limited to approved accounts.")))
+		root.Handle("GET /registration", flows.limit(s.handleKratosFlow("registration", "Create account", "Dross",
+			"Signing in is how you ask for access.", "An admin approves new accounts.")))
 		root.Handle("GET /settings", s.auth.Middleware(s.handleKratosFlow("settings", "Settings", "Your account",
 			"", "Changes apply the next time you sign in.")))
 		root.HandleFunc("GET /error", s.handleKratosError)

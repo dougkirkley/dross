@@ -204,6 +204,7 @@ func newServeCmd() *cobra.Command {
 
 			sessionStore := storage.NewSessionStore(sp)
 			srv := server.New(sessionStore, mgr, authr, arts)
+			srv.SetPublicURL(publicURL)
 
 			// Accounts: the registry decides who is let in, the notifier tells
 			// them. Both are interfaces to the server, so a bigger store or a
@@ -238,6 +239,13 @@ func newServeCmd() *cobra.Command {
 					srv.AnnounceSignUp(u)
 				})
 			}
+
+			// Kratos registers people without telling dross, so the queue is
+			// watched rather than waited on. Cheap: it reads the same cached
+			// directory the approval gate already keeps warm.
+			signUpCtx, stopSignUps := context.WithCancel(cmd.Context())
+			defer stopSignUps()
+			go srv.WatchSignUps(signUpCtx, 60*time.Second)
 
 			// Sessions outlive the process: restore what was there, then mirror
 			// changes to disk so a deploy doesn't discard the user's work.

@@ -55,6 +55,9 @@ type User struct {
 	DecidedAt  time.Time `json:"decided_at,omitempty"`
 	DecidedBy  string    `json:"decided_by,omitempty"`
 	WelcomedAt time.Time `json:"welcomed_at,omitempty"` // welcome mail sent; never sent twice
+	// AnnouncedAt is when the sign-up was reported to the administrators. On the
+	// record rather than in memory, so a restart does not report everyone again.
+	AnnouncedAt time.Time `json:"announced_at,omitempty"`
 }
 
 // Approved reports whether the account may use the application.
@@ -267,6 +270,22 @@ func (u *Users) SetRole(email string, role Role, by string) (User, bool) {
 	u.by[key] = x
 	u.save()
 	return x, true
+}
+
+// MarkAnnounced records that a sign-up has been reported, and reports whether
+// this call claimed it.
+func (u *Users) MarkAnnounced(email string) bool {
+	key := strings.ToLower(strings.TrimSpace(email))
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	x, ok := u.by[key]
+	if !ok || !x.AnnouncedAt.IsZero() {
+		return false
+	}
+	x.AnnouncedAt = time.Now().UTC()
+	u.by[key] = x
+	u.save()
+	return true
 }
 
 // Remove deletes an account. Reports whether there was one to delete, so a
