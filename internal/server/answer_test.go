@@ -96,3 +96,19 @@ func TestClearingTheNameRestoresAutoTitling(t *testing.T) {
 		t.Errorf("title = %q; want it cleared", got)
 	}
 }
+
+// A chat session has no shell and no workspace, which is the only reason a
+// session gets a pod. Giving one a pod made every chat prompt wait on a relay
+// with no agent behind it, and the send came back as a conflict.
+func TestChatSessionsAreNotPodBacked(t *testing.T) {
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+
+	chat := m.create(CreateReq{Chat: true}, "doug@example.com")
+	if chat.device != "" {
+		t.Errorf("chat session is device-backed (%q)", chat.device)
+	}
+	// And a chat session can be prompted straight away, with nothing to wait on.
+	if err := m.prompt(chat, "hello"); err != nil {
+		t.Errorf("prompting a fresh chat session failed: %v", err)
+	}
+}

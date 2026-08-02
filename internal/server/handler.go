@@ -58,7 +58,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// In pod mode the agent runs in its own workload, which attaches back over
 	// the relay as a device named for the session. Provision it before replying,
 	// so a client that immediately prompts finds something to prompt.
-	if s.mgr.pods != nil {
+	// Chat sessions stay in this process. They have no shell and no workspace —
+	// the whole reason a session gets a pod is to isolate what it can run — so
+	// giving one a pod bought nothing and made every chat prompt wait on a
+	// relay that had no agent behind it.
+	if s.mgr.pods != nil && !req.Chat {
 		name, err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model)
 		if err != nil {
 			s.mgr.remove(sess.ID, sess.owner) // don't leave a session with no worker

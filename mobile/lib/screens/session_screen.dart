@@ -83,6 +83,7 @@ class _SessionScreenState extends State<SessionScreen> {
             // Same signal at the top of the window the session owns, so a run
             // is visible without going back to the list to see its card.
             if (sess?.isRunning ?? false) const RunningBar(),
+            if (_starting(sess)) const _StartingPanel(),
             Expanded(
               child: Builder(builder: (_) {
                 final timeline = buildTimeline(s.events);
@@ -479,9 +480,23 @@ class _SessionScreenState extends State<SessionScreen> {
     );
   }
 
+  /// A pod-backed session that has not linked yet. Its workload is still being
+  /// scheduled, pulling an image or attaching a volume, and the server has
+  /// nothing to relay a prompt to.
+  static bool _starting(Session? sess) =>
+      sess != null && sess.device.isNotEmpty && !sess.connected;
+
   Future<void> _send(BuildContext context) async {
     final text = _input.text;
     if (text.trim().isEmpty) return;
+    if (_starting(context.read<AppState>().current)) {
+      // The server would refuse this with a conflict and the app would drop it
+      // silently, which reads as a dead send button.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Session is still starting — try again in a moment.'),
+      ));
+      return;
+    }
     _input.clear();
     // Keep the text in the composer if it wasn't actually sent (e.g. the
     // keyboard-mash guard held it back), so a second tap sends the same thing.
@@ -550,6 +565,37 @@ class _SessionScreenState extends State<SessionScreen> {
                 ),
             ],
           ),
+        ),
+      );
+}
+
+/// Shown while a pod-backed session is still coming up.
+///
+/// The wait is real — a workload has to be scheduled, an image pulled and a
+/// volume attached — and without saying so the session looks ready and the send
+/// button looks broken.
+class _StartingPanel extends StatelessWidget {
+  const _StartingPanel();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: T.surface,
+          borderRadius: BorderRadius.circular(T.rCard),
+          border: Border.all(color: T.border),
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RunningBar(),
+            SizedBox(height: 10),
+            Text('Starting session…', style: T.body),
+            SizedBox(height: 4),
+            Text('Waiting for its workspace to come up.', style: T.metaFaint),
+          ],
         ),
       );
 }
