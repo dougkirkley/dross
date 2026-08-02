@@ -42,6 +42,20 @@ type KratosDirectory struct {
 	admin  string // e.g. http://kratos-admin.dross-system.svc
 	client *http.Client
 
+	// AllowCreate lets dross create identities through the admin API. True only
+	// while dross owns the login: an identity it creates has no credentials
+	// attached, because credentials come from an actual sign-in and there has
+	// not been one.
+	//
+	// Once Kratos owns the login, such a record is worse than useless. Nothing
+	// can ever authenticate to it, and because the email is a credential
+	// identifier it collides with the identity Kratos tries to create from a
+	// real Google sign-in - which fails with "that email is already used by
+	// another account", offering to link it to the credentials it does not
+	// have. Creating accounts is Kratos's job from then on; dross only updates
+	// what it finds.
+	AllowCreate bool
+
 	// claim serialises ClaimAdmin. dross runs one replica by construction — the
 	// Deployment is Recreate and its volumes are ReadWriteOnce — so a mutex is
 	// the honest scope of this lock. It is not a distributed one and must not be
@@ -285,6 +299,13 @@ func (d *KratosDirectory) SignIn(email, name string) (User, bool) {
 		return u, false
 	}
 
+	if !d.AllowCreate {
+		// Kratos registers people now. A sign-in for someone it has never heard
+		// of should not happen, and inventing a record for them would only
+		// block the registration that will.
+		return User{Email: email, Name: name, Status: StatusPending, Role: RoleUser}, false
+	}
+
 	var id kratosIdentity
 	id.Traits.Email = email
 	id.Traits.Name = name
@@ -391,6 +412,12 @@ func (d *KratosDirectory) Ensure(email string, status Status, role Role) {
 		}
 		id.MetadataAdmin.Status, id.MetadataAdmin.Role = status, role
 		_, _ = d.put(id)
+		return
+	}
+	if !d.AllowCreate {
+		// Seeding an admin who has never signed in would create exactly the
+		// credential-less record that breaks their first sign-in. They will be
+		// offered the role by the first-run page instead.
 		return
 	}
 	var id kratosIdentity

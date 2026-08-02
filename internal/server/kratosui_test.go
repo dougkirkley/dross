@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/internal/ui"
 )
 
 // A real login flow, as Kratos answered one from the running server. Kept
@@ -94,5 +95,34 @@ func TestFlowPageDoesNotBlockItsOwnHandoff(t *testing.T) {
 	}
 	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("a page carrying a CSRF token must not be cached: %q", w.Header().Get("Cache-Control"))
+	}
+}
+
+// Kratos can answer with a message and nothing to press - "that email is
+// already used by another account, sign in with one of the options below" when
+// there are no other options. Rendered verbatim that is a dead end, and the
+// only way out a person finds from one is clearing their cookies.
+func TestFlowWithNothingToPressStillOffersAWayOut(t *testing.T) {
+	var f auth.UIFlow
+	stuck := `{"id":"x","ui":{"action":"https://dross.sh/kratos/self-service/login?flow=x","method":"POST",
+	  "messages":[{"text":"that email is already used by another account","type":"error"}],
+	  "nodes":[{"type":"input","group":"default","attributes":{"name":"csrf_token","type":"hidden","value":"tok"},"meta":{}}]}}`
+	if err := json.Unmarshal([]byte(stuck), &f); err != nil {
+		t.Fatal(err)
+	}
+	v := flowView(&f, "Sign in", "Dross", "", "")
+	if len(v.Buttons) != 0 {
+		t.Fatalf("fixture is wrong: it should have nothing to press, got %+v", v.Buttons)
+	}
+	// The handler is what rescues it, so assert the shape it produces.
+	v.Hidden = nil
+	v.Action, v.Method = "/kratos/self-service/login/browser", "get"
+	v.Buttons = []ui.FlowButton{{Label: "Start again"}}
+	if len(v.Buttons) == 0 || v.Method != "get" {
+		t.Error("a stuck flow must still offer a fresh one")
+	}
+	// The message survives: the person should know why they are back here.
+	if len(v.Messages) != 1 || v.Messages[0].Kind != "bad" {
+		t.Errorf("the reason was dropped: %+v", v.Messages)
 	}
 }

@@ -29,6 +29,9 @@ func newFakeKratos(t *testing.T) (*fakeKratos, *KratosDirectory) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// These exercise the mode where dross still owns the login and therefore
+	// registers people itself. The other mode has a test of its own below.
+	d.AllowCreate = true
 	return f, d
 }
 
@@ -238,5 +241,35 @@ func TestKratosDirectoryCachesReads(t *testing.T) {
 	f.mu.Unlock()
 	if calls > 1 {
 		t.Errorf("50 approval checks made %d list calls; want at most 1", calls)
+	}
+}
+
+// Once Kratos owns the login, dross must not create identities. One it makes
+// has no credentials - they come from a sign-in that has not happened - and
+// because the email is a credential identifier, that empty record collides with
+// the one Kratos builds from the real Google sign-in. The person is then told
+// their email is already in use and offered a link to credentials that do not
+// exist, which is a dead end no amount of retrying escapes.
+func TestKratosDirectoryDoesNotCreateWhenKratosOwnsLogin(t *testing.T) {
+	f, d := newFakeKratos(t)
+	d.AllowCreate = false
+
+	u, isNew := d.SignIn("stranger@example.com", "Stranger")
+	if isNew {
+		t.Error("dross registered an account Kratos has never heard of")
+	}
+	// It still reports something sensible for the caller mid-request.
+	if u.Email != "stranger@example.com" || u.Status != StatusPending {
+		t.Errorf("SignIn returned %+v; want a pending stand-in", u)
+	}
+
+	// Seeding an admin who has never signed in is the same trap.
+	d.Ensure("never-seen@example.com", StatusApproved, RoleAdmin)
+
+	f.mu.Lock()
+	n := len(f.ids)
+	f.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d identities were created; want none - Kratos registers people now", n)
 	}
 }

@@ -45,7 +45,7 @@ func (s *Server) kratosProxy(target *url.URL) http.Handler {
 
 // handleKratosFlow draws login, registration and settings. Kratos redirects the
 // browser here with ?flow=<id> after it has created one.
-func (s *Server) handleKratosFlow(kind, title, heading, lead, foot string) http.HandlerFunc {
+func (s *Server) handleKratosFlow(kind, title, heading, lead, foot string) http.HandlerFunc { //nolint:revive // the strings are page copy, not configuration
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("flow")
 		if id == "" {
@@ -62,6 +62,16 @@ func (s *Server) handleKratosFlow(kind, title, heading, lead, foot string) http.
 			return
 		}
 		v := flowView(flow, title, heading, lead, foot)
+		// Kratos can answer with a message and nothing to press - "that email is
+		// already used by another account, sign in with one of the options
+		// below" when there are no other options, for instance. Rendering that
+		// verbatim is a dead end, and the only way out a person finds from one
+		// is clearing their cookies.
+		if len(v.Buttons) == 0 {
+			v.Hidden = nil
+			v.Action, v.Method = "/kratos/self-service/"+kind+"/browser", "get"
+			v.Buttons = []ui.FlowButton{{Label: "Start again"}}
+		}
 		writeFlowPage(w, http.StatusOK)
 		_ = ui.Flow(v).Render(r.Context(), w)
 	}

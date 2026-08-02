@@ -139,8 +139,13 @@ func newServeCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("kratos directory: %w", err)
 				}
+				// Only while dross still owns the login. Once Kratos runs it,
+				// Kratos creates the accounts - with the credentials a sign-in
+				// actually produced - and dross only updates them.
+				kd.AllowCreate = kratosPublicURL == ""
 				users = kd
-				fmt.Fprintf(cmd.OutOrStdout(), "accounts: kratos at %s\n", kratosAdminURL)
+				fmt.Fprintf(cmd.OutOrStdout(), "accounts: kratos at %s (dross creates identities: %v)\n",
+					kratosAdminURL, kd.AllowCreate)
 			case "", "file":
 				fu, err := server.NewUsers(filepath.Dir(sp))
 				if err != nil {
