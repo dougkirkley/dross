@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,8 +42,14 @@ func TestDeleteFindsTheSessionByLabel(t *testing.T) {
 	p := podSessions(t)
 	ctx := context.Background()
 
-	if err := p.Create(ctx, "ses_abc", "doug@example.com", "m"); err != nil {
+	name, err := p.Create(ctx, "ses_abc", "doug@example.com", "m")
+	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	// The session is called what its pod is called, so the two are the same
+	// thing to look at rather than a name and a hex id.
+	if name == "" {
+		t.Error("create returned no name for the session to take")
 	}
 
 	var list dross.SessionList
@@ -82,5 +89,31 @@ func TestDeleteFindsTheSessionByLabel(t *testing.T) {
 func TestDeleteWithNoWorkloadIsFine(t *testing.T) {
 	if err := podSessions(t).Delete(context.Background(), "ses_never"); err != nil {
 		t.Errorf("delete: %v", err)
+	}
+}
+
+// A pod-backed session takes the name of the pod running it, so a list of them
+// reads as distinct sessions rather than "New session" repeated.
+func TestCreateNamesTheSessionAfterItsPod(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	friendly, err := p.Create(ctx, "ses_abc", "doug@example.com", "m")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	// The workload is prefixed with the server; the session's name is the half
+	// that distinguishes it, since every session here shares the prefix.
+	want := "dross-web-" + friendly
+	if list.Items[0].Name != want {
+		t.Errorf("workload %q; want %q", list.Items[0].Name, want)
+	}
+	if strings.Contains(friendly, "dross-web") {
+		t.Errorf("session name %q repeats the server prefix", friendly)
 	}
 }

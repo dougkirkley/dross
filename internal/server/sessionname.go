@@ -28,16 +28,23 @@ var (
 	}
 )
 
-// sessionName returns "<prefix>-<adjective>-<noun>".
+// friendlyName is the "<adjective>-<noun>" half, which is also what a session
+// is called in the UI. The server prefix is left off there: every session on a
+// server carries the same one, so repeating it down a list says nothing.
 //
 // crypto/rand rather than math/rand: not because the name is a secret, but
 // because it needs no seeding to be different across the server's replicas and
 // restarts, which is exactly the case a badly seeded generator gets wrong.
-func sessionName(prefix string) string {
+func friendlyName() string {
+	return pick(sessionAdjectives) + "-" + pick(sessionNouns)
+}
+
+// sessionName returns "<prefix>-<friendly>", the workload's object name.
+func sessionName(prefix, friendly string) string {
 	if prefix == "" {
 		prefix = "dross"
 	}
-	return prefix + "-" + pick(sessionAdjectives) + "-" + pick(sessionNouns)
+	return prefix + "-" + friendly
 }
 
 func pick(from []string) string {

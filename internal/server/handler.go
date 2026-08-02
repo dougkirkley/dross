@@ -59,11 +59,16 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// the relay as a device named for the session. Provision it before replying,
 	// so a client that immediately prompts finds something to prompt.
 	if s.mgr.pods != nil {
-		if err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model); err != nil {
+		name, err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model)
+		if err != nil {
 			s.mgr.remove(sess.ID, sess.owner) // don't leave a session with no worker
 			http.Error(w, "could not start session: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Call the session what its pod is called, so the two are the same
+		// thing to look at. Without this a pod-backed session has no name until
+		// its first prompt, and a list of them reads as "New session" repeated.
+		sess.setTitle(name)
 		sess.markDevice(sess.ID)
 	}
 	writeJSON(w, http.StatusCreated, sess.snapshot())

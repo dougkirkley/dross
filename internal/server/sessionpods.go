@@ -90,13 +90,17 @@ const sessionIDLabel = dross.SessionIDLabel
 
 // Create writes the session's credential and its Session record. The operator
 // takes it from there.
-func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string) error {
-	name := sessionName(p.NamePrefix)
+//
+// Returns the friendly half of the workload's name, so the session can be
+// called the same thing in the UI as the pod running it.
+func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string) (string, error) {
+	friendly := friendlyName()
+	name := sessionName(p.NamePrefix, friendly)
 	labels := map[string]string{sessionIDLabel: sessionID}
 
 	tok, err := p.MintToken(owner, sessionID, p.TokenTTL)
 	if err != nil {
-		return fmt.Errorf("mint session credential: %w", err)
+		return "", fmt.Errorf("mint session credential: %w", err)
 	}
 	data := map[string]string{"token": tok}
 	if p.APIKey != "" {
@@ -113,7 +117,7 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 		Type:       corev1.SecretTypeOpaque,
 	}
 	if err := p.c.Create(ctx, sec); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("session credential: %w", err)
+		return "", fmt.Errorf("session credential: %w", err)
 	}
 
 	s := &dross.Session{
@@ -138,9 +142,9 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 		},
 	}
 	if err := p.c.Create(ctx, s); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("session resource: %w", err)
+		return "", fmt.Errorf("session resource: %w", err)
 	}
-	return nil
+	return friendly, nil
 }
 
 // findBySession returns the Session resource for a dross session id, since the

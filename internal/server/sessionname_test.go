@@ -8,7 +8,7 @@ import (
 // The name says which server asked for the session, and reads as words rather
 // than as the hex session id it used to carry.
 func TestSessionNameIsPrefixedAndFriendly(t *testing.T) {
-	n := sessionName("dross-web")
+	n := sessionName("dross-web", friendlyName())
 	if !strings.HasPrefix(n, "dross-web-") {
 		t.Errorf("name %q does not name its server", n)
 	}
@@ -27,17 +27,18 @@ func TestSessionNameIsPrefixedAndFriendly(t *testing.T) {
 // An empty prefix must still produce a usable name rather than one starting
 // with a dash, which the API server rejects.
 func TestSessionNameWithoutAPrefix(t *testing.T) {
-	n := sessionName("")
+	n := sessionName("", friendlyName())
 	if strings.HasPrefix(n, "-") || !strings.HasPrefix(n, "dross-") {
 		t.Errorf("name %q is not usable without a prefix", n)
 	}
 }
 
-// Two sessions must not routinely collide, or every second one fails to create.
+// Two sessions must not routinely collide, or every second one fails to create
+// and two of them show the same name in the list.
 func TestSessionNamesVary(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 40; i++ {
-		seen[sessionName("dross")] = true
+		seen[friendlyName()] = true
 	}
 	if len(seen) < 20 {
 		t.Errorf("only %d distinct names in 40 draws; the suffix is not varying", len(seen))

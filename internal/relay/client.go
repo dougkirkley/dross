@@ -93,7 +93,7 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	if err := d.send(ctx, Frame{Type: "hello", Device: opts.Name}); err != nil {
 		return err
 	}
-	sessionID := "ses_" + opts.Name
+	sessionID := advertisedSessionID(opts.Name)
 	d.startSession(ctx, sessionID)
 	opts.log(fmt.Sprintf("linked %q to %s", opts.Name, opts.Server))
 	if opts.Ready != nil {
@@ -306,4 +306,17 @@ func (d *device) deliverAnswer(id, text string) {
 	case reply <- text:
 	default:
 	}
+}
+
+// advertisedSessionID is the session a device announces itself as.
+//
+// A laptop links under its hostname and needs the prefix; a session pod is
+// launched with --name set to the session id, which already carries one.
+// Prepending unconditionally gave those pods "ses_ses_…" and advertised a
+// second, empty session beside the real one.
+func advertisedSessionID(name string) string {
+	if strings.HasPrefix(name, "ses_") {
+		return name
+	}
+	return "ses_" + name
 }

@@ -28,3 +28,18 @@ func TestNoPromptHookLeavesTheFallback(t *testing.T) {
 		t.Error("a bare DeviceOptions must not claim to take prompts")
 	}
 }
+
+// A pod is launched with --name set to the session id, which already begins
+// with the prefix. Adding another produced "ses_ses_…" and advertised a second,
+// empty session beside the real one.
+func TestSessionIDIsNotDoublePrefixed(t *testing.T) {
+	for name, want := range map[string]string{
+		"ses_abc": "ses_abc", // a session pod
+		"laptop":  "ses_laptop",
+		"":        "ses_",
+	} {
+		if got := advertisedSessionID(name); got != want {
+			t.Errorf("name %q -> %q; want %q", name, got, want)
+		}
+	}
+}
