@@ -131,7 +131,7 @@ func DemoThemeView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 	m.themeViewOpen, m.themeSel = true, 8 // dracula
-	applyTheme(m.themeSel)               // live preview recolors the whole UI
+	applyTheme(m.themeSel)                // live preview recolors the whole UI
 	return m.View()
 }
 

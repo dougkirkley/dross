@@ -36,8 +36,12 @@ func TestClaudeCodeSeparateFromAnthropic(t *testing.T) {
 	}
 	var hasA, hasC bool
 	for _, id := range IDs() {
-		if id == "anthropic" { hasA = true }
-		if id == "claude-code" { hasC = true }
+		if id == "anthropic" {
+			hasA = true
+		}
+		if id == "claude-code" {
+			hasC = true
+		}
 	}
 	if !hasA || !hasC {
 		t.Fatalf("IDs() missing anthropic=%v claude-code=%v", hasA, hasC)

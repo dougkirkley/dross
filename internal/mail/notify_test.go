@@ -17,13 +17,13 @@ func (c *capture) Send(_ context.Context, m Message) error {
 // nobody re-reads. Rendering it needs no network.
 func TestTheThreeMailsRender(t *testing.T) {
 	c := &capture{}
-	n := &Templated{Send: c, AppURL: "https://dross.sh/", Admin: "doug@example.com"}
+	n := &Templated{Send: c, AppURL: "https://dross.sh/"}
 	ctx := context.Background()
 
 	if err := n.RequestReceived(ctx, Account{Email: "new@example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := n.AdminRequest(ctx, Account{Email: "new@example.com", Name: "New Person"}); err != nil {
+	if err := n.AdminRequest(ctx, "doug@example.com", Account{Email: "new@example.com", Name: "New Person"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.Welcome(ctx, Account{Email: "new@example.com", Name: "New Person"}); err != nil {
@@ -83,11 +83,12 @@ func TestUnconfiguredMailIsASilentNoOp(t *testing.T) {
 	}
 }
 
-// The admin notice is skipped rather than sent to nobody when there is no admin.
+// With nobody to tell - a server whose directory holds no administrator yet -
+// the notice is skipped rather than sent to an empty address.
 func TestNoAdminMeansNoAdminNotice(t *testing.T) {
 	c := &capture{}
 	n := &Templated{Send: c, AppURL: "https://dross.sh"}
-	if err := n.AdminRequest(context.Background(), Account{Email: "new@example.com"}); err != nil {
+	if err := n.AdminRequest(context.Background(), "", Account{Email: "new@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(c.sent) != 0 {

@@ -150,10 +150,9 @@ func newServeCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("--identity-store must be file or kratos, got %q", identityStore)
 			}
-			// The first admin comes from the flag, because the alternative is an
-			// account that has to be approved by someone who does not exist yet.
-			// After that the role lives on the record and can be handed out from
-			// the app.
+			// Optional seed. Left unset - which is now the deployed shape - the
+			// first person to sign in claims the role on the first-run page,
+			// and after that it lives on the record like any other.
 			users.Ensure(adminEmail, server.StatusApproved, server.RoleAdmin)
 
 			// Pod mode. Off unless a session namespace is set, so a Docker or
@@ -207,7 +206,6 @@ func newServeCmd() *cobra.Command {
 			srv.SetAccounts(users, adminEmail, &mail.Templated{
 				Send:   mail.NewResend(resendAPIKey(resendKey), mailFrom),
 				AppURL: strings.TrimRight(publicURL, "/"),
-				Admin:  adminEmail,
 			})
 			if authr != nil {
 				authr.SetApproval(users)
@@ -280,7 +278,7 @@ func newServeCmd() *cobra.Command {
 	f.BoolVar(&authInsecure, "auth-insecure-cookies", false, "drop Secure flag on cookies (local http dev)")
 	f.StringVar(&identityStore, "identity-store", "file", "where accounts live: file (users.json) or kratos")
 	f.StringVar(&kratosAdminURL, "kratos-admin-url", "", "Kratos admin API base URL, e.g. http://kratos-admin.dross-system.svc")
-	f.StringVar(&adminEmail, "admin-email", "", "identity allowed to approve accounts at /admin; always approved itself")
+	f.StringVar(&adminEmail, "admin-email", "", "optional: seed this account as the first admin at startup; unset, the first sign-in claims it")
 	f.StringVar(&resendKey, "resend-key", "", "Resend API key; defaults to $RESENDER_API_KEY, and sends no mail when neither is set")
 	f.StringVar(&mailFrom, "mail-from", "", "From address for account mail, e.g. \"Dross <dross@dross.sh>\"")
 	f.StringVar(&artifactDir, "artifact-dir", "", "directory for published artifacts")

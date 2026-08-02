@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dougkirkley/dross/pkg/agent"
 	"github.com/dougkirkley/dross/internal/plugins"
-	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/internal/session"
 	"github.com/dougkirkley/dross/internal/storage"
+	"github.com/dougkirkley/dross/pkg/agent"
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func newAgentCmd() *cobra.Command {

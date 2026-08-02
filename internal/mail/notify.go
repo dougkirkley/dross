@@ -34,8 +34,10 @@ func (a Account) Greeting() string {
 type Notifier interface {
 	// RequestReceived acknowledges a new account to the person who made it.
 	RequestReceived(ctx context.Context, a Account) error
-	// AdminRequest tells whoever decides that someone is waiting.
-	AdminRequest(ctx context.Context, a Account) error
+	// AdminRequest tells one administrator that someone is waiting. The caller
+	// decides who they are: that is a question about the directory, not about
+	// mail, and there can be more than one answer.
+	AdminRequest(ctx context.Context, to string, a Account) error
 	// Welcome is the mail an approval sends.
 	Welcome(ctx context.Context, a Account) error
 	// Enabled reports whether anything is actually delivered, so a UI can say
@@ -49,7 +51,6 @@ type Notifier interface {
 type Templated struct {
 	Send   Sender
 	AppURL string // public origin, e.g. https://dross.sh; used for links
-	Admin  string // where "someone asked for access" goes; empty disables it
 }
 
 var _ Notifier = (*Templated)(nil)
@@ -68,13 +69,13 @@ func (n *Templated) RequestReceived(ctx context.Context, a Account) error {
 		tmplData{Account: a, AppURL: n.AppURL})
 }
 
-// AdminRequest tells the admin someone is waiting, with a link to the page that
-// decides it.
-func (n *Templated) AdminRequest(ctx context.Context, a Account) error {
-	if !n.Enabled() || strings.TrimSpace(n.Admin) == "" {
+// AdminRequest tells an administrator someone is waiting, with a link to the
+// page that decides it.
+func (n *Templated) AdminRequest(ctx context.Context, to string, a Account) error {
+	if !n.Enabled() || strings.TrimSpace(to) == "" {
 		return nil
 	}
-	return n.deliver(ctx, n.Admin, "Access request: "+a.Email, adminTmpl,
+	return n.deliver(ctx, to, "Access request: "+a.Email, adminTmpl,
 		tmplData{Account: a, AppURL: n.AppURL, AdminURL: strings.TrimRight(n.AppURL, "/") + "/admin"})
 }
 

@@ -35,8 +35,10 @@ func (r *recorder) note(kind string, a mail.Account) error {
 func (r *recorder) RequestReceived(_ context.Context, a mail.Account) error {
 	return r.note("received", a)
 }
-func (r *recorder) AdminRequest(_ context.Context, a mail.Account) error { return r.note("admin", a) }
-func (r *recorder) Welcome(_ context.Context, a mail.Account) error      { return r.note("welcome", a) }
+func (r *recorder) AdminRequest(_ context.Context, to string, a mail.Account) error {
+	return r.note("admin->"+to, a)
+}
+func (r *recorder) Welcome(_ context.Context, a mail.Account) error { return r.note("welcome", a) }
 
 func (r *recorder) all() []string {
 	r.mu.Lock()
@@ -175,7 +177,9 @@ func TestSignUpAnnouncesToBothSides(t *testing.T) {
 	waitFor(t, func() bool { return len(mails.all()) == 2 })
 	got := strings.Join(mails.all(), ",")
 	if !strings.Contains(got, "received stranger@example.com") ||
-		!strings.Contains(got, "admin stranger@example.com") {
+		// Addressed to whoever holds the role, found in the directory rather
+		// than read out of configuration.
+		!strings.Contains(got, "admin->doug@example.com stranger@example.com") {
 		t.Errorf("mails sent = %q; want the request and the admin notice", got)
 	}
 }

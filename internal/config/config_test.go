@@ -101,11 +101,11 @@ func TestResolvePrecedence(t *testing.T) {
 
 	// Explicit flag overrides everything.
 	got = Resolve(Layers{
-		File:         file,
-		ModelFlag:    "flag-model",
-		ModelChanged: true,
-		ModelDefault: "claude-opus-5",
-		APIKeyFlag:   "flag-key",
+		File:          file,
+		ModelFlag:     "flag-model",
+		ModelChanged:  true,
+		ModelDefault:  "claude-opus-5",
+		APIKeyFlag:    "flag-key",
 		APIKeyChanged: true,
 	})
 	if got.Model != "flag-model" || got.APIKey != "flag-key" {

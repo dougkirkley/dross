@@ -15,7 +15,7 @@ func testAuth(t *testing.T, emails ...string) *Authenticator {
 		ServiceToken:    "sekret",
 		ServiceIdentity: "service@dross",
 		AllowedEmails:   emails,
-		CookieSecret:  []byte("0123456789abcdef0123456789abcdef"),
+		CookieSecret:    []byte("0123456789abcdef0123456789abcdef"),
 	})
 	if err != nil || a == nil {
 		t.Fatalf("New: %v (a=%v)", err, a)

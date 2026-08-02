@@ -268,19 +268,31 @@ func (s *Server) handleAdminDecideAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// AnnounceSignUp mails a new account and the admin. Fired from the sign-in hook,
-// so it runs in the OIDC callback: do it in the background with its own context,
-// or a slow mail API delays somebody's login.
+// AnnounceSignUp mails a new account, and everyone who could act on it. Fired
+// from the sign-in hook, so it runs in the OIDC callback: do it in the
+// background with its own context, or a slow mail API delays somebody's login.
+//
+// Who to tell is a question for the directory rather than for configuration. An
+// address in a flag goes stale the moment administration is handed to someone
+// else, and says nothing when it is handed to two people.
 func (s *Server) AnnounceSignUp(u User) {
 	if !s.mailEnabled() {
 		return
 	}
 	acct := mail.Account{Email: u.Email, Name: u.Name}
+	var admins []string
+	for _, a := range s.users.List() {
+		if a.IsAdmin() && !strings.EqualFold(a.Email, u.Email) {
+			admins = append(admins, a.Email)
+		}
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = s.notify.RequestReceived(ctx, acct)
-		_ = s.notify.AdminRequest(ctx, acct)
+		for _, to := range admins {
+			_ = s.notify.AdminRequest(ctx, to, acct)
+		}
 	}()
 }
 
