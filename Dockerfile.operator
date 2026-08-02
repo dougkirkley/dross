@@ -10,6 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY api/ api/
 COPY internal/controller/ internal/controller/
+COPY internal/subreconciler/ internal/subreconciler/
 COPY cmd/dross-operator/ cmd/dross-operator/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/dross-operator ./cmd/dross-operator
 
