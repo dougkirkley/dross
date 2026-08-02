@@ -26,13 +26,6 @@ type DeviceOptions struct {
 	WorkerModel         string
 	Log                 func(string) // optional status sink
 
-	// Mirror, if set, receives everything this device does on behalf of whoever
-	// is driving it: the prompts it is handed and every event it produces in
-	// reply. Linking a machine should not make it go quiet — the person sitting
-	// at it still wants to see the work, and without this the terminal shows
-	// only that a link is open while the agent runs invisibly inside it.
-	Mirror func(kind, data string)
-
 	// Ready is called once the link is up, with a function that publishes a
 	// locally-driven event into the same session the phone is watching.
 	//
@@ -60,12 +53,6 @@ type DeviceOptions struct {
 	// does build an agent of its own. Without it a headless worker ran with no
 	// rules at all, so a gate the user configured simply did not exist here.
 	Policy []agent.Option
-}
-
-func (o DeviceOptions) mirror(kind, data string) {
-	if o.Mirror != nil {
-		o.Mirror(kind, data)
-	}
 }
 
 func (o DeviceOptions) log(msg string) {
@@ -128,16 +115,12 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 				opts.Prompt(f.SessionID, f.Text)
 				break
 			}
-			// Echoed locally only. The server already recorded this prompt when
-			// it relayed it, so sending it back would double it there.
-			opts.mirror("prompt", f.Text)
 			d.run(ctx, f.SessionID, f.Text)
 		case "interrupt":
 			if opts.Interrupt != nil {
 				opts.Interrupt(f.SessionID)
 				break
 			}
-			opts.mirror("meta", "interrupted from the remote")
 			d.interrupt(f.SessionID)
 		}
 	}
@@ -182,7 +165,6 @@ func (d *device) run(ctx context.Context, id, text string) {
 
 	aopts := []agent.Option{agent.WithEventHook(func(e agent.Event) {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: e.Kind, Data: e.Data})
-		d.opts.mirror(e.Kind, e.Data)
 	})}
 	if d.opts.Worker != nil && d.opts.WorkerModel != "" {
 		aopts = append(aopts, agent.WithWorker(d.opts.Worker, d.opts.WorkerModel))
@@ -191,7 +173,6 @@ func (d *device) run(ctx context.Context, id, text string) {
 	ag, err := agent.New(agent.Config{Name: "dross", Model: d.opts.LeadModel, Workdir: d.opts.Workdir}, d.opts.Lead, aopts...)
 	if err != nil {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "error", Data: err.Error()})
-		d.opts.mirror("error", err.Error())
 		return
 	}
 	go func() {
@@ -203,12 +184,10 @@ func (d *device) run(ctx context.Context, id, text string) {
 		res, err := ag.Run(runCtx, text)
 		if err != nil {
 			d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "error", Data: err.Error()})
-			d.opts.mirror("error", err.Error())
 			return
 		}
 		done := fmt.Sprintf("$%.4f · %d turns", res.Cost(), res.Turns)
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "done", Data: done})
-		d.opts.mirror("done", done)
 	}()
 }
 

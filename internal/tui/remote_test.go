@@ -8,10 +8,25 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/dougkirkley/dross/pkg/agent"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// exec runs a command the way the Bubble Tea runtime would: a batch yields a
+// BatchMsg holding more commands, which have to be run in turn.
+func runCmd(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range batch {
+			runCmd(c)
+		}
+	}
+}
 
 // feed is everything rendered into the transcript, with styling removed:
 // lipgloss splits a wrapped line into many colour spans, so asserting on the
@@ -20,30 +35,46 @@ func feed(m Model) string {
 	return ansiRE.ReplaceAllString(strings.Join(m.lines, "\n"), "")
 }
 
-// A linked terminal must show the work being driven through it. Before this,
-// /rc reported that a link was open and then went silent while the agent ran
-// invisibly inside it.
-func TestRemoteEventsRenderInTheFeed(t *testing.T) {
-	m := New("dross", "m", "openai", noRun(t))
+// A prompt from the phone runs here, through the local agent, and the work
+// appears in the local feed. Before this the relay ran it on a second,
+// unconfigured agent and the terminal showed nothing.
+func TestRemotePromptRunsLocallyAndRenders(t *testing.T) {
+	ran := make(chan string, 1)
+	m := New("dross", "m", "openai", func(_ context.Context, prompt, _ string, emit func(agent.Event)) (*agent.Result, error) {
+		ran <- prompt
+		emit(agent.Event{Kind: "tool", Data: "bash df -h"})
+		emit(agent.Event{Kind: "text", Data: "node2 is at 58%, no action needed."})
+		return &agent.Result{}, nil
+	})
 	m.width, m.height = 100, 30
 	m.layout()
 
-	for _, ev := range []remoteEventMsg{
-		{"prompt", "check the disk usage on node2"},
-		{"tool", "bash df -h"},
-		{"tool-result", "/dev/sda1  40G  22G  16G  58% /"},
-		{"text", "node2 is at 58%, no action needed."},
-		{"done", "$0.0021 · 2 turns"},
-	} {
-		next, _ := m.Update(ev)
-		m = next.(Model)
+	next, cmd := m.Update(remotePromptMsg{"ses_x", "check the disk usage on node2"})
+	m = next.(Model)
+	runCmd(cmd)
+	select {
+	case got := <-ran:
+		if got != "check the disk usage on node2" {
+			t.Fatalf("ran %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the remote prompt never reached the local agent")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-m.msgs:
+			if ev, ok := msg.(EventMsg); ok {
+				m.applyEvent(agent.Event(ev))
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no events")
+		}
 	}
 
 	out := feed(m)
 	for _, want := range []string{
-		"phone",                        // attributed to the remote, not to "you"
+		"phone",                         // attributed to the remote, not to "you"
 		"check the disk usage on node2", // the inbound prompt
-		"58%",                           // the tool's output
 		"no action needed",              // the reply
 	} {
 		if !strings.Contains(out, want) {
@@ -59,7 +90,7 @@ func TestRemotePromptIsNotAttributedToYou(t *testing.T) {
 	m.width, m.height = 100, 30
 	m.layout()
 
-	next, _ := m.Update(remoteEventMsg{"prompt", "deploy it"})
+	next, _ := m.Update(remotePromptMsg{"ses_x", "deploy it"})
 	m = next.(Model)
 
 	line := feed(m)
@@ -158,5 +189,41 @@ func TestLinkDropClearsThePublisher(t *testing.T) {
 	}
 	if m.remoteLinked {
 		t.Error("still marked as linked after the link closed")
+	}
+}
+
+// One agent means one run at a time. A remote prompt arriving mid-run has to
+// queue exactly as typing during a run does — starting it would put two runs on
+// the single shared conversation.
+func TestRemotePromptQueuesWhileRunning(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	m.running = true // a run is already in flight
+
+	next, _ := m.Update(remotePromptMsg{"ses_x", "and then deploy"})
+	m = next.(Model)
+
+	if len(m.queue) != 1 || m.queue[0] != "and then deploy" {
+		t.Errorf("queue = %v; the remote prompt should have been queued", m.queue)
+	}
+}
+
+// Stop on the phone has to cancel the run happening here.
+func TestRemoteInterruptCancelsTheRun(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	cancelled := false
+	m.running, m.runCancel = true, func() { cancelled = true }
+
+	next, _ := m.Update(remoteInterruptMsg{})
+	m = next.(Model)
+
+	if !cancelled {
+		t.Error("a remote interrupt did not cancel the run")
+	}
+	if !strings.Contains(feed(m), "interrupted from the remote") {
+		t.Error("the interrupt was not reported in the transcript")
 	}
 }

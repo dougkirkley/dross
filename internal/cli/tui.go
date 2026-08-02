@@ -423,7 +423,7 @@ func newTUICmd() *cobra.Command {
 						_, err := relay.Login(ctx, server)
 						return err
 					},
-					func(ctx context.Context, logf func(string), event func(kind, data string), ready func(func(kind, data string))) error {
+					func(ctx context.Context, hooks tui.RemoteHooks) error {
 						token := relay.LoadToken(server)
 						if token == "" {
 							var err error
@@ -437,13 +437,14 @@ func newTUICmd() *cobra.Command {
 						return relay.RunDevice(ctx, relay.DeviceOptions{
 							Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
 							Lead: st.prov, LeadModel: st.model, Worker: worker, WorkerModel: res.Worker.Model,
-							Log: logf,
-							// So the linked terminal shows the work being driven
-							// through it, rather than just that a link is open.
-							Mirror: event,
-							// And the reverse: work started here is published
-							// into the same session, so both ends see all of it.
-							Ready: ready,
+							Log: hooks.Log,
+							// Work started here is published into the same
+							// session, so both ends see all of it.
+							Ready: hooks.Ready,
+							// Taking these means the relay builds no agent of
+							// its own: one machine, one agent, one conversation.
+							Prompt:    hooks.Prompt,
+							Interrupt: hooks.Interrupt,
 						})
 					})
 			}

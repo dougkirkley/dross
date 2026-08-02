@@ -242,13 +242,30 @@ type askMsg struct{ st *askState }
 // remoteStatusMsg reports progress of a /login or /rc slash command.
 type remoteStatusMsg struct{ text string }
 
-// remoteEventMsg is one event produced while someone else is driving this
-// machine over the relay. It is rendered through the same path as a local run,
-// so a linked terminal shows the work instead of going silent.
-type remoteEventMsg struct{ kind, data string }
+// RemoteHooks is what a live link needs from the UI. A struct rather than a
+// row of positional callbacks, which had grown to five and gave the compiler
+// no way to catch two of the same shape being swapped.
+type RemoteHooks struct {
+	// Log reports link progress ("linked", "disconnected").
+	Log func(string)
+	// Ready hands over a publisher once the link is up, for streaming work
+	// started at this keyboard into the session the remote is watching.
+	Ready func(publish func(kind, data string))
+	// Prompt and Interrupt are the remote driving this machine. Taking them
+	// means the relay builds no agent of its own.
+	Prompt    func(sessionID, text string)
+	Interrupt func(sessionID string)
+}
 
 // remoteReadyMsg hands the TUI the publisher for the now-live link.
 type remoteReadyMsg struct{ publish func(kind, data string) }
+
+// remotePromptMsg is a prompt sent from the phone or browser. It runs here,
+// through the same agent as anything typed at the keyboard.
+type remotePromptMsg struct{ sessionID, text string }
+
+// remoteInterruptMsg is the remote pressing stop.
+type remoteInterruptMsg struct{}
 
 // shimmerMsg drives the animated holographic shimmer on the welcome screen.
 type shimmerMsg struct{}
@@ -468,8 +485,8 @@ type Model struct {
 	// remote device linking (/login + /rc). Nil when the TUI was started
 	// without a --server, in which case those commands report as unavailable.
 	remoteServer string
-	remoteLogin  func(ctx context.Context) error                                                                                       // SSO sign-in, stores token
-	remoteLink   func(ctx context.Context, log func(string), event func(kind, data string), ready func(func(kind, data string))) error // advertise this machine
+	remoteLogin  func(ctx context.Context) error                    // SSO sign-in, stores token
+	remoteLink   func(ctx context.Context, hooks RemoteHooks) error // advertise this machine
 	remoteLinked bool
 	// remotePublish streams locally-driven work up to the linked session, so
 	// the phone sees what is typed here. Nil until /rc links.
@@ -698,7 +715,7 @@ func (m *Model) SetPhrases(p []string) {
 // SetRemote wires the /login and /rc slash commands. login signs the user in
 // via SSO (storing a session token); link advertises this machine to the server
 // as available for the logged-in user, streaming status through its log arg.
-func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, log func(string), event func(kind, data string), ready func(func(kind, data string))) error) {
+func (m *Model) SetRemote(server string, login func(ctx context.Context) error, link func(ctx context.Context, hooks RemoteHooks) error) {
 	m.remoteServer = server
 	m.remoteLogin = login
 	m.remoteLink = link
@@ -1298,10 +1315,15 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.remoteLinked = true
 		m.append(metaStyle.Render("linking this machine to " + m.remoteServer + " …"))
 		go func() {
-			err := m.remoteLink(context.Background(),
-				func(s string) { m.msgs <- remoteStatusMsg{s} },
-				func(kind, data string) { m.msgs <- remoteEventMsg{kind, data} },
-				func(pub func(kind, data string)) { m.msgs <- remoteReadyMsg{pub} })
+			err := m.remoteLink(context.Background(), RemoteHooks{
+				Log:   func(s string) { m.msgs <- remoteStatusMsg{s} },
+				Ready: func(pub func(kind, data string)) { m.msgs <- remoteReadyMsg{pub} },
+				// The relay hands prompts here rather than running them itself,
+				// so there is one agent on this machine and it is the one the
+				// user configured.
+				Prompt:    func(sessionID, text string) { m.msgs <- remotePromptMsg{sessionID, text} },
+				Interrupt: func(string) { m.msgs <- remoteInterruptMsg{} },
+			})
 			if err != nil {
 				m.msgs <- remoteStatusMsg{"link ended: " + err.Error()}
 			} else {
@@ -1847,17 +1869,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.title == "" {
 					m.title = truncate(prompt, 40)
 				}
-				m.turnGap()
-				m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + prompt)
 				m.input.Reset()
-				m.running = true
-				m.runStart = time.Now()
-				m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
-				m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
-				m.workerSel, m.workerFocus = 0, ""
-				m.shellOrder, m.shells = nil, nil
-				m.bashCmd = ""
-				return m, tea.Batch(m.beginRun(prompt), m.sp.Tick, m.pump())
+				return m, m.startPrompt(youLabel, "you", prompt)
 			}
 		}
 	case EventMsg:
@@ -1891,16 +1904,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.queue) > 0 {
 			next := m.queue[0]
 			m.queue = m.queue[1:]
-			m.turnGap()
-			m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + next)
-			m.running = true
-			m.runStart = time.Now()
-			m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
-			m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
-			m.workerSel, m.workerFocus = 0, ""
-			m.shellOrder, m.shells = nil, nil
-			m.bashCmd = ""
-			cmds = append(cmds, m.beginRun(next), m.sp.Tick, m.pump())
+			cmds = append(cmds, m.startPrompt(youLabel, "you", next))
 		}
 	case tea.MouseMsg:
 		overBody := !m.modelPickerOpen && !m.pickerOpen &&
@@ -1956,17 +1960,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shimmerMsg:
 		m.shimmer++
 		return m, shimmerTick()
+	case remotePromptMsg:
+		// Queued rather than started when a run is already going, exactly as a
+		// prompt typed during a run is. The agent behind both is one shared
+		// conversation, so a second concurrent run would race it.
+		if m.running {
+			m.queue = append(m.queue, msg.text)
+			cmds = append(cmds, m.pump())
+			break
+		}
+		// No mash guard: this was sent deliberately from another device, and
+		// there is nobody here to press enter a second time.
+		if m.title == "" {
+			m.title = truncate(msg.text, 40)
+		}
+		cmds = append(cmds, m.startPrompt(remoteLabel, "phone", msg.text))
+	case remoteInterruptMsg:
+		if m.running && m.runCancel != nil {
+			m.runCancel()
+			m.append(metaStyle.Render("interrupted from the remote"))
+		}
+		cmds = append(cmds, m.pump())
 	case remoteReadyMsg:
 		m.remotePublish = msg.publish
-		cmds = append(cmds, m.pump())
-	case remoteEventMsg:
-		// Same renderer as a local run, so remote work reads identically —
-		// tool lines, diffs and prose all behave as they normally do.
-		if msg.kind == "prompt" {
-			m.appendRemotePrompt(msg.data)
-		} else {
-			m.applyEvent(agent.Event{Kind: msg.kind, Data: msg.data})
-		}
 		cmds = append(cmds, m.pump())
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
@@ -3693,12 +3709,21 @@ func (m *Model) lastToolLine() int {
 	return best
 }
 
-// appendRemotePrompt echoes a prompt that arrived over the relay.
+// startPrompt echoes a prompt and begins its run, clearing the per-run view
+// state so the previous turn's worker and shell panels do not bleed into it.
 //
-// Labelled "phone" rather than "you", because the distinction matters when you
-// are sitting at a linked terminal: the work about to appear is not something
-// you asked for, and mislabelling it as your own input would make the
-// transcript lie about who drove it.
-func (m *Model) appendRemotePrompt(text string) {
-	m.append(startGlyph.Render("▸ ") + remoteLabel.Render("phone") + "  " + text)
+// Three callers now: a prompt typed at the input, one drained from the queue
+// when the run before it finished, and one arriving over the relay. The first
+// two held identical copies of this and had already drifted apart once.
+func (m *Model) startPrompt(who lipgloss.Style, label, text string) tea.Cmd {
+	m.turnGap()
+	m.append(startGlyph.Render("▸ ") + who.Render(label) + "  " + text)
+	m.running = true
+	m.runStart = time.Now()
+	m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
+	m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
+	m.workerSel, m.workerFocus = 0, ""
+	m.shellOrder, m.shells = nil, nil
+	m.bashCmd = ""
+	return tea.Batch(m.beginRun(text), m.sp.Tick, m.pump())
 }
