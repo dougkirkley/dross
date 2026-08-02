@@ -71,6 +71,7 @@ type Authenticator struct {
 	allowed    map[string]bool
 	onSignIn   func(email, name string)
 	approved   Approver
+	kratos     *KratosSessions
 	firstRun   func() bool
 	setupPath  string
 	cookieKey  []byte
@@ -274,7 +275,16 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 		hmac.Equal([]byte(bearer), []byte(a.cfg.ServiceToken)) {
 		return a.cfg.ServiceIdentity, false, true
 	}
-	// 2. Cloudflare Access header.
+	// 2. A Kratos session. First among the cookie-shaped credentials because it
+	// is the one being migrated to: a browser holding both an old dross cookie
+	// and a Kratos session is mid-transition, and the Kratos one is the answer
+	// that will still be true tomorrow.
+	if a.kratos != nil {
+		if e, ok := a.kratos.Identity(r); ok {
+			return e, false, true
+		}
+	}
+	// 3. Cloudflare Access header.
 	if a.cfVerifier != nil {
 		if tok := r.Header.Get("Cf-Access-Jwt-Assertion"); tok != "" {
 			if e, ok := a.verifyEmail(r.Context(), a.cfVerifier, tok); ok {
@@ -282,13 +292,13 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 			}
 		}
 	}
-	// 3. Bearer OIDC id_token.
+	// 4. Bearer OIDC id_token.
 	if a.verifier != nil && bearer != "" {
 		if e, ok := a.verifyEmail(r.Context(), a.verifier, bearer); ok {
 			return e, false, true
 		}
 	}
-	// 3b. Bearer dross session token (issued to native app clients via the
+	// 4b. Bearer dross session token (issued to native app clients via the
 	// mode=app login flow); the same signed session the cookie carries.
 	// Device tokens are excluded: they authorise attaching one device over the
 	// relay, not acting as the user against the API.
@@ -297,7 +307,8 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 			return e, false, true
 		}
 	}
-	// 4. Session cookie.
+	// 5. Session cookie, issued by this package's own OIDC flow. Kept while the
+	// move to Kratos completes, so a deploy does not sign everyone out.
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if e, ok := a.readSession(c.Value); ok {
 			return e, false, true
@@ -482,9 +493,19 @@ func loopbackURL(u string) bool {
 	return h == "127.0.0.1" || h == "localhost" || h == "::1"
 }
 
-// Logout clears the session cookie.
+// Logout ends the session, whichever kind it is.
 func (a *Authenticator) Logout(w http.ResponseWriter, r *http.Request) {
 	a.clearCookie(w, sessionCookie)
+	// A Kratos session is Kratos's to end: its logout URL carries a one-time
+	// token, so a link cannot be used to sign somebody else out. Clearing our
+	// own cookie without this would leave the browser holding a live session
+	// and looking signed in again on the next page.
+	if a.kratos != nil {
+		if u := a.kratos.LogoutURL(r); u != "" {
+			http.Redirect(w, r, u, http.StatusFound)
+			return
+		}
+	}
 	// Clearing our own cookie is not a logout the user can feel: the identity
 	// provider still holds a session, so the next sign-in bounces straight back
 	// through without a prompt.

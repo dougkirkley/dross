@@ -66,3 +66,36 @@ templ Setup(email string) {
 		<p class="foot">Only offered while there is no admin. Whoever claims it first gets it, and everyone else waits to be approved.</p>
 	}
 }
+
+// Flow draws a Kratos self-service flow: login, registration, whatever it is
+// configured to ask for.
+//
+// Kratos describes its forms as data - where to post, which fields to include,
+// what to call the buttons - and this renders that rather than hardcoding
+// today's answer. Turn on a second method in the config and it appears here
+// without a code change; turn one off and it stops being offered, which is the
+// property that matters for a login screen.
+templ Flow(v FlowView) {
+	@cardPage(v.Title) {
+		@mark()
+		<h1>{ v.Heading }</h1>
+		if v.Lead != "" {
+			<p>{ v.Lead }</p>
+		}
+		for _, m := range v.Messages {
+			<div class={ "flash", m.Kind }>{ m.Text }</div>
+		}
+		if v.Action != "" {
+			<form method={ v.Method } action={ templ.SafeURL(v.Action) }>
+				for _, h := range v.Hidden {
+					<input type="hidden" name={ h.Name } value={ h.Value }/>
+				}
+				for _, b := range v.Buttons {
+					<button class={ "btn", b.Style } type="submit" name={ b.Name } value={ b.Value }>{ b.Label }</button>
+				}
+			</form>
+		}
+		<div class="hairline"></div>
+		<p class="foot">{ v.Foot }</p>
+	}
+}

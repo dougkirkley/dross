@@ -35,7 +35,7 @@ func newServeCmd() *cobra.Command {
 		artifactDir, publicURL                                         string
 		serviceToken, serviceIdentity                                  string
 		adminEmail, resendKey, mailFrom                                string
-		identityStore, kratosAdminURL                                  string
+		identityStore, kratosAdminURL, kratosPublicURL                 string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -207,6 +207,21 @@ func newServeCmd() *cobra.Command {
 				Send:   mail.NewResend(resendAPIKey(resendKey), mailFrom),
 				AppURL: strings.TrimRight(publicURL, "/"),
 			})
+			// Kratos-owned login, when a public URL is configured. Additive: the
+			// existing cookie and bearer paths keep working, so this deploys
+			// without signing anyone out and the old flow can be removed once
+			// nothing is using it.
+			if authr != nil && kratosPublicURL != "" {
+				ks, err := auth.NewKratosSessions(kratosPublicURL)
+				if err != nil {
+					return fmt.Errorf("kratos sessions: %w", err)
+				}
+				authr.SetKratosSessions(ks)
+				if err := srv.SetKratosUI(ks, kratosPublicURL); err != nil {
+					return fmt.Errorf("kratos ui: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "login: kratos at %s\n", kratosPublicURL)
+			}
 			if authr != nil {
 				authr.SetApproval(users)
 				authr.OnSignIn(func(email, name string) {
@@ -277,6 +292,7 @@ func newServeCmd() *cobra.Command {
 	f.StringVar(&authCookieSecret, "auth-cookie-secret", "", "hex key signing session cookies")
 	f.BoolVar(&authInsecure, "auth-insecure-cookies", false, "drop Secure flag on cookies (local http dev)")
 	f.StringVar(&identityStore, "identity-store", "file", "where accounts live: file (users.json) or kratos")
+	f.StringVar(&kratosPublicURL, "kratos-public-url", "", "Kratos public API base URL; set to let Kratos own the login flow")
 	f.StringVar(&kratosAdminURL, "kratos-admin-url", "", "Kratos admin API base URL, e.g. http://kratos-admin.dross-system.svc")
 	f.StringVar(&adminEmail, "admin-email", "", "optional: seed this account as the first admin at startup; unset, the first sign-in claims it")
 	f.StringVar(&resendKey, "resend-key", "", "Resend API key; defaults to $RESENDER_API_KEY, and sends no mail when neither is set")

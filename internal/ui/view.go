@@ -59,3 +59,34 @@ func signIns(n int) string {
 	}
 	return strconv.Itoa(n) + " sign-ins"
 }
+
+// FlowView is a Kratos self-service flow, reduced to what a page needs to draw
+// it. The server does the reducing: the template should not be picking through
+// a provider's JSON to decide what a button is called.
+type FlowView struct {
+	Title    string
+	Heading  string
+	Lead     string
+	Action   string // where the form posts; empty means there is nothing to submit
+	Method   string
+	Hidden   []FlowField // csrf and friends
+	Buttons  []FlowButton
+	Messages []FlowMessage
+	Foot     string
+}
+
+type FlowField struct{ Name, Value string }
+
+// FlowButton is one submit. Name and Value matter: Kratos decides what happened
+// by which button was pressed, not by the form's URL.
+type FlowButton struct {
+	Name, Value, Label string
+	Style              string // "" for the primary pill, "ghost" for secondary
+}
+
+// FlowMessage is something Kratos wants said - an error, or an instruction.
+// Kind is a CSS class, so the page shows a refusal differently from a nudge.
+type FlowMessage struct {
+	Text string
+	Kind string // ok | bad | warn
+}

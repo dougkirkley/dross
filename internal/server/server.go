@@ -1,7 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
@@ -26,6 +29,25 @@ type Server struct {
 	users      UserDirectory
 	adminEmail string
 	notify     mail.Notifier
+
+	// Kratos's browser half: the session verifier, and the public API dross
+	// proxies so its cookies are same-origin. Nil until it is configured, which
+	// is what keeps this a switch rather than a rewrite.
+	kratos    *auth.KratosSessions
+	kratosURL *url.URL
+}
+
+// SetKratosUI wires the browser-facing half of Kratos: the flows dross draws
+// and the API it proxies. Sessions are verified by the authenticator, which is
+// given the same object.
+func (s *Server) SetKratosUI(k *auth.KratosSessions, publicURL string) error {
+	u, err := url.Parse(strings.TrimRight(publicURL, "/"))
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("kratos public URL %q is not a URL", publicURL)
+	}
+	s.kratos, s.kratosURL = k, u
+	s.h = s.buildHandler()
+	return nil
 }
 
 // New creates a Server over a session Manager. If a is non-nil, /api routes
@@ -152,6 +174,19 @@ func (s *Server) buildHandler() http.Handler {
 	root.Handle("GET /api/device/connect", s.deviceAuth(http.HandlerFunc(s.handleDeviceConnect)))
 	// Private artifact view: same gate as the rest of the app.
 	root.Handle("GET /a/{id}", s.auth.Middleware(http.HandlerFunc(s.handleArtifactGet)))
+	if s.kratos != nil {
+		// Kratos's own API, same-origin. Public by necessity: this is the path
+		// someone with no session uses to get one.
+		root.Handle("/kratos/", s.kratosProxy(s.kratosURL))
+		// The pages it redirects browsers to. Public for the same reason.
+		root.Handle("GET /login", s.handleKratosFlow("login", "Sign in", "Dross",
+			"Sign in to continue.", "Access is limited to approved accounts."))
+		root.Handle("GET /registration", s.handleKratosFlow("registration", "Create account", "Dross",
+			"Signing in is how you ask for access.", "An admin approves new accounts."))
+		root.Handle("GET /settings", s.auth.Middleware(s.handleKratosFlow("settings", "Settings", "Your account",
+			"", "Changes apply the next time you sign in.")))
+		root.HandleFunc("GET /error", s.handleKratosError)
+	}
 	root.HandleFunc("GET /auth/login", s.auth.Login)
 	root.HandleFunc("GET /auth/callback", s.auth.Callback)
 	root.HandleFunc("POST /auth/logout", s.auth.Logout)
