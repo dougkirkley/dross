@@ -165,7 +165,7 @@ func (in *SessionList) DeepCopyObject() runtime.Object {
 
 // AddToScheme registers the Session types with s.
 func AddToScheme(s *runtime.Scheme) error {
-	s.AddKnownTypes(GroupVersion, &Session{}, &SessionList{})
+	s.AddKnownTypes(GroupVersion, &Session{}, &SessionList{}, &Dross{}, &DrossList{})
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil
 }

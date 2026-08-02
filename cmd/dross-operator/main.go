@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,25 +29,38 @@ import (
 
 func main() {
 	var (
-		metricsAddr      string
-		probeAddr        string
-		sessionNamespace string
-		storageClass     string
+		metricsAddr  string
+		probeAddr    string
+		storageClass string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics endpoint (0 disables)")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe endpoint")
-	flag.StringVar(&sessionNamespace, "session-namespace", "dross-sessions",
-		"namespace session pods run in")
 	flag.StringVar(&storageClass, "storage-class", "", "storage class for session volumes")
 	flag.Parse()
 
-	if err := run(metricsAddr, probeAddr, sessionNamespace, storageClass); err != nil {
+	if err := run(metricsAddr, probeAddr, watchNamespaces(), storageClass); err != nil {
 		fmt.Fprintln(os.Stderr, "dross-operator:", err)
 		os.Exit(1)
 	}
 }
 
-func run(metricsAddr, probeAddr, sessionNamespace, storageClass string) error {
+// watchNamespaces reads WATCH_NAMESPACES, the convention for scoping an
+// operator: a comma-separated list, empty meaning every namespace.
+//
+// It has to be a list rather than one namespace, because the operator watches
+// two different things in two different places — Dross servers beside itself,
+// and the Sessions they ask for in a namespace of their own.
+func watchNamespaces() []string {
+	var out []string
+	for _, ns := range strings.Split(os.Getenv("WATCH_NAMESPACES"), ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
+func run(metricsAddr, probeAddr string, namespaces []string, storageClass string) error {
 	// klog's text logger: already in the tree via client-go, so this costs no
 	// extra dependency for the same structured output.
 	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
@@ -78,12 +92,15 @@ func run(metricsAddr, probeAddr, sessionNamespace, storageClass string) error {
 		// no benefit at this size.
 		LeaderElection: false,
 	}
-	if sessionNamespace != "" {
-		// Watch only where sessions live, so the operator needs no cluster-wide
-		// read on pods.
-		opts.Cache = cache.Options{
-			DefaultNamespaces: map[string]cache.Config{sessionNamespace: {}},
+	if len(namespaces) > 0 {
+		// Watch only where dross lives, so the operator needs no cluster-wide
+		// read on pods or secrets. Unset means every namespace, which is the
+		// convention, but not what this deployment's RBAC grants.
+		scoped := make(map[string]cache.Config, len(namespaces))
+		for _, ns := range namespaces {
+			scoped[ns] = cache.Config{}
 		}
+		opts.Cache = cache.Options{DefaultNamespaces: scoped}
 	}
 	mgr, err := ctrl.NewManager(cfg, opts)
 	if err != nil {
@@ -94,6 +111,11 @@ func run(metricsAddr, probeAddr, sessionNamespace, storageClass string) error {
 		StorageClass: storageClass,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("session controller: %w", err)
+	}
+	if err := (&controller.DrossReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("dross controller: %w", err)
 	}
 	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 		return err
