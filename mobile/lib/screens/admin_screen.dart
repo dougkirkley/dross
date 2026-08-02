@@ -30,6 +30,48 @@ class _AdminScreenState extends State<AdminScreen> {
   void _reload() =>
       setState(() => _accounts = context.read<AppState>().accounts());
 
+  Future<void> _act(Account a, String what, Future<String?> Function() run) async {
+    setState(() => _deciding.add(a.email));
+    String? err;
+    try {
+      err = await run();
+    } finally {
+      if (mounted) setState(() => _deciding.remove(a.email));
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? '${a.email} $what'),
+      backgroundColor: T.surface,
+    ));
+    _reload();
+  }
+
+  Future<void> _confirmRemove(Account a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Remove account?', style: T.title),
+        content: Text(
+          '${a.email} will be deleted. Signing in again would make them a new '
+          'account waiting for approval - their sessions and workspaces are not '
+          'removed with them.',
+          style: T.metaFaint,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel', style: TextStyle(color: T.textDim))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Remove', style: TextStyle(color: T.danger))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _act(a, 'removed', () => context.read<AppState>().removeAccount(a.email));
+  }
+
   Future<void> _decide(Account a, String action) async {
     setState(() => _deciding.add(a.email));
     String? note;
@@ -149,7 +191,38 @@ class _AdminScreenState extends State<AdminScreen> {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 18, color: T.textDim),
+              color: T.surface,
+              onSelected: (v) {
+                switch (v) {
+                  case 'admin':
+                    _act(a, 'is an admin',
+                        () => context.read<AppState>().setRole(a.email, 'admin'));
+                  case 'user':
+                    _act(a, 'is no longer an admin',
+                        () => context.read<AppState>().setRole(a.email, 'user'));
+                  case 'remove':
+                    _confirmRemove(a);
+                }
+              },
+              itemBuilder: (_) => [
+                if (!a.isAdmin)
+                  const PopupMenuItem(
+                      value: 'admin',
+                      child: Text('Make admin', style: T.body)),
+                if (a.isAdmin)
+                  const PopupMenuItem(
+                      value: 'user',
+                      child: Text('Remove admin', style: T.body)),
+                const PopupMenuItem(
+                    value: 'remove',
+                    child: Text('Remove account',
+                        style: TextStyle(color: T.danger, fontSize: 15))),
+              ],
+            ),
+            const SizedBox(width: 4),
             if (busy)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),

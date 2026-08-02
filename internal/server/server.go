@@ -102,6 +102,8 @@ func (s *Server) apiMux() *http.ServeMux {
 	if s.users != nil {
 		mux.Handle("GET /api/admin/users", s.adminOnly(http.HandlerFunc(s.handleAdminUsers)))
 		mux.Handle("POST /api/admin/users/{email}/decide", s.adminOnly(http.HandlerFunc(s.handleAdminDecideAPI)))
+		mux.Handle("POST /api/admin/users/{email}/role", s.adminOnly(http.HandlerFunc(s.handleAdminRole)))
+		mux.Handle("DELETE /api/admin/users/{email}", s.adminOnly(http.HandlerFunc(s.handleAdminRemove)))
 	}
 
 	mux.HandleFunc("POST /api/upload", s.handleUpload)

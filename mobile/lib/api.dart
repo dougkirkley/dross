@@ -181,6 +181,20 @@ class DrossClient {
     return list.map((e) => Account.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  /// Remove an account entirely. Signing in again makes them a new pending
+  /// stranger, which is what separates this from denying them.
+  Future<void> removeAccount(String email) async {
+    final r = await _http.delete(_uri('api/admin/users/$email'), headers: _headers);
+    _check(r);
+  }
+
+  /// Promote or demote. The server refuses to demote the last administrator.
+  Future<void> setRole(String email, String role) async {
+    final r = await _http.post(_uri('api/admin/users/$email/role'),
+        headers: _headers, body: jsonEncode({'role': role}));
+    _check(r);
+  }
+
   /// Approve or deny one account. Returns the welcome mail's error, if the
   /// decision landed but telling them did not — that is worth surfacing without
   /// implying the approval failed.

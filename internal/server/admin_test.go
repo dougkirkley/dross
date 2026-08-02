@@ -512,3 +512,95 @@ func TestFirstRunOpensOnlyWhenThereIsNoAdmin(t *testing.T) {
 		t.Fatal("an unapproved account promoted itself after setup was over")
 	}
 }
+
+// Removing accounts, and the two things that must never be removable: yourself,
+// and the last person who can approve anyone. Both leave a server that only the
+// first-run claim can rescue - and that is offered to whoever turns up next,
+// not to the person who meant to do it.
+func TestRemoveAndPromote(t *testing.T) {
+	srv, users, _ := adminServer(t)
+	users.SignIn("sarah@example.com", "Sarah")
+	users.Decide("sarah@example.com", StatusApproved, "doug@example.com")
+
+	do := func(method, path, body, who string) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body == "" {
+			r = httptest.NewRequest(method, path, nil)
+		} else {
+			r = httptest.NewRequest(method, path, strings.NewReader(body))
+			r.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, as(r, who))
+		return w
+	}
+
+	// A non-admin cannot remove anyone.
+	if w := do("DELETE", "/api/admin/users/doug@example.com", "", "sarah@example.com"); w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin removal = %d; want 403", w.Code)
+	}
+
+	// The admin cannot remove themselves: they hold the session doing it.
+	w := do("DELETE", "/api/admin/users/doug@example.com", "", "doug@example.com")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "your own account") {
+		t.Fatalf("self-removal = %d %s; want a refusal", w.Code, w.Body.String())
+	}
+	if _, ok := users.Get("doug@example.com"); !ok {
+		t.Fatal("the admin removed themselves")
+	}
+
+	// Promotion: Sarah becomes an admin.
+	if w := do("POST", "/api/admin/users/sarah@example.com/role", `{"role":"admin"}`, "doug@example.com"); w.Code != http.StatusOK {
+		t.Fatalf("promote = %d %s", w.Code, w.Body.String())
+	}
+	if !users.IsAdmin("sarah@example.com") {
+		t.Fatal("promotion did not take")
+	}
+
+	// Now there are two, so removing one is allowed.
+	if w := do("DELETE", "/api/admin/users/doug@example.com", "", "sarah@example.com"); w.Code != http.StatusOK {
+		t.Fatalf("removing one of two admins = %d %s", w.Code, w.Body.String())
+	}
+	if _, ok := users.Get("doug@example.com"); ok {
+		t.Error("the account is still there after a successful removal")
+	}
+
+	// And the last one standing can be neither demoted nor removed.
+	if w := do("POST", "/api/admin/users/sarah@example.com/role", `{"role":"user"}`, "sarah@example.com"); w.Code != http.StatusConflict {
+		t.Errorf("demoting the last admin = %d; want 409", w.Code)
+	}
+	if !users.IsAdmin("sarah@example.com") {
+		t.Fatal("the last administrator demoted themselves")
+	}
+	users.SignIn("bystander@example.com", "Bystander")
+	if w := do("DELETE", "/api/admin/users/sarah@example.com", "", "bystander@example.com"); w.Code != http.StatusForbidden {
+		t.Errorf("a bystander removing the admin = %d; want 403", w.Code)
+	}
+}
+
+// Promoting somebody who is still waiting has to let them in as well. An
+// administrator who cannot reach the application is not an administrator, and
+// making that two separate clicks means one of them gets forgotten.
+func TestPromotingAlsoApproves(t *testing.T) {
+	srv, users, _ := adminServer(t)
+	users.SignIn("waiting@example.com", "Waiting")
+	if users.IsApproved("waiting@example.com") {
+		t.Fatal("setup: should still be pending")
+	}
+
+	r := httptest.NewRequest("POST", "/api/admin/users/waiting@example.com/role",
+		strings.NewReader(`{"role":"admin"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(r, "doug@example.com"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("promote = %d %s", w.Code, w.Body.String())
+	}
+	if !users.IsApproved("waiting@example.com") {
+		t.Error("promoted to admin but still not approved, so they cannot get in")
+	}
+	if !users.IsAdmin("waiting@example.com") {
+		t.Error("promotion did not take")
+	}
+}

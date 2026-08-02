@@ -37,6 +37,9 @@ type UserDirectory interface {
 	// it got it. Must refuse once one exists.
 	ClaimAdmin(email, name string) (User, bool)
 	Decide(email string, status Status, by string) (User, bool)
+	// Remove deletes the account outright. Signing in again makes them a new
+	// pending stranger, which is the difference between this and denying them.
+	Remove(email string) bool
 	MarkWelcomed(email string) bool
 	// Ensure lifts an account to a status and role, creating it if needed. How
 	// the configured admin exists before anyone can approve them.
@@ -190,6 +193,49 @@ func (s *Server) decide(r *http.Request, email string, status Status) (User, boo
 	return u, true, nil
 }
 
+// lastAdmin reports whether email is the only account that can still approve
+// anyone. Removing or demoting them leaves a server nobody administers, which
+// is recoverable only through the first-run claim - and that is offered to
+// whoever turns up next, not to the person who meant to do it.
+func (s *Server) lastAdmin(email string) bool {
+	others := 0
+	for _, u := range s.users.List() {
+		if u.IsAdmin() && !strings.EqualFold(u.Email, email) {
+			others++
+		}
+	}
+	return others == 0
+}
+
+// guardRemoval says why an account may not be removed, or "" if it may.
+func (s *Server) guardRemoval(r *http.Request, email string) string {
+	if strings.EqualFold(email, auth.Identity(r)) {
+		// Not paternalism: the account doing the removing is the one holding the
+		// session, and it would be signing itself out of a page it is standing on.
+		return "you cannot remove your own account"
+	}
+	u, ok := s.users.Get(email)
+	if !ok {
+		return "no such account"
+	}
+	if u.IsAdmin() && s.lastAdmin(email) {
+		return "that is the only administrator; make someone else an admin first"
+	}
+	return ""
+}
+
+// guardRole says why a role may not be changed, or "" if it may.
+func (s *Server) guardRole(email string, role Role) string {
+	u, ok := s.users.Get(email)
+	if !ok {
+		return "no such account"
+	}
+	if role != RoleAdmin && u.IsAdmin() && s.lastAdmin(email) {
+		return "that is the only administrator; make someone else an admin first"
+	}
+	return ""
+}
+
 // --- JSON API ---------------------------------------------------------------
 //
 // The same surface for the app, which is where an admin actually is: signed in,
@@ -223,6 +269,59 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": out, "mail": s.mailEnabled()})
+}
+
+// handleAdminRemove deletes an account.
+func (s *Server) handleAdminRemove(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.PathValue("email"))
+	if why := s.guardRemoval(r, email); why != "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"removed": false, "reason": why})
+		return
+	}
+	if !s.users.Remove(email) {
+		writeJSON(w, http.StatusConflict, map[string]any{"removed": false, "reason": "nothing to remove"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": true, "email": email})
+}
+
+// handleAdminRole promotes or demotes an account.
+func (s *Server) handleAdminRole(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.PathValue("email"))
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		http.Error(w, "bad request body", http.StatusBadRequest)
+		return
+	}
+	role := Role(body.Role)
+	if role != RoleAdmin && role != RoleUser {
+		http.Error(w, `role must be "admin" or "user"`, http.StatusBadRequest)
+		return
+	}
+	if why := s.guardRole(email, role); why != "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"changed": false, "reason": why})
+		return
+	}
+	// An administrator who cannot get in is not an administrator: the role is
+	// only meaningful on an approved account, so promoting implies approving.
+	// Doing it the other way round would need two clicks to mean one thing.
+	if role == RoleAdmin {
+		if u, ok := s.users.Get(email); ok && !u.Approved() {
+			if _, _, err := s.decide(r, email, StatusApproved); err != nil {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"changed": true, "role": string(role),
+					"mail_error": err.Error(),
+				})
+				return
+			}
+		}
+	}
+	u, changed := s.users.SetRole(email, role, auth.Identity(r))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"changed": changed, "email": u.Email, "role": string(role),
+	})
 }
 
 // handleAdminDecideAPI approves or denies one account.

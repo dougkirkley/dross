@@ -387,6 +387,23 @@ func (d *KratosDirectory) Decide(email string, status Status, by string) (User, 
 	return u, true
 }
 
+// Remove deletes the identity. Kratos invalidates its sessions as part of that,
+// so a removed account is signed out rather than merely forgotten - which is
+// the whole point of removing somebody rather than denying them.
+func (d *KratosDirectory) Remove(email string) bool {
+	id, ok := d.find(email)
+	if !ok {
+		return false
+	}
+	if err := d.do(http.MethodDelete, "/admin/identities/"+url.PathEscape(id.ID), nil, nil); err != nil {
+		return false
+	}
+	d.mu.Lock()
+	delete(d.byEmail, strings.ToLower(strings.TrimSpace(email)))
+	d.mu.Unlock()
+	return true
+}
+
 func (d *KratosDirectory) MarkWelcomed(email string) bool {
 	id, ok := d.find(email)
 	if !ok || !id.MetadataAdmin.WelcomedAt.IsZero() {

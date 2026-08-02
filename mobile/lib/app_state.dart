@@ -281,6 +281,39 @@ class AppState extends ChangeNotifier {
   Future<String?> decideAccount(String email, String action) =>
       _client.decideAccount(email, action);
 
+  /// Remove an account. Returns why not, or null.
+  Future<String?> removeAccount(String email) async {
+    try {
+      await _client.removeAccount(email);
+      return null;
+    } catch (e) {
+      return _reason(e);
+    }
+  }
+
+  /// Promote or demote. Returns why not, or null.
+  Future<String?> setRole(String email, String role) async {
+    try {
+      await _client.setRole(email, role);
+      return null;
+    } catch (e) {
+      return _reason(e);
+    }
+  }
+
+  /// The server explains a refusal in the body - "that is the only
+  /// administrator", say. Showing the status code instead would turn a sentence
+  /// somebody can act on into a number they cannot.
+  String _reason(Object e) {
+    if (e is ApiException) {
+      try {
+        final r = jsonDecode(e.body)['reason'];
+        if (r is String && r.isNotEmpty) return r;
+      } catch (_) {}
+    }
+    return e.toString();
+  }
+
   Future<Session?> createSession(
       {String? model, String? workerModel, bool chat = false}) async {
     try {

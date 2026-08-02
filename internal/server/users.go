@@ -269,6 +269,20 @@ func (u *Users) SetRole(email string, role Role, by string) (User, bool) {
 	return x, true
 }
 
+// Remove deletes an account. Reports whether there was one to delete, so a
+// double-click does not read as two removals.
+func (u *Users) Remove(email string) bool {
+	key := strings.ToLower(strings.TrimSpace(email))
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if _, ok := u.by[key]; !ok {
+		return false
+	}
+	delete(u.by, key)
+	u.save()
+	return true
+}
+
 // MarkWelcomed records that the welcome mail went out, so a second approval (or
 // a restart mid-send) does not mail the user twice. Reports whether this call
 // was the one that claimed the send.
