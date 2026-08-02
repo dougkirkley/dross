@@ -62,7 +62,7 @@ func (s *Server) SetAccounts(dir UserDirectory, adminEmail string, n mail.Notifi
 	if s.auth != nil {
 		// Send a pending account to the setup page instead of the holding page
 		// while there is nobody who could ever act on their request.
-		s.auth.SetFirstRun(dir.HasAdmin, "/setup")
+		s.auth.SetNeedsSetup(func() bool { return !dir.HasAdmin() }, "/setup")
 	}
 	s.h = s.buildHandler() // routes depend on whether an admin is configured
 }

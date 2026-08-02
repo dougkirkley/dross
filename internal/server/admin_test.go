@@ -471,3 +471,44 @@ func TestSetupAPIOffersAndTakesTheRole(t *testing.T) {
 		t.Fatal("two administrators from one first run")
 	}
 }
+
+// The predicate that opens the first-run door was once HasAdmin, which is its
+// inverse - so with no administrator the one person who could appoint one got
+// the holding page, and with an administrator every unapproved account got the
+// application shell. Both halves are silent: nothing errors, the wrong page just
+// renders. This asserts both directions through the real middleware.
+func TestFirstRunOpensOnlyWhenThereIsNoAdmin(t *testing.T) {
+	users, err := NewUsers(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(storage.NewSessionStore(t.TempDir()),
+		NewManager(&fakeProvider{}, nil, "m", t.TempDir()), nil, testArts(t))
+	srv.SetAccounts(users, "", &recorder{})
+	users.SignIn("waiting@example.com", "Waiting")
+
+	// The server's own view of it, which is what the app asks.
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/api/setup/status", nil), "waiting@example.com"))
+	if !strings.Contains(w.Body.String(), `"needs_setup":true`) {
+		t.Fatalf("with no admin, setup should be needed: %s", w.Body.String())
+	}
+
+	// Appoint one, and the answer has to flip.
+	users.Ensure("boss@example.com", StatusApproved, RoleAdmin)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("GET", "/api/setup/status", nil), "waiting@example.com"))
+	if !strings.Contains(w.Body.String(), `"needs_setup":false`) {
+		t.Fatalf("with an admin, setup is over: %s", w.Body.String())
+	}
+
+	// And an account still waiting must not be able to take the role now.
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, as(httptest.NewRequest("POST", "/api/setup/claim", nil), "waiting@example.com"))
+	if w.Code != http.StatusConflict {
+		t.Errorf("claim with an admin present = %d; want 409", w.Code)
+	}
+	if users.IsAdmin("waiting@example.com") {
+		t.Fatal("an unapproved account promoted itself after setup was over")
+	}
+}

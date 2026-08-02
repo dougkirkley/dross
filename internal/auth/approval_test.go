@@ -131,7 +131,7 @@ func TestUnauthenticatedBrowserGoesToKratos(t *testing.T) {
 func TestFirstRunLetsThePageLoadButNotTheAPI(t *testing.T) {
 	a := &Authenticator{cfg: Config{}, cookieKey: []byte("test-key")}
 	a.SetApproval(fakeApprover{}) // nobody is approved
-	a.SetFirstRun(func() bool { return true }, "/setup")
+	a.SetNeedsSetup(func() bool { return true }, "/setup")
 
 	reached := false
 	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -159,5 +159,29 @@ func TestFirstRunLetsThePageLoadButNotTheAPI(t *testing.T) {
 	h.ServeHTTP(w, signedIn("application/json"))
 	if reached || w.Code != http.StatusForbidden {
 		t.Errorf("an API call got through during first run: code=%d reached=%v", w.Code, reached)
+	}
+}
+
+// The other direction, through the middleware itself: once somebody can approve
+// people, an unapproved account gets the holding page and not the application.
+func TestNoSetupNeededMeansTheHoldingPage(t *testing.T) {
+	a := &Authenticator{cfg: Config{}, cookieKey: []byte("test-key")}
+	a.SetApproval(fakeApprover{})
+	a.SetNeedsSetup(func() bool { return false }, "/setup") // an admin exists
+
+	reached := false
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { reached = true }))
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.signSession("waiting@example.com")})
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if reached {
+		t.Fatal("an unapproved account reached the application while an admin existed")
+	}
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Request received") {
+		t.Errorf("expected the holding page, got %d: %.120s", w.Code, w.Body.String())
 	}
 }

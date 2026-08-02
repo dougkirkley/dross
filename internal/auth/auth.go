@@ -72,7 +72,7 @@ type Authenticator struct {
 	onSignIn   func(email, name string)
 	approved   Approver
 	kratos     *KratosSessions
-	firstRun   func() bool
+	needsSetup func() bool
 	setupPath  string
 	cookieKey  []byte
 	insecure   bool
@@ -146,15 +146,22 @@ type Approver interface {
 	IsApproved(email string) bool
 }
 
-// SetFirstRun tells the middleware that nobody can approve anyone yet, and
-// where to send people while that is true. Without it a fresh install is a
-// waiting room with no staff: everyone authenticates, everyone is pending, and
-// the only person who could fix it is refused along with the rest.
+// SetNeedsSetup installs the question "does this server still have nobody who
+// can approve anyone?". While the answer is yes, a fresh install is a waiting
+// room with no staff — everyone authenticates, everyone is pending, and the only
+// person who could fix it is refused along with the rest — so the middleware
+// lets the application load and explain itself.
 //
-// The path itself is not exempted here — it is registered outside this
+// The predicate is phrased as the condition that opens the door, not its
+// opposite. It was HasAdmin here once, which is the inverse, and inverted
+// silently: with no admin the person who could fix it got the holding page, and
+// with an admin every unapproved account got the app shell instead. Neither
+// half looks wrong from the outside.
+//
+// The setup path itself is not exempted here — it is registered outside this
 // middleware, so it answers whether or not the caller is approved.
-func (a *Authenticator) SetFirstRun(pending func() bool, path string) {
-	a.firstRun, a.setupPath = pending, path
+func (a *Authenticator) SetNeedsSetup(needsSetup func() bool, path string) {
+	a.needsSetup, a.setupPath = needsSetup, path
 }
 
 // SetApproval installs the gate. Unset, every verified identity is allowed,
@@ -221,7 +228,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			// Nobody can approve them because nobody can approve anyone. Send
 			// them somewhere that can be acted on rather than a page that says
 			// wait for a person who does not exist.
-			if a.firstRun != nil && a.firstRun() {
+			if a.needsSetup != nil && a.needsSetup() {
 				// Let the application load. It asks whether setup is needed and
 				// says so itself, which is the difference between a product
 				// that explains its state and a URL somebody has to be told.
