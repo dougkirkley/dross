@@ -26,6 +26,14 @@ import (
 // without pinning the shape of anything already running.
 const SessionIDLabel = "dross.sh/session-id"
 
+// BusyLabel marks a session whose agent is part-way through a turn.
+//
+// Set by the server, which is the only side that knows: the pod is equally
+// healthy either way, so nothing about the workload distinguishes a session
+// thinking from one sitting idle. The operator reads it to leave a session
+// alone while it is working, and take it on a later pass.
+const BusyLabel = "dross.sh/busy"
+
 // GroupVersion is the API group/version this package registers.
 var GroupVersion = schema.GroupVersion{Group: "dross.sh", Version: "v1alpha1"}
 

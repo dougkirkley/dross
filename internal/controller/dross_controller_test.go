@@ -336,3 +336,63 @@ func TestRollMovesEverySessionAtOnce(t *testing.T) {
 		}
 	}
 }
+
+// A session part-way through a turn is left alone. Replacing its pod would
+// throw away an answer somebody is waiting on, and the image still differs so
+// a later pass takes it once it goes idle.
+func TestRollWaitsForASessionMidTurn(t *testing.T) {
+	d := newDross()
+	busy := &dross.Session{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "dross", Name: "dross-web-busy",
+			Labels: map[string]string{dross.BusyLabel: "true"},
+		},
+		Spec: dross.SessionSpec{SessionID: "ses_busy", Image: "old"},
+	}
+	idle := &dross.Session{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "dross", Name: "dross-web-idle"},
+		Spec:       dross.SessionSpec{SessionID: "ses_idle", Image: "old"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme(t)).
+		WithObjects(d, busy, idle).WithStatusSubresource(d).Build()
+	r := &DrossReconciler{Client: c}
+	ctx := context.Background()
+	key := types.NamespacedName{Namespace: d.Namespace, Name: d.Name}
+
+	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// It has to come back on its own: a session going idle is a label the
+	// server writes, and the Dross does not watch its sessions.
+	if res.RequeueAfter == 0 {
+		t.Error("deferred a session without arranging to look again")
+	}
+
+	get := func(n string) dross.Session {
+		var s dross.Session
+		if err := c.Get(ctx, types.NamespacedName{Namespace: "dross", Name: n}, &s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if got := get("dross-web-busy").Spec.Image; got != "old" {
+		t.Errorf("rolled a session mid-turn (image %q)", got)
+	}
+	if got := get("dross-web-idle").Spec.Image; got != d.Spec.Image {
+		t.Errorf("idle session was not rolled (image %q)", got)
+	}
+
+	// Once it finishes, the next pass takes it.
+	b := get("dross-web-busy")
+	delete(b.Labels, dross.BusyLabel)
+	if err := c.Update(ctx, &b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if got := get("dross-web-busy").Spec.Image; got != d.Spec.Image {
+		t.Errorf("session was not rolled after going idle (image %q)", got)
+	}
+}

@@ -144,3 +144,40 @@ func TestDeleteFindsAPreLabelWorkload(t *testing.T) {
 		t.Errorf("pre-label workload survived deletion: %v", list.Items[0].Name)
 	}
 }
+
+// The server is the only side that can tell a session mid-turn from an idle
+// one — the pod looks identical either way — so it marks the session, and
+// clears the mark when the turn ends.
+func TestSetBusyMarksAndClears(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+	if _, err := p.Create(ctx, "ses_abc", "doug@example.com", "m"); err != nil {
+		t.Fatal(err)
+	}
+
+	label := func() string {
+		s, err := p.findBySession(ctx, "ses_abc")
+		if err != nil || s == nil {
+			t.Fatalf("find: %v", err)
+		}
+		return s.Labels[dross.BusyLabel]
+	}
+
+	if label() != "" {
+		t.Error("a fresh session is marked busy")
+	}
+	p.SetBusy(ctx, "ses_abc", true)
+	if label() != "true" {
+		t.Error("running session is not marked busy")
+	}
+	p.SetBusy(ctx, "ses_abc", false)
+	if label() != "" {
+		t.Errorf("busy mark survived the turn: %q", label())
+	}
+}
+
+// Marking a session that has no workload must not error: pod mode may be off,
+// or the session may already be gone.
+func TestSetBusyOnAMissingSessionIsFine(t *testing.T) {
+	podSessions(t).SetBusy(context.Background(), "ses_nope", true)
+}

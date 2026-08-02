@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,6 +17,10 @@ import (
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
 	"github.com/dougkirkley/dross/internal/subreconciler"
 )
+
+// busyRecheck is how long to wait before looking again at a session that was
+// working when its roll came up.
+const busyRecheck = 30 * time.Second
 
 // DrossReconciler runs a dross server from a Dross resource.
 //
@@ -169,9 +174,19 @@ func (r *DrossReconciler) rollSessionImages(ctx context.Context, req ctrl.Reques
 		return subreconciler.Fail(err)
 	}
 
+	deferred := 0
 	for i := range list.Items {
 		s := &list.Items[i]
 		if s.Spec.Image == d.Spec.Image || !s.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if s.Labels[dross.BusyLabel] == "true" {
+			// Mid-turn. Replacing the pod now would throw away an answer
+			// somebody is waiting on, and the session will be idle soon
+			// enough — a later pass takes it, since the image still differs.
+			log.FromContext(ctx).V(1).Info("deferring roll; session is working",
+				"session", s.Spec.SessionID)
+			deferred++
 			continue
 		}
 		s.Spec.Image = d.Spec.Image
@@ -183,6 +198,11 @@ func (r *DrossReconciler) rollSessionImages(ctx context.Context, req ctrl.Reques
 		}
 		log.FromContext(ctx).Info("rolling session onto a new image",
 			"session", s.Spec.SessionID, "image", d.Spec.Image)
+	}
+	if deferred > 0 {
+		// Nothing will re-trigger this: a session going idle is a change the
+		// server makes to a label, and the Dross does not watch its sessions.
+		return subreconciler.RequeueAfter(busyRecheck)
 	}
 	return subreconciler.ContinueReconciling()
 }

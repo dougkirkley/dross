@@ -168,6 +168,7 @@ func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 	s.emit(kind, data)
 	if kind == "done" || kind == "error" {
 		s.setStatus("idle")
+		m.markBusy(sessionID, false)
 	}
 }
 

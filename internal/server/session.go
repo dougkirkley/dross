@@ -142,6 +142,22 @@ func (s *Session) markDevice(id string) {
 	}
 }
 
+// markBusy tells the operator whether this session is mid-turn, so a version
+// roll waits rather than taking the pod away part-way through an answer.
+//
+// In the background: it is a courtesy to the roll, not something a prompt
+// should wait on, and the API call is a round trip.
+func (m *Manager) markBusy(sessionID string, busy bool) {
+	if m.pods == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		m.pods.SetBusy(ctx, sessionID, busy)
+	}()
+}
+
 // setTitle renames a session for display. The id is untouched: it is what the
 // relay device, the workload label and every stored event key on, so a rename
 // must not be able to move a session out from under them.
@@ -438,6 +454,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		}
 		s.status = "running"
 		s.mu.Unlock()
+		m.markBusy(s.ID, true)
 		if m.hub == nil || !m.hub.toDevice(s.device, relay.Frame{Type: "prompt", SessionID: s.ID, Text: prompt}) {
 			s.setStatus("idle")
 			return fmt.Errorf("device %q is not connected", s.device)

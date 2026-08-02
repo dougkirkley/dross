@@ -155,6 +155,32 @@ func legacyObjectName(sessionID string) string {
 	return "dross-" + strings.ReplaceAll(strings.TrimPrefix(sessionID, "ses_"), "_", "-")
 }
 
+// SetBusy marks whether a session is part-way through a turn, so the operator
+// can avoid replacing its pod mid-answer.
+//
+// Best effort and non-blocking for the caller: a session that fails to be
+// marked is one that might be interrupted by a roll, which is the behaviour
+// that existed before this and is not worth failing a prompt over.
+func (p *PodSessions) SetBusy(ctx context.Context, sessionID string, busy bool) {
+	found, err := p.findBySession(ctx, sessionID)
+	if err != nil || found == nil {
+		return
+	}
+	was := found.Labels[dross.BusyLabel] == "true"
+	if was == busy {
+		return
+	}
+	if found.Labels == nil {
+		found.Labels = map[string]string{}
+	}
+	if busy {
+		found.Labels[dross.BusyLabel] = "true"
+	} else {
+		delete(found.Labels, dross.BusyLabel)
+	}
+	_ = p.c.Update(ctx, found)
+}
+
 // findBySession returns the Session resource for a dross session id, since the
 // object's name no longer encodes it.
 func (p *PodSessions) findBySession(ctx context.Context, sessionID string) (*dross.Session, error) {
