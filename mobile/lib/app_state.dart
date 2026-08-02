@@ -202,6 +202,10 @@ class AppState extends ChangeNotifier {
 
   // --- sessions -------------------------------------------------------
 
+  /// True while any session is still coming up, so the list can keep looking.
+  bool get anyStarting =>
+      sessions.any((s) => s.device.isNotEmpty && !s.connected);
+
   Future<void> refreshSessions() async {
     loadingSessions = true;
     error = null;
@@ -343,11 +347,40 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Polls a session that is still coming up, so the screen notices when it
+  /// does. Nothing else would: a session becoming ready is a change on the
+  /// server with no event on the stream the client is not yet attached to, so
+  /// the "starting" panel sat there until the user pulled to refresh.
+  Timer? _startPoll;
+
+  void _watchUntilReady() {
+    _startPoll?.cancel();
+    _startPoll = null;
+    final s = current;
+    if (s == null || s.device.isEmpty || s.connected) return;
+    _startPoll = Timer.periodic(const Duration(seconds: 2), (t) async {
+      final now = current;
+      if (now == null || now.device.isEmpty || now.connected) {
+        t.cancel();
+        _startPoll = null;
+        return;
+      }
+      await _refreshCurrent();
+      if (current?.connected ?? false) {
+        t.cancel();
+        _startPoll = null;
+      }
+    });
+  }
+
   Future<void> attach(Session s) async {
     _sub?.cancel();
     _sub = null;
+    _startPoll?.cancel();
+    _startPoll = null;
     current = s;
     markRead(s);
+    _watchUntilReady();
     events.clear();
     queue.clear();
     remotePending.clear();

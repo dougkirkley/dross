@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -40,9 +42,33 @@ class _SessionsScreenState extends State<SessionsScreen> {
     });
   }
 
+  Timer? _poll;
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// Keeps the list looking while a session is still coming up. A session
+  /// becoming ready happens on the server with nothing pushed to the list, so
+  /// without this a card sits on "restarting" until it is pulled to refresh.
+  void _pollWhileStarting(AppState s) {
+    final want = s.anyStarting;
+    if (want && _poll == null) {
+      _poll = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (mounted) context.read<AppState>().refreshSessions();
+      });
+    } else if (!want && _poll != null) {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
+    _pollWhileStarting(s);
     final wide = isWide(context);
     return Scaffold(
       // At desktop widths the sidebar is simply there, beside the content. A
