@@ -41,6 +41,8 @@ type resolved struct {
 	Compactor        config.Provider
 	CompactorEnabled bool
 	CompactAt        int
+	Chat             config.Provider
+	ChatEnabled      bool
 	File             *config.File
 }
 
@@ -169,6 +171,21 @@ func resolveProviders(cmd *cobra.Command, provDefault, modelDefault string) (res
 		APIKeyChanged:   ckChanged,
 	})
 
+	// Chat slot: the config file's chat block, filled in from the lead.
+	//
+	// Every field is optional and inherits, because the common deployment is
+	// one provider at one endpoint and the only thing worth changing for chat
+	// is which model answers:
+	//
+	//     "chat": {"model": "gemma2:9b"}
+	//
+	// A whole second backend is expressible too — name a provider or a base_url
+	// and that is what chat gets — but nobody should have to restate an API key
+	// and an endpoint to move one job onto a different model. No chat-* flags:
+	// this is a served deployment's routing decision, described once in the
+	// file that describes the deployment, not per invocation.
+	chat := chatSlot(file.Chat, lead)
+
 	return resolved{
 		Lead:             lead,
 		Worker:           worker,
@@ -178,6 +195,39 @@ func resolveProviders(cmd *cobra.Command, provDefault, modelDefault string) (res
 		Compactor:        comp,
 		CompactorEnabled: comp.Model != "",
 		CompactAt:        file.CompactAt,
+		Chat:             chat,
+		ChatEnabled:      file.Chat != nil && chat.Model != "",
 		File:             file,
 	}, nil
+}
+
+// chatSlot resolves the chat backend from its config block, inheriting anything
+// it does not state from the lead.
+//
+// The endpoint and key are only inherited when chat is on the lead's provider.
+// A chat block that names a different provider is describing a different
+// service, and handing it the lead's base URL and API key would point, say,
+// anthropic at a local ollama endpoint with "ollama" as its key — a
+// confidently wrong config that fails at the first turn instead of at startup.
+func chatSlot(block *config.Provider, lead config.Provider) config.Provider {
+	if block == nil {
+		return config.Provider{}
+	}
+	out := *block
+	sameProvider := out.Provider == "" || out.Provider == lead.Provider
+	if out.Provider == "" {
+		out.Provider = lead.Provider
+	}
+	if out.Model == "" {
+		out.Model = lead.Model
+	}
+	if sameProvider {
+		if out.BaseURL == "" {
+			out.BaseURL = lead.BaseURL
+		}
+		if out.APIKey == "" {
+			out.APIKey = lead.APIKey
+		}
+	}
+	return out
 }

@@ -104,8 +104,11 @@ class DrossClient {
   }
 
   /// The models the server offers (GET /api/models -> {models, current}).
-  Future<List<String>> serverModels() async {
-    final r = await _http.get(_uri('api/models'), headers: _headers);
+  /// Models the server offers for a picker. [chat] asks for a chat session's
+  /// list, which differs when the server answers chat on its own backend.
+  Future<List<String>> serverModels({bool chat = false}) async {
+    final r = await _http.get(_uri('api/models${chat ? '?chat=1' : ''}'),
+        headers: _headers);
     _check(r);
     final body = jsonDecode(r.body) as Map<String, dynamic>;
     final list = (body['models'] as List?) ?? const [];

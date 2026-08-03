@@ -120,8 +120,16 @@ func newServeCmd() *cobra.Command {
 					mgr.SetCompactStats(newCompactRecorder(p))
 				}
 			}
+			if res.ChatEnabled {
+				cp, err := provider.New(res.Chat.Provider, provider.Config{BaseURL: res.Chat.BaseURL, APIKey: res.Chat.APIKey})
+				if err != nil {
+					return fmt.Errorf("chat provider: %w", err)
+				}
+				mgr.SetChat(cp, res.Chat.Model, res.Chat.BaseURL)
+			}
 			mgr.SetLeadEndpoint(res.Lead.BaseURL)
 			mgr.SetModels(res.File.Models)
+			mgr.SetChatModels(res.File.ChatModels)
 			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetPolicy(config.PolicyOptions(res.File))
 			mgr.SetRepo(repoLabel(workdir))
@@ -265,6 +273,13 @@ func newServeCmd() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "dross serve on %s (provider %s, model %s, workspace %s) — %s\n", addr, provName, model, workdir, state)
+			// Said out loud because it is otherwise invisible: chat answering on a
+			// different model at a different endpoint is exactly the kind of thing
+			// somebody debugging a slow chat needs to know before they go looking
+			// at the lead model's server.
+			if res.ChatEnabled {
+				fmt.Fprintf(out, "chat answers on %s at %s\n", res.Chat.Model, res.Chat.BaseURL)
+			}
 			if restored > 0 {
 				fmt.Fprintf(out, "restored %d session(s) from disk\n", restored)
 			}

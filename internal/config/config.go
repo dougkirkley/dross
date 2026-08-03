@@ -68,6 +68,21 @@ type File struct {
 	Reviewer       *Provider         `json:"reviewer,omitempty"`
 	Review         *bool             `json:"review,omitempty"`     // disable the code-review skill (default on when a reviewer is set)
 	Compactor      *Provider         `json:"compactor,omitempty"`  // token-efficiency skill
+	// Chat is the backend Chat sessions answer on. Unset runs them on the lead
+	// backend. Reading search results and writing prose about them is a
+	// different job from writing code, so it is worth being able to point it at
+	// a different — usually smaller and faster — model.
+	//
+	// Every field inherits from the top level, so the common case is one line:
+	// {"chat": {"model": "gemma2:9b"}} keeps the same provider and endpoint and
+	// changes only who answers.
+	Chat *Provider `json:"chat,omitempty"`
+	// ChatModels is what a chat session's model picker offers, when that should
+	// differ from Models. Unset falls back to the chat model alone if a chat
+	// backend is configured, and to Models otherwise — because offering the
+	// lead's models to a chat running on a different server is offering models
+	// that server does not have.
+	ChatModels []string `json:"chat_models,omitempty"`
 	CompactAt      int               `json:"compact_at,omitempty"` // tool-result byte threshold
 	Phrases        []string          `json:"phrases,omitempty"`    // TUI status phrases
 	OAuth          *OAuthLogin       `json:"oauth,omitempty"`      // for the claude-sub provider

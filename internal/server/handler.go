@@ -38,10 +38,16 @@ func (s *Server) handleProviders(w http.ResponseWriter, _ *http.Request) {
 
 // handleModels reports the allowed models to offer in a picker, plus the current
 // default.
-func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
+//
+// ?chat=1 asks for a chat session's list, which is a different question when
+// chat answers on its own backend: that server has its own models, and the
+// lead's list would offer a picker full of ids it will fail on. Absent, the
+// answer is the lead's, which is what every existing client gets.
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	models, current := s.mgr.modelsFor(r.URL.Query().Get("chat") == "1")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"models":  s.mgr.models,
-		"current": s.mgr.model,
+		"models":  models,
+		"current": current,
 	})
 }
 

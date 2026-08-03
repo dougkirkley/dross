@@ -20,6 +20,10 @@ class Session {
   final String device; // owning device ("" = runs in the pod)
   final bool connected; // for device sessions: is that device linked now
 
+  /// Chat session rather than a code one. Servers may answer chat on their own
+  /// backend, so this decides which model list the picker asks for.
+  final bool chat;
+
   Session({
     required this.id,
     required this.model,
@@ -35,6 +39,7 @@ class Session {
     this.updated,
     this.device = '',
     this.connected = false,
+    this.chat = false,
   });
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -52,6 +57,7 @@ class Session {
         updated: DateTime.tryParse(j['updated'] as String? ?? ''),
         device: j['device'] as String? ?? '',
         connected: j['connected'] as bool? ?? false,
+        chat: j['chat'] as bool? ?? false,
       );
 
   /// The display name for the session card: the title, or the model as a

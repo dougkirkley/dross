@@ -88,7 +88,7 @@ func (s *Session) snapshot() sessionView {
 		WorkerModel: s.WorkerModel, Style: s.Style,
 		Title: s.title, Workspace: s.repo, Last: s.last, Updated: s.updated,
 		Status: s.status, Cost: s.cost, Events: len(s.events),
-		Device: s.device, Connected: s.connected,
+		Device: s.device, Connected: s.connected, Chat: s.Chat,
 	}
 }
 
@@ -107,6 +107,10 @@ type sessionView struct {
 	Events      int       `json:"events"`
 	Device      string    `json:"device,omitempty"`    // owning device (blank = pod)
 	Connected   bool      `json:"connected,omitempty"` // device currently linked
+	// Chat says which kind of session this is. A client needs it to ask the
+	// right question of /api/models: chat can answer on its own backend, with
+	// its own models.
+	Chat bool `json:"chat,omitempty"`
 }
 
 // emit appends an event and fans it out to live subscribers.
@@ -134,13 +138,24 @@ const (
 // wait has become long enough to worry about - by which point somebody has
 // already wondered whether it is broken. Where the answer is knowable it is
 // worth saying up front, and where it is not, this says nothing at all.
-func (m *Manager) sayIfModelIsCold(s *Session) {
-	model := s.Model
+// model and chat name the backend this turn will actually run on: asking the
+// lead endpoint whether a chat model is loaded reports on the wrong server, and
+// on a two-server deployment that answer is always "cold" for a model that is
+// warm on the other one.
+func (m *Manager) sayIfModelIsCold(s *Session, model string, chat bool) {
+	url := m.leadURL
+	if chat {
+		_, chatModel, chatURL := m.chatBackend()
+		url = chatURL
+		if model == "" {
+			model = chatModel
+		}
+	}
 	if model == "" {
 		model = m.model
 	}
 	go func() {
-		if checkModel(context.Background(), m.leadURL, model) != modelCold {
+		if checkModel(context.Background(), url, model) != modelCold {
 			return
 		}
 		// Racing the first token: if the model turned out to be quick, or the
@@ -392,7 +407,21 @@ type Manager struct {
 	model  string            // default lead model
 	// leadURL is the endpoint lead was configured with. Kept so a session can
 	// ask whether its model is loaded before blaming the silence on the run.
-	leadURL   string
+	leadURL string
+	// chat is the backend Chat sessions answer on, when one is configured.
+	//
+	// Chat is a different job from the rest of dross: read what a search
+	// returned and write prose about it. The lead model here is a coding model,
+	// which is the wrong shape for that and — being the largest thing on the
+	// box — also the slowest to reach. Pointing chat at its own smaller general
+	// model answers faster and better, and keeps a chat from evicting the lead
+	// model that a code session is about to want.
+	//
+	// nil means chat runs on the lead backend, which is what a single-model
+	// deployment wants and what every existing config gets.
+	chat      provider.Provider
+	chatModel string
+	chatURL   string
 	workdir   string
 	publish   agent.PublishFunc // optional; enables the publish tool
 	reviewer  provider.Provider // optional; enables the code-review skill
@@ -402,6 +431,12 @@ type Manager struct {
 	compAt    int
 	compStats agent.CompactStatsFunc // optional; records compaction repeat-rate
 	models    []string               // allowed models to offer clients
+	// chatModels is what a chat session's picker offers. Empty falls back to
+	// the chat model alone when there is a chat backend, and to models
+	// otherwise: a chat that runs somewhere else must not be offered models
+	// that live on the lead's server, because picking one loads a model onto a
+	// machine that was sized for smaller ones.
+	chatModels []string
 	repo      string                 // owner/repo (or dir) label shown on session cards
 	hub       *deviceHub             // linked devices (session relay)
 	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
@@ -432,6 +467,31 @@ func (m *Manager) SetStore(st *storage.SessionStore) { m.store = st }
 // SetModels sets the allowed model list surfaced at /api/models.
 func (m *Manager) SetModels(models []string) { m.models = models }
 
+// SetChatModels sets the list a chat session's picker offers. Empty leaves it
+// derived — see modelsFor.
+func (m *Manager) SetChatModels(models []string) { m.chatModels = models }
+
+// modelsFor returns the list to offer, and the default, for one kind of
+// session.
+func (m *Manager) modelsFor(chat bool) ([]string, string) {
+	if !chat {
+		return m.models, m.model
+	}
+	_, defaultModel, _ := m.chatBackend()
+	switch {
+	case len(m.chatModels) > 0:
+		return m.chatModels, defaultModel
+	case m.chat != nil:
+		// A chat backend with nothing configured to offer: the only model it is
+		// known to have is the one it was configured with. Better a picker with
+		// one entry than one that offers models the server will fail on.
+		return []string{defaultModel}, defaultModel
+	default:
+		// Chat is on the lead backend, so the lead's list is right.
+		return m.models, defaultModel
+	}
+}
+
 // SetMCP configures the MCP servers whose tools pod-hosted code sessions gain.
 func (m *Manager) SetMCP(specs []agent.MCPServerSpec) { m.mcp = specs }
 
@@ -454,6 +514,24 @@ func (m *Manager) SetCompactor(p provider.Provider, model string, threshold int)
 	m.compactor, m.compModel, m.compAt = p, model, threshold
 }
 
+// SetChat routes Chat sessions to their own backend and model.
+//
+// baseURL is kept for the same reason leadURL is: the cold-model check has to
+// ask the endpoint the session will actually run on, or it reports on a model
+// nobody is waiting for.
+func (m *Manager) SetChat(p provider.Provider, model, baseURL string) {
+	m.chat, m.chatModel, m.chatURL = p, model, baseURL
+}
+
+// chatBackend returns the provider, default model and endpoint a chat session
+// answers on — its own when one is configured, the lead's otherwise.
+func (m *Manager) chatBackend() (provider.Provider, string, string) {
+	if m.chat != nil && m.chatModel != "" {
+		return m.chat, m.chatModel, m.chatURL
+	}
+	return m.lead, m.model, m.leadURL
+}
+
 // SetCompactStats records compaction observations on served sessions.
 func (m *Manager) SetCompactStats(fn agent.CompactStatsFunc) { m.compStats = fn }
 
@@ -474,9 +552,17 @@ type CreateReq struct {
 }
 
 func (m *Manager) create(req CreateReq, owner string) *Session {
+	// A chat session's default is the chat backend's model, not the lead's.
+	// Otherwise a new chat is labelled with a model it will never run on, and
+	// the client's model chip offers to "change" it to the one it is already
+	// using.
+	lead, defaultModel := m.lead, m.model
+	if req.Chat {
+		lead, defaultModel, _ = m.chatBackend()
+	}
 	model := req.Model
 	if model == "" {
-		model = m.model
+		model = defaultModel
 	}
 	id := "ses_" + randomID()
 	// Each session gets its own workspace under the base workdir. This scopes
@@ -497,7 +583,7 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 	s := &Session{
 		ID:          id,
 		Model:       model,
-		Provider:    m.lead.Name(),
+		Provider:    lead.Name(),
 		WorkerModel: req.WorkerModel,
 		Style:       req.Style,
 		Chat:        req.Chat,
@@ -621,6 +707,19 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	chat := s.Chat
 	s.mu.Unlock()
 
+	// Which backend answers this turn. Chat has its own when one is configured;
+	// everything else runs on the lead.
+	backend := m.lead
+	if chat {
+		var chatModel string
+		backend, chatModel, _ = m.chatBackend()
+		// A session created before a chat backend existed still names the lead
+		// model. Run it on the chat backend's own model rather than asking that
+		// endpoint for a model it has never heard of.
+		if m.chat != nil && model == m.model {
+			model = chatModel
+		}
+	}
 	opts := []agent.Option{agent.WithEventHook(func(e agent.Event) { s.emit(e.Kind, e.Data) })}
 	if chat {
 		// Chat sessions have no filesystem or shell: they answer from the prompt,
@@ -674,13 +773,13 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		// needed. Device (remote-control) sessions never reach here — they relay
 		// to the linked machine and use its real environment.
 		Sandbox: !chat,
-	}, m.lead, opts...)
+	}, backend, opts...)
 	if err != nil {
 		return err
 	}
 
 	s.emit("prompt", prompt)
-	m.sayIfModelIsCold(s)
+	m.sayIfModelIsCold(s, model, chat)
 	s.warnIfSilent()
 	go func() {
 		defer ag.Close() // release MCP connections when the turn ends
@@ -696,7 +795,12 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		// played back at them.
 		asked := prompt
 		if chat {
-			if block, sources := m.retrieveFor(ctx, s, prompt); len(sources) > 0 {
+			// Gated on the results, not on the citations. A backend that
+			// searches fine and records nothing still gives the model current
+			// facts to answer from, and dropping those because there was
+			// nothing to cite is the failure retrieveFor's own comment
+			// describes: retrieval switched off by a missing extra.
+			if block, sources := m.retrieveFor(ctx, s, prompt); block != "" {
 				ag.SeedSources(sources)
 				asked = block + "\n\nQuestion: " + prompt
 			}

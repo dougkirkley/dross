@@ -184,6 +184,8 @@ on macOS). `/model` writes your provider/model choice here.
 
   "worker": { "provider": "openai", "base_url": "http://localhost:11434/v1", "model": "qwen2.5-coder:7b" },
 
+  "chat": { "model": "gemma2:9b" },
+
   "reviewer": { "provider": "anthropic", "model": "claude-opus-4-8" },
   "review": true,
 
@@ -229,6 +231,22 @@ on macOS). `/model` writes your provider/model choice here.
 - **max_turns** — runaway guard: max tool-loop iterations per run (default 200).
   Raise it for very large builds; set a negative value to disable the cap.
 - **worker** — a cheaper model the lead can `delegate` bounded subtasks to.
+- **chat** — the backend `dross serve`'s Chat sessions answer on. Omit it and
+  chat runs on the lead, which is what a one-model deployment wants. Reading
+  search results and writing prose about them is a different job from writing
+  code, so it is often worth a different — smaller, faster — model:
+
+  ```json
+  "chat": { "model": "gemma2:9b" }
+  ```
+
+  Every field inherits from the top level, so that one line keeps the same
+  provider, endpoint and key. State a `base_url` to put chat on a second server
+  (the key still inherits); state a `provider` and it inherits nothing but the
+  model, since a different service will not want the lead's endpoint and key.
+- **chat_models** — what a chat session's model picker offers, when that should
+  differ from `models`. Unset it and a chat backend offers just its own model,
+  because the lead's list names models that server does not have.
 - **tools** — allow-list of enabled tool ids (empty = all). Built-ins: `read`,
   `write`, `edit`, `bash`, `grep`, `glob`, `monitor`, `shell_output`, `web_fetch`,
   `delegate`, `publish`, `ask_user`.
