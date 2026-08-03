@@ -50,6 +50,12 @@ func webFetch(ctx context.Context, url string) (string, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB cap
 	text := string(body)
+	// A page the turn actually read, which is a stronger citation than one it
+	// merely saw in a result list. Recorded on the response so a fetch that
+	// failed does not become a source.
+	if src, ok := NewSource(pageTitle(text), url, ""); ok {
+		recordSource(ctx, src)
+	}
 	if strings.Contains(resp.Header.Get("Content-Type"), "html") || strings.Contains(text, "<html") {
 		text = stripHTML(text)
 	}
@@ -230,6 +236,11 @@ func ddgSearch(ctx context.Context, query string) (string, error) {
 		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, title, link)
 		if snippet != "" {
 			fmt.Fprintf(&b, "   %s\n", snippet)
+		}
+		// Recorded as the result is formatted, so what a turn cites is what it
+		// was actually handed rather than what the model remembers of it.
+		if src, ok := NewSource(title, link, snippet); ok {
+			recordSource(ctx, src)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), nil

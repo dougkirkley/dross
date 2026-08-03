@@ -360,16 +360,55 @@ func mergedMCP(file *config.File, workdir string) []agent.MCPServerSpec {
 	return mcpSpecs(uniq)
 }
 
+// expandAll substitutes environment variables, reporting false if any of them
+// is unset — the caller decides whether a partially-filled value is worse than
+// none, and for a credential it always is.
+func expandAll(v string) (string, bool) {
+	complete := true
+	out := os.Expand(v, func(name string) string {
+		got := os.Getenv(name)
+		if got == "" {
+			complete = false
+		}
+		return got
+	})
+	return out, complete
+}
+
 // mcpSpec converts one configured MCP server to an agent spec.
+//
+// Environment values are expanded from dross's own environment, so a server
+// that needs a credential can be configured in plain sight: the config says
+// EXA_API_KEY is $EXA_API_KEY and the value arrives from a secret. Without this
+// the only way to give an MCP server a key would be to write it into the
+// ConfigMap the config lives in, which is not a place for one.
 func mcpSpec(s config.MCPServer) agent.MCPServerSpec {
+	env := make(map[string]string, len(s.Env))
+	for k, v := range s.Env {
+		env[k] = os.ExpandEnv(v)
+	}
+	// Headers too: a hosted MCP server authenticates with one, and the same
+	// argument applies — the config should be able to name a credential without
+	// containing it.
+	headers := make(map[string]string, len(s.Headers))
+	for k, v := range s.Headers {
+		if out, ok := expandAll(v); ok {
+			headers[k] = out
+		}
+		// Dropped when a variable it names is unset. "Bearer $EXA_API_KEY" with
+		// no key would otherwise become "Bearer ", and a malformed credential is
+		// refused where no credential at all is often allowed — so an
+		// unconfigured key would take away access rather than merely not add to
+		// it.
+	}
 	return agent.MCPServerSpec{
 		Name:      s.Name,
 		Transport: s.Transport,
 		URL:       s.URL,
-		Headers:   s.Headers,
+		Headers:   headers,
 		Command:   s.Command,
 		Args:      s.Args,
-		Env:       s.Env,
+		Env:       env,
 	}
 }
 

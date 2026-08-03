@@ -91,6 +91,11 @@ func authEnv(d *dross.Dross) []corev1.EnvVar {
 		// must still start, and a missing key here would otherwise wedge the pod
 		// in CreateContainerConfigError.
 		{Name: "RESENDER_API_KEY", ValueFrom: ref("resend-key", true)},
+		// Web search. Sets the built-in web_search to Exa instead of scraping a
+		// results page, and is what the Exa MCP server authenticates with.
+		// Optional for the same reason as the mail key: a deployment without one
+		// falls back rather than failing to start.
+		{Name: "EXA_API_KEY", ValueFrom: ref("exa-api-key", true)},
 	}
 }
 

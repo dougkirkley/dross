@@ -625,7 +625,19 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	if chat {
 		// Chat sessions have no filesystem or shell: they answer from the prompt,
 		// provided context, and the web. Restrict to the web tools.
-		opts = append(opts, agent.WithAllowedTools([]string{"web_fetch", "web_search"}))
+		// Chat gets retrieval and nothing else — no shell, no filesystem. The
+		// exa tools are the same capability from a service built for it: better
+		// results than scraping a search page, and the only way a local model
+		// can cite anything real. Named explicitly rather than allowing every
+		// MCP tool, because "chat has no tools but these" is the property worth
+		// keeping.
+		chatTools := []string{"web_fetch", "web_search"}
+		for _, spec := range m.mcp {
+			if spec.Name == "exa" {
+				chatTools = append(chatTools, "web_search_exa", "web_fetch_exa")
+			}
+		}
+		opts = append(opts, agent.WithAllowedTools(chatTools))
 	}
 	if !chat && m.worker != nil && s.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(m.worker, s.WorkerModel))

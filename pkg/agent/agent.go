@@ -439,7 +439,7 @@ type Agent struct {
 	sess         provider.Session      // persisted session when conv is set
 	resume       string
 	checkpoint   func(brief string) error
-	autoBrief    bool // if set, produce a handoff brief at the end of every run
+	autoBrief    bool       // if set, produce a handoff brief at the end of every run
 	emitMu       sync.Mutex // serializes emit across parallel workers
 
 	shellMu  sync.Mutex // guards the background-shell registry
