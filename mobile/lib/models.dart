@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 // Client models for `dross serve`: the app attaches to server-side sessions and
 // streams Events. Session/Event/PublishResult mirror the serve API
 // (internal/server); JSON is snake_case.
@@ -223,4 +225,44 @@ class Account {
         logins: (j['logins'] as num?)?.toInt() ?? 0,
         decidedBy: j['decided_by'] as String? ?? '',
       );
+}
+
+/// One thing a turn actually consulted.
+///
+/// Built server-side from the tools that fetched it, never from the model's
+/// prose — a local model asked to list its sources invents plausible URLs, and
+/// a fabricated citation is worse than none because it looks checkable.
+class Source {
+  final String title;
+  final String url;
+  final String snippet;
+  final String site;
+
+  Source({required this.url, this.title = '', this.snippet = '', this.site = ''});
+
+  /// What to show when a page had no title: the site, then the bare URL.
+  String get label => title.isNotEmpty ? title : (site.isNotEmpty ? site : url);
+
+  factory Source.fromJson(Map<String, dynamic> j) => Source(
+        title: j['title'] as String? ?? '',
+        url: j['url'] as String? ?? '',
+        snippet: j['snippet'] as String? ?? '',
+        site: j['site'] as String? ?? '',
+      );
+
+  /// Parses a `sources` event payload, tolerating anything malformed by
+  /// returning nothing: a broken citation list should cost the answer nothing.
+  static List<Source> listFrom(String data) {
+    try {
+      final raw = jsonDecode(data);
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(Source.fromJson)
+          .where((s) => s.url.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 }

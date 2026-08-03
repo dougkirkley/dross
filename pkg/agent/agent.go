@@ -531,6 +531,16 @@ func (a *Agent) maxTurns() int {
 
 // Run drives the agent to completion on prompt.
 func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
+	// Collect what this turn actually fetches. The tools record into the
+	// context, so the list is what was retrieved rather than what the model
+	// says it retrieved — the distinction the whole feature rests on.
+	ctx, sources := withSourceSink(ctx)
+	defer func() {
+		if got := sources.all(); len(got) > 0 {
+			a.emit("sources", encodeSources(got))
+		}
+	}()
+
 	// In conversation mode the session persists across Run calls so prior turns
 	// are remembered; otherwise each Run starts fresh.
 	sess := a.sess

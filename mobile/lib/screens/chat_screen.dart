@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models.dart';
@@ -43,9 +44,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // Only prompts and assistant prose show in chat; tool/shell chrome is hidden.
+  // Prompts, assistant prose, what it consulted, and anything that went wrong.
+  // Tool and shell chrome stays hidden - but an error is not chrome. Leaving it
+  // out is why a model that could not be reached looked like a model that was
+  // thinking: the failure was recorded and never shown.
   List<Event> _messages(List<Event> events) => events
-      .where((e) => const {'prompt', 'text', 'review'}.contains(e.baseKind))
+      .where((e) =>
+          const {'prompt', 'text', 'review', 'sources', 'error'}.contains(e.baseKind))
       .toList();
 
   @override
@@ -163,12 +168,92 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
     }
+    if (e.baseKind == 'error') {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A1119),
+          border: Border.all(color: const Color(0xFF6B2338)),
+          borderRadius: BorderRadius.circular(T.rCard),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.error_outline, size: 18, color: T.danger),
+          const SizedBox(width: 10),
+          Expanded(child: Text(e.data, style: bodyFor(context).copyWith(color: T.danger))),
+        ]),
+      );
+    }
+    if (e.baseKind == 'sources') return _sources(Source.listFrom(e.data));
+
     // assistant text / review
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: ProseText(e.data),
     );
   }
+
+  /// What the answer was built from.
+  ///
+  /// These are the pages the turn actually fetched, in the order it met them -
+  /// not a list the model wrote, which is the only reason they can be trusted
+  /// enough to put a tap target on.
+  Widget _sources(List<Source> sources) {
+    if (sources.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('SOURCES',
+                style: T.metaFaint.copyWith(letterSpacing: 1.1, fontSize: 11)),
+          ),
+          ...sources.asMap().entries.map((entry) => _sourceRow(entry.key + 1, entry.value)),
+        ],
+      ),
+    );
+  }
+
+  Widget _sourceRow(int n, Source src) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Material(
+          color: T.surface,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => launchUrl(Uri.parse(src.url),
+                mode: LaunchMode.externalApplication),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('$n',
+                    style: T.metaFaint.copyWith(
+                        fontFeatures: const [], fontSize: 12)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(src.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: bodyFor(context).copyWith(fontSize: 14)),
+                      if (src.site.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(src.site, style: T.metaFaint.copyWith(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.north_east, size: 14, color: T.textFaint),
+              ]),
+            ),
+          ),
+        ),
+      );
 
   Widget _inputBar(BuildContext context, AppState s, bool running) => SafeArea(
         top: false,
