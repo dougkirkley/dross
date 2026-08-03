@@ -588,6 +588,27 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	limit := a.maxTurns()
 	for res.Turns < limit && !done {
 		resp, err := sess.Send(ctx, in)
+		if err != nil && a.cfg.Chat && isNoToolSupport(err) {
+			// Chat is built search-first: the web results ride in with the
+			// prompt, so the tools are an extra, not a requirement. A model
+			// with no tool-calling — gemma2, most non-coder locals — can still
+			// do the actual job, which is reading those results and writing
+			// prose. Refusing it here turned "picked a chat model" into an
+			// error about agent sessions the person never asked for.
+			//
+			// Code sessions keep the refusal: an agent that cannot call tools
+			// cannot edit a file, and pretending otherwise wastes a turn to
+			// find that out.
+			sess = a.prov.NewSession(provider.SessionConfig{
+				System:    systemPrompt(a.cfg, false, false, nil),
+				Model:     a.cfg.Model,
+				MaxTokens: a.cfg.MaxTokens,
+			})
+			if a.conv {
+				a.sess = sess
+			}
+			resp, err = sess.Send(ctx, in)
+		}
 		if err != nil {
 			return res, a.friendlyErr(err)
 		}
@@ -687,13 +708,20 @@ func (a *Agent) makeBrief(ctx context.Context, sess provider.Session, res *Resul
 	return resp.Text
 }
 
+// isNoToolSupport recognises a backend refusing a request because the model
+// cannot call tools — ollama's wording, which is the backend where this
+// happens.
+func isNoToolSupport(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "does not support tools")
+}
+
 // friendlyErr turns known provider errors into actionable messages. Notably,
 // many local models lack tool calling, which the agent loop requires.
 func (a *Agent) friendlyErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "does not support tools") {
+	if isNoToolSupport(err) {
 		return fmt.Errorf("model %q can't run agent sessions: it has no tool-calling support. Pick a tool-capable model (e.g. qwen3-coder, qwen2.5-coder, llama3.1)", a.cfg.Model)
 	}
 	return err
