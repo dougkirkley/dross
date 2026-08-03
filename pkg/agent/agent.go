@@ -596,6 +596,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		a.emitUsage(res, resp.Usage)
 
 		if resp.Text != "" {
+			// A link in the prose is a claim that a page says something, and it
+			// is checkable in one tap - so it has to be a page this turn
+			// actually retrieved. Anything else is unlinked rather than
+			// deleted: the sentence survives, the false promise does not.
+			resp.Text = keepOnlyRetrievedLinks(ctx, resp.Text)
 			res.Text = resp.Text
 			a.emit("text", resp.Text)
 		}

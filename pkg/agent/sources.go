@@ -198,3 +198,45 @@ func SearchWeb(ctx context.Context, query string) (string, []Source, error) {
 func WithSeedSources(src []Source) Option {
 	return func(a *Agent) { a.seedSources = append(a.seedSources, src...) }
 }
+
+// markdownLink matches [text](url) so a link can be checked against what was
+// actually fetched.
+var markdownLink = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^)\s]+)\)`)
+
+// keepOnlyRetrievedLinks removes links to pages this turn did not retrieve.
+//
+// Inline citations are the most useful form and the most dangerous: a link is a
+// claim that a specific page says a specific thing, and it invites a tap to
+// check. A model writing from search results will sometimes produce a URL that
+// looks like one it saw and is not, and the reader has no way to tell the
+// difference until they follow it.
+//
+// So the set of linkable URLs is the set the turn fetched, and nothing else
+// survives as a link. The link text is kept — the sentence is still the model's
+// point, and deleting words to enforce a citation rule would be a stranger
+// intervention than removing the citation.
+func keepOnlyRetrievedLinks(ctx context.Context, text string) string {
+	sink, _ := ctx.Value(sourceKey{}).(*sourceSink)
+	if sink == nil || !strings.Contains(text, "](") {
+		return text
+	}
+	allowed := map[string]bool{}
+	for _, s := range sink.all() {
+		allowed[s.URL] = true
+		allowed[strings.TrimRight(s.URL, "/")] = true
+	}
+	if len(allowed) == 0 {
+		return text
+	}
+	return markdownLink.ReplaceAllStringFunc(text, func(m string) string {
+		g := markdownLink.FindStringSubmatch(m)
+		if len(g) != 3 {
+			return m
+		}
+		url := strings.TrimRight(g[2], "/.,;:")
+		if allowed[g[2]] || allowed[url] {
+			return m
+		}
+		return g[1] // the words, without the promise
+	})
+}

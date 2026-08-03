@@ -138,3 +138,45 @@ func TestEverySearchBackendRecordsSources(t *testing.T) {
 		}
 	}
 }
+
+// An inline link is a claim about a specific page and invites a tap to check
+// it. So only pages this turn actually retrieved survive as links; the rest
+// keep their words and lose the promise.
+func TestOnlyRetrievedPagesStayLinked(t *testing.T) {
+	ctx, _ := withSourceSink(context.Background())
+	for _, u := range []string{"https://reccs.co/home/mattresses", "https://www.reddit.com/r/Mattress/x"} {
+		if src, ok := NewSource("", u, ""); ok {
+			recordSource(ctx, src)
+		}
+	}
+
+	in := "The [Reddit thread](https://www.reddit.com/r/Mattress/x) likes it, " +
+		"and [reccs](https://reccs.co/home/mattresses/) agrees, " +
+		"but [this review](https://invented.example/review) is made up."
+	got := keepOnlyRetrievedLinks(ctx, in)
+
+	if !strings.Contains(got, "[Reddit thread](https://www.reddit.com/r/Mattress/x)") {
+		t.Error("a retrieved page lost its link")
+	}
+	// A trailing slash is the same page, not a different one.
+	if !strings.Contains(got, "[reccs](https://reccs.co/home/mattresses/)") {
+		t.Error("a trailing slash cost a real citation")
+	}
+	if strings.Contains(got, "invented.example") {
+		t.Error("a link to a page that was never fetched survived")
+	}
+	// The words stay: the sentence is still the model's point.
+	if !strings.Contains(got, "this review is made up") {
+		t.Errorf("the sentence was damaged rather than unlinked: %q", got)
+	}
+}
+
+// With nothing retrieved there is nothing to check against, so the text is left
+// alone rather than stripped of every link on no evidence.
+func TestLinksSurviveWhenNothingWasRetrieved(t *testing.T) {
+	ctx, _ := withSourceSink(context.Background())
+	in := "see [a page](https://example.com/x)"
+	if got := keepOnlyRetrievedLinks(ctx, in); got != in {
+		t.Errorf("stripped links with no source set to judge against: %q", got)
+	}
+}
