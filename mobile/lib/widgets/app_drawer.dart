@@ -66,7 +66,7 @@ class AppDrawer extends StatelessWidget {
                           onTap: () {
                             final st = context.read<AppState>();
                             st.attach(sess);
-                            Navigator.pop(context); // close drawer
+                            _closeDrawer(context);
                             Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -108,18 +108,18 @@ class AppDrawer extends StatelessWidget {
             if (s.isAdmin)
               _navItem(context, Icons.admin_panel_settings_outlined, 'Admin',
                   active: false, onTap: () {
-                Navigator.pop(context);
+                _closeDrawer(context);
                 Navigator.push(context,
                     MaterialPageRoute(builder: (_) => const AdminScreen()));
               }),
             _navItem(context, Icons.settings_outlined, 'Settings',
                 active: false, onTap: () {
-              Navigator.pop(context);
+              _closeDrawer(context);
               Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const SettingsScreen()));
             }),
             _navItem(context, Icons.logout, 'Sign out', active: false, onTap: () {
-              Navigator.pop(context);
+              _closeDrawer(context);
               context.read<AppState>().signOut();
             }),
             const SizedBox(height: 8),
@@ -130,9 +130,23 @@ class AppDrawer extends StatelessWidget {
   }
 
   void _go(BuildContext context, AppMode mode) {
-    Navigator.pop(context); // close drawer
+    _closeDrawer(context);
     context.read<AppState>().setMode(mode); // Home re-routes to the tab
   }
+
+  /// Closes the drawer — when there is one. On wide screens this widget is a
+  /// permanent sidebar, not an overlay, and the unconditional pop that used to
+  /// live at every tap site was popping the Home route instead: whatever got
+  /// pushed next sat on an empty stack, its back button led to a white screen,
+  /// and the stock AppBar's implied back never appeared because there was
+  /// nothing to pop to.
+  static void _closeDrawer(BuildContext context) {
+    final scaffold = Scaffold.maybeOf(context);
+    if (scaffold != null && scaffold.isDrawerOpen) {
+      Navigator.pop(context);
+    }
+  }
+
 
   Widget _navItem(BuildContext context, IconData icon, String label,
           {required bool active, required VoidCallback onTap}) =>
