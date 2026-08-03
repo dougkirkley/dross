@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'readable.dart';
+import '../util/nav.dart';
 
 /// One step within an activity block: a tool call or a file edit.
 class ActStep {
@@ -495,7 +496,7 @@ class EditDiffView extends StatelessWidget {
             FlatHeader(
               title: edit.isNew ? 'New file' : 'Edit',
               leading: CircleIconButton(
-                  icon: Icons.close, onTap: () => Navigator.pop(context)),
+                  icon: Icons.close, onTap: () => backOrHome(context)),
             ),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 4, 20, 4),

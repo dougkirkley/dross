@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
+import '../util/nav.dart';
 
 /// Accounts: who is waiting to be let in, and everyone who already was.
 ///
@@ -106,7 +107,7 @@ class _AdminScreenState extends State<AdminScreen> {
           FlatHeader(
             title: 'Admin',
             leading: CircleIconButton(
-                icon: Icons.chevron_left, onTap: () => Navigator.pop(context)),
+                icon: Icons.chevron_left, onTap: () => backOrHome(context)),
             trailing: CircleIconButton(icon: Icons.refresh, onTap: _reload),
           ),
           Expanded(child: _body()),

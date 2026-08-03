@@ -14,6 +14,7 @@ import '../widgets/prose.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
+import '../util/nav.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
 /// calls, delegation indented, cost). The transcript is set in mono end to end,
@@ -83,7 +84,7 @@ class _SessionScreenState extends State<SessionScreen> {
               subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
               leading: CircleIconButton(
                   icon: Icons.chevron_left,
-                  onTap: () => Navigator.pop(context)),
+                  onTap: () => backOrHome(context)),
               trailing: sess == null
                   ? null
                   : _sessionMenu(context, sess),

@@ -12,6 +12,7 @@ import '../widgets/follow_bottom.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
+import '../util/nav.dart';
 
 /// Conversational view of an `dross serve` session — the same look as the old
 /// direct-mode chat (greeting, mono assistant prose, dark right-aligned user
@@ -70,7 +71,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 subtitle: sess?.model,
                 leading: CircleIconButton(
                     icon: Icons.chevron_left,
-                    onTap: () => Navigator.pop(context)),
+                    onTap: () => backOrHome(context)),
               ),
               Expanded(
                 child: RefreshIndicator(
