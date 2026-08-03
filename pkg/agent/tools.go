@@ -144,8 +144,15 @@ func exaSearch(ctx context.Context, query, key string) (string, error) {
 			break
 		}
 		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, strings.TrimSpace(r.Title), r.URL)
-		if s := strings.TrimSpace(strings.Join(r.Highlights, " … ")); s != "" {
-			fmt.Fprintf(&b, "   %s\n", s)
+		snippet := strings.TrimSpace(strings.Join(r.Highlights, " … "))
+		if snippet != "" {
+			fmt.Fprintf(&b, "   %s\n", snippet)
+		}
+		// Recorded here as well as in the other backends: a citation has to
+		// survive whichever one answered, and the one that answers changes with
+		// whether a key is set.
+		if src, ok := NewSource(r.Title, r.URL, snippet); ok {
+			recordSource(ctx, src)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
@@ -190,7 +197,11 @@ func braveSearch(ctx context.Context, query, key string) (string, error) {
 		if i >= searchLimit {
 			break
 		}
-		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, strings.TrimSpace(stripHTML(r.Title)), r.URL)
+		title := strings.TrimSpace(stripHTML(r.Title))
+		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, title, r.URL)
+		if src, ok := NewSource(title, r.URL, strings.TrimSpace(stripHTML(r.Description))); ok {
+			recordSource(ctx, src)
+		}
 		if s := strings.TrimSpace(stripHTML(r.Description)); s != "" {
 			fmt.Fprintf(&b, "   %s\n", s)
 		}

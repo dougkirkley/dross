@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +108,33 @@ func TestSourcesAreReadFromOtherPeoplesTools(t *testing.T) {
 	recordSourcesFromToolOutput(ctx3, "bash", "curl https://example.com && echo https://other.example")
 	if n := len(sink3.all()); n != 0 {
 		t.Errorf("a non-retrieval tool contributed %d sources; want 0", n)
+	}
+}
+
+// Every backend has to record, because which one answers depends on whether a
+// key is set - and the day the Exa key started working, the only backend that
+// recorded was the one no longer being used. Search kept working, sources went
+// silently to zero, and the guard downstream read that as "nothing found" and
+// switched retrieval off.
+func TestEverySearchBackendRecordsSources(t *testing.T) {
+	src, err := os.ReadFile("tools.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+
+	for _, fn := range []string{"func exaSearch", "func braveSearch", "func ddgSearch"} {
+		i := strings.Index(body, fn)
+		if i < 0 {
+			t.Fatalf("%s is gone; this test needs updating", fn)
+		}
+		// Each backend's body runs until the next top-level func.
+		rest := body[i+len(fn):]
+		if j := strings.Index(rest, "\nfunc "); j >= 0 {
+			rest = rest[:j]
+		}
+		if !strings.Contains(rest, "recordSource(") {
+			t.Errorf("%s does not record sources: a search through it would cite nothing", fn)
+		}
 	}
 }

@@ -76,7 +76,11 @@ func (m *Manager) retrieveFor(prompt string) (string, []agent.Source) {
 		sources = append(sources, f.sources...)
 	}
 	results := strings.TrimSpace(b.String())
-	if results == "" || len(sources) == 0 {
+	// Only the text is required. Sources make the answer checkable and their
+	// absence is worth fixing, but bailing without them meant a backend that
+	// searched fine and recorded nothing switched retrieval off entirely -
+	// which is exactly what happened when the Exa key started working.
+	if results == "" {
 		// A failed search is not worth surfacing here. The model still answers,
 		// it simply answers without help, and saying "the search failed" in the
 		// middle of someone's question is noise they cannot act on.
