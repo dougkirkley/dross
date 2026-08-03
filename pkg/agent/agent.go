@@ -546,9 +546,16 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	sess := a.sess
 	fresh := sess == nil
 	if fresh {
+		tools := a.enabledTools()
+		names := make([]string, 0, len(tools))
+		for _, t := range tools {
+			names = append(names, t.Name)
+		}
 		sess = a.prov.NewSession(provider.SessionConfig{
-			System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil),
-			Tools:     a.enabledTools(),
+			// Told what it actually has, rather than what this prompt was
+			// written against.
+			System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil, names),
+			Tools:     tools,
 			Model:     a.cfg.Model,
 			MaxTokens: a.cfg.MaxTokens,
 		})

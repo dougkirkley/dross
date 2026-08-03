@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/dougkirkley/dross/pkg/provider"
+import (
+	"strings"
+
+	"github.com/dougkirkley/dross/pkg/provider"
+)
 
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific
@@ -23,15 +27,69 @@ Working style:
 
 // chatBasePrompt documents the working style for a chat session: no filesystem,
 // shell, or codebase — just conversation, provided context, and the web.
-const chatBasePrompt = `You are a conversational assistant. You have no filesystem, no shell, and no access to the user's codebase — you cannot read, write, or edit files, run commands, or inspect a repository.
+// chatPrompt describes a conversational session, including the retrieval tools
+// it actually has.
+//
+// It used to say "you have one tool: web_fetch" while the session was handed
+// web_search as well - so the model was never told it could search, and
+// answered from memory because as far as it knew that was the only option. A
+// prompt that lists the wrong tools is worse than one that lists none: it
+// actively rules out the right move.
+//
+// The directive to look things up is deliberately strong. A local model cannot
+// tell how stale its training data is, and the failure mode is not a refusal
+// but a confident wrong answer with no way for the reader to check it.
+func chatPrompt(tools []string) string {
+	has := func(n string) bool {
+		for _, t := range tools {
+			if t == n {
+				return true
+			}
+		}
+		return false
+	}
+	var b strings.Builder
+	b.WriteString(`You are a conversational assistant. You have no filesystem, no shell, and no access to the user's codebase — you cannot read, write, or edit files, run commands, or inspect a repository.
 
-You have one tool:
-- web_fetch(url): fetch a web page and return its readable text. Use it to look up current or factual information, and cite what you find.
+Your tools:
+`)
+	switch {
+	case has("web_search_exa"):
+		b.WriteString("- web_search_exa(query): search the web and get ranked results with snippets. This is your best search; prefer it.\n")
+	case has("web_search"):
+		b.WriteString("- web_search(query): search the web and get ranked results with snippets.\n")
+	}
+	if has("web_search") && has("web_search_exa") {
+		b.WriteString("- web_search(query): a second search backend, if the first returns nothing useful.\n")
+	}
+	if has("web_fetch_exa") {
+		b.WriteString("- web_fetch_exa(url): fetch a page and return its readable text.\n")
+	} else if has("web_fetch") {
+		b.WriteString("- web_fetch(url): fetch a page and return its readable text.\n")
+	}
+
+	b.WriteString(`
+Looking things up:
+- Search before answering anything factual, current, comparative, or checkable —
+  prices, products, versions, releases, people, events, "best" or "latest"
+  anything. Search first, then answer from what came back.
+- Your training data is stale and you cannot tell how stale. Treat memory as a
+  starting point for what to search for, not as the answer.
+- Fetch the promising results. A snippet is a reason to open a page, not a
+  source in itself.
+- If you did not look something up, say so plainly rather than implying you did.
+- Never write a URL you have not fetched. Made-up links are worse than none:
+  they look checkable, and the reader only finds out by following one.
 
 Working style:
-- Answer from this conversation, any context or files the user has provided, and the web.
+- Answer from this conversation, any context or files the user has provided, and
+  the web.
 - Lead with the answer, then concise detail. Keep code and exact quotes verbatim.
-- Never claim to have done something you can't — touching files, running code, seeing a repo. If a task genuinely needs that, say so and suggest a Code session.`
+- Never claim to have done something you can't — touching files, running code,
+  seeing a repo. If a task genuinely needs that, say so and suggest a Code
+  session.`)
+	return b.String()
+}
 
 // delegateGuidance is appended to a lead agent's prompt when a worker model is
 // available. It is the cost lever: push bounded, self-contained work to the
@@ -111,11 +169,11 @@ tools and env, but must never write outside the workspace.
   path outside the workspace — you have no root, don't need it, and such changes
   won't persist. $DROSS_WORKSPACE is the workspace root; $DROSS_TOOLS holds SDKs.`
 
-func systemPrompt(cfg Config, hasWorker, hasPublish bool) string {
+func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string {
 	if cfg.Chat {
 		// Chat sessions have no coding tools; use the conversational base and
 		// skip the delegate/publish/sandbox guidance entirely.
-		p := chatBasePrompt
+		p := chatPrompt(tools)
 		if d := styleDirective(cfg.Style); d != "" {
 			p += "\n" + d
 		}
