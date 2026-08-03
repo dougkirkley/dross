@@ -31,11 +31,13 @@ const retrievalTimeout = 12 * time.Second
 // retrieveFor searches the web for a chat prompt and returns the context block
 // to give the model plus the sources behind it. Both are empty when the prompt
 // does not warrant a search or the search finds nothing.
-func (m *Manager) retrieveFor(s *Session, prompt string) (string, []agent.Source) {
+func (m *Manager) retrieveFor(runCtx context.Context, s *Session, prompt string) (string, []agent.Source) {
 	if !worthSearching(prompt) {
 		return "", nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), retrievalTimeout)
+	// Bounded, but derived from the run - so pressing Stop cancels the searches
+	// instead of waiting them out.
+	ctx, cancel := context.WithTimeout(runCtx, retrievalTimeout)
 	defer cancel()
 
 	// The open web plus the places worth asking directly. Reddit for anything

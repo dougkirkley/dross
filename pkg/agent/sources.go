@@ -199,6 +199,10 @@ func WithSeedSources(src []Source) Option {
 	return func(a *Agent) { a.seedSources = append(a.seedSources, src...) }
 }
 
+// SeedSources is the same thing after construction, for retrieval that runs in
+// the background so the request that started it can return.
+func (a *Agent) SeedSources(src []Source) { a.seedSources = append(a.seedSources, src...) }
+
 // markdownLink matches [text](url) so a link can be checked against what was
 // actually fetched.
 var markdownLink = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^)\s]+)\)`)

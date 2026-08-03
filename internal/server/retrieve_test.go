@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 // The guard is deliberately generous: searching when it was not needed costs a
 // second, and not searching when it was costs the whole feature. So this checks
@@ -61,5 +65,38 @@ func TestLooksLikeShopping(t *testing.T) {
 		if looksLikeShopping(p) {
 			t.Errorf("%q would be polluted by product pages", p)
 		}
+	}
+}
+
+// prompt() documents that it returns immediately, and retrieval takes seconds.
+// Doing it before the goroutine made every prompt request block on two to four
+// searches, which reads as a hung app - and made Stop useless, because the
+// request that would be cancelled had not returned yet.
+func TestPromptDoesNotBlockOnRetrieval(t *testing.T) {
+	src, err := os.ReadFile("session.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	i := strings.Index(body, "func (m *Manager) prompt(")
+	if i < 0 {
+		t.Fatal("prompt() is gone; this test needs updating")
+	}
+	fn := body[i:]
+	if j := strings.Index(fn[1:], "\nfunc "); j >= 0 {
+		fn = fn[:j]
+	}
+	call := strings.Index(fn, "m.retrieveFor(")
+	if call < 0 {
+		t.Skip("retrieval no longer happens in prompt()")
+	}
+	// The retrieval call has to sit after the goroutine that runs the turn.
+	spawn := strings.Index(fn, "go func()")
+	if spawn < 0 || call < spawn {
+		t.Error("retrieval runs before the run is spawned, so the prompt request waits for it")
+	}
+	// And it has to be handed the run's context, or Stop cannot reach it.
+	if !strings.Contains(fn, "m.retrieveFor(ctx,") {
+		t.Error("retrieval does not take the run's context, so Stop cannot cancel it")
 	}
 }
