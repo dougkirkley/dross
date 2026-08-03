@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -178,5 +179,26 @@ func TestLinksSurviveWhenNothingWasRetrieved(t *testing.T) {
 	in := "see [a page](https://example.com/x)"
 	if got := keepOnlyRetrievedLinks(ctx, in); got != in {
 		t.Errorf("stripped links with no source set to judge against: %q", got)
+	}
+}
+
+// Four searches at eight results each is thirty-two links under an answer,
+// which buries the two or three that were used. Searching widely stays cheap;
+// showing all of it is not the same as showing the work.
+func TestSourcesAreCapped(t *testing.T) {
+	ctx, sink := withSourceSink(context.Background())
+	for i := 0; i < 40; i++ {
+		if src, ok := NewSource("", fmt.Sprintf("https://example.com/%d", i), ""); ok {
+			recordSource(ctx, src)
+		}
+	}
+	got := sink.all()
+	if len(got) != maxSources {
+		t.Fatalf("kept %d sources; want %d", len(got), maxSources)
+	}
+	// The ones kept are the first met - the main query's results, before the
+	// site-specific follow-ups.
+	if got[0].URL != "https://example.com/0" {
+		t.Errorf("capping dropped the earliest sources: first is %q", got[0].URL)
 	}
 }

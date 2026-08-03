@@ -47,8 +47,19 @@ func NewSource(title, rawURL, snippet string) (Source, bool) {
 	}, true
 }
 
-// dedupeSources keeps the first mention of each URL, in order. A turn that
-// searches twice and fetches one of the results should cite that page once.
+// maxSources is how many citations are worth showing.
+//
+// Four searches at eight results each is thirty-two links under an answer,
+// which is not a citation list - it is a second search results page, and it
+// buries the two or three that were actually used. Searching widely is cheap
+// and worth it; showing everything found is not the same thing as showing the
+// work.
+const maxSources = 10
+
+// dedupeSources keeps the first mention of each URL, in order, and stops at
+// maxSources. Order is the order the turn met them, so the main query's results
+// lead and the site-specific ones follow - which is also roughly the order of
+// usefulness.
 func dedupeSources(in []Source) []Source {
 	seen := map[string]bool{}
 	out := make([]Source, 0, len(in))
@@ -58,6 +69,9 @@ func dedupeSources(in []Source) []Source {
 		}
 		seen[s.URL] = true
 		out = append(out, s)
+		if len(out) == maxSources {
+			break
+		}
 	}
 	return out
 }
