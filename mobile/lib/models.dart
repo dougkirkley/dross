@@ -218,8 +218,17 @@ class Account {
   bool get approved => status == 'approved';
   bool get isAdmin => role == 'admin';
 
-  static DateTime? _time(dynamic v) =>
-      v == null ? null : DateTime.tryParse(v as String)?.toLocal();
+  /// Parses a server timestamp, treating Go's zero time as absent.
+  ///
+  /// An account that has never signed in carries "0001-01-01T00:00:00Z", which
+  /// parses happily and then renders as "last seen 739830d ago" — a number
+  /// that reads as a bug about someone rather than a fact about nobody.
+  static DateTime? _time(dynamic v) {
+    if (v == null) return null;
+    final t = DateTime.tryParse(v as String);
+    if (t == null || t.year < 2000) return null;
+    return t.toLocal();
+  }
 
   factory Account.fromJson(Map<String, dynamic> j) => Account(
         email: j['email'] as String? ?? '',

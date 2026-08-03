@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/readable.dart';
 
 /// Accounts: who is waiting to be let in, and everyone who already was.
 ///
@@ -97,19 +98,25 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: T.bg,
-      appBar: AppBar(
-        backgroundColor: T.bg,
-        surfaceTintColor: Colors.transparent,
-        title: const Text('Admin', style: T.title),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: T.textDim),
-            onPressed: _reload,
-            tooltip: 'Refresh',
+      // The same header as every other screen, with the same way back. The
+      // stock AppBar looked like a different app, and on web its implied back
+      // button did not reliably appear — leaving Admin a page with no exit.
+      body: SafeArea(
+        child: Column(children: [
+          FlatHeader(
+            title: 'Admin',
+            leading: CircleIconButton(
+                icon: Icons.chevron_left, onTap: () => Navigator.pop(context)),
+            trailing: CircleIconButton(icon: Icons.refresh, onTap: _reload),
           ),
-        ],
+          Expanded(child: _body()),
+        ]),
       ),
-      body: FutureBuilder<List<Account>>(
+    );
+  }
+
+  Widget _body() {
+    return FutureBuilder<List<Account>>(
         future: _accounts,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
@@ -127,23 +134,25 @@ class _AdminScreenState extends State<AdminScreen> {
 
           final pending = all.where((a) => a.pending).toList();
           final decided = all.where((a) => !a.pending).toList();
-          return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            children: [
-              _heading('Waiting'),
-              if (pending.isEmpty)
-                _message('Nobody is waiting.', pad: true)
-              else
-                ...pending.map(_row),
-              const SizedBox(height: 12),
-              _heading('Everyone else'),
-              ...decided.map(_row),
-              const SizedBox(height: 24),
-            ],
+          // Readable, like the conversations: a card as wide as a desktop
+          // browser is mostly empty space with an email lost at one end of it.
+          return Readable(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                _heading('Waiting'),
+                if (pending.isEmpty)
+                  _message('Nobody is waiting.', pad: true)
+                else
+                  ...pending.map(_row),
+                const SizedBox(height: 12),
+                _heading('Everyone else'),
+                ...decided.map(_row),
+                const SizedBox(height: 24),
+              ],
+            ),
           );
-        },
-      ),
-    );
+        });
   }
 
   Widget _heading(String s) => Padding(
