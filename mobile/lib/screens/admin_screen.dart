@@ -161,90 +161,199 @@ class _AdminScreenState extends State<AdminScreen> {
     final busy = _deciding.contains(a.email);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Container(
-        decoration: BoxDecoration(
-          color: T.surface,
-          border: Border.all(color: T.border),
+      child: Material(
+        color: T.surface,
+        borderRadius: BorderRadius.circular(T.rCard),
+        child: InkWell(
           borderRadius: BorderRadius.circular(T.rCard),
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Flexible(
-                      child: Text(a.email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: T.body.copyWith(fontWeight: FontWeight.w600)),
-                    ),
-                    if (a.isAdmin) ...[
-                      const SizedBox(width: 8),
-                      _tag('admin', T.accent),
-                    ],
-                  ]),
-                  const SizedBox(height: 3),
-                  Text(_subtitle(a), style: T.metaFaint, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-              ),
+          // A card is as wide as a phone, and an address plus a status does not
+          // fit on one - so the card shows what identifies somebody and a tap
+          // shows the rest, rather than the row eliding the half that matters.
+          onTap: () => _showAccount(a),
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: T.border),
+              borderRadius: BorderRadius.circular(T.rCard),
             ),
-            const SizedBox(width: 4),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, size: 18, color: T.textDim),
-              color: T.surface,
-              onSelected: (v) {
-                switch (v) {
-                  case 'admin':
-                    _act(a, 'is an admin',
-                        () => context.read<AppState>().setRole(a.email, 'admin'));
-                  case 'user':
-                    _act(a, 'is no longer an admin',
-                        () => context.read<AppState>().setRole(a.email, 'user'));
-                  case 'remove':
-                    _confirmRemove(a);
-                }
-              },
-              itemBuilder: (_) => [
-                if (!a.isAdmin)
-                  const PopupMenuItem(
-                      value: 'admin',
-                      child: Text('Make admin', style: T.body)),
-                if (a.isAdmin)
-                  const PopupMenuItem(
-                      value: 'user',
-                      child: Text('Remove admin', style: T.body)),
-                const PopupMenuItem(
-                    value: 'remove',
-                    child: Text('Remove account',
-                        style: TextStyle(color: T.danger, fontSize: 15))),
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Flexible(
+                          child: Text(a.email,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  T.body.copyWith(fontWeight: FontWeight.w600)),
+                        ),
+                        if (a.isAdmin) ...[
+                          const SizedBox(width: 8),
+                          _tag('admin', T.accent),
+                        ],
+                      ]),
+                      const SizedBox(height: 3),
+                      Text(_subtitle(a),
+                          style: T.metaFaint,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // One action on the card — the one an admin came here to press.
+                // Roles and removal live on the sheet the card opens, which is
+                // where there is room to say what they do. The overflow menu
+                // that used to sit here cost the address the width it needed.
+                if (busy)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: T.accent)),
+                  )
+                else if (a.pending) ...[
+                  _button('Approve',
+                      primary: true, onTap: () => _decide(a, 'approve')),
+                  const SizedBox(width: 6),
+                  _button('Deny', onTap: () => _decide(a, 'deny')),
+                ] else if (a.approved)
+                  // Revoking is the same call as denying. Named for what it does
+                  // to someone who already had access.
+                  _button('Revoke', onTap: () => _decide(a, 'deny'))
+                else
+                  _button('Approve',
+                      primary: true, onTap: () => _decide(a, 'approve')),
               ],
             ),
-            const SizedBox(width: 4),
-            if (busy)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: T.accent)),
-              )
-            else if (a.pending) ...[
-              _button('Approve', primary: true, onTap: () => _decide(a, 'approve')),
-              const SizedBox(width: 6),
-              _button('Deny', onTap: () => _decide(a, 'deny')),
-            ] else if (a.approved)
-              // Revoking is the same call as denying. Named for what it does to
-              // someone who already had access.
-              _button('Revoke', onTap: () => _decide(a, 'deny'))
-            else
-              _button('Approve', primary: true, onTap: () => _decide(a, 'approve')),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Everything known about one account, in full — the address that the card
+  /// had to cut short, and the dates behind "last seen 3d ago".
+  ///
+  /// The actions come with it. Opening a card to read who somebody is and then
+  /// having to close it to act on them is a step that exists for no reason.
+  void _showAccount(Account a) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: T.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(T.rCard)),
+      ),
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: T.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Wrapped, not elided: the address is the one thing on this sheet
+              // somebody might need to read character by character.
+              SelectionArea(
+                child: Text(a.email,
+                    style: T.body.copyWith(
+                        fontWeight: FontWeight.w600, fontSize: 17)),
+              ),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _tag(a.status, a.pending
+                    ? T.accentHi
+                    : a.approved
+                        ? T.accent
+                        : T.danger),
+                if (a.isAdmin) _tag('admin', T.accent),
+              ]),
+              const SizedBox(height: 16),
+              if (a.name.isNotEmpty) _detail('Name', a.name),
+              _detail('First seen', _when(a.firstSeen)),
+              _detail('Last seen', _when(a.lastSeen)),
+              _detail('Sign-ins', '${a.logins}'),
+              if (a.decidedBy.isNotEmpty) _detail('Decided by', a.decidedBy),
+              const SizedBox(height: 18),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                if (a.pending) ...[
+                  _button('Approve',
+                      primary: true,
+                      onTap: () {
+                        Navigator.pop(sheet);
+                        _decide(a, 'approve');
+                      }),
+                  _button('Deny', onTap: () {
+                    Navigator.pop(sheet);
+                    _decide(a, 'deny');
+                  }),
+                ] else if (a.approved)
+                  _button('Revoke', onTap: () {
+                    Navigator.pop(sheet);
+                    _decide(a, 'deny');
+                  })
+                else
+                  _button('Approve',
+                      primary: true,
+                      onTap: () {
+                        Navigator.pop(sheet);
+                        _decide(a, 'approve');
+                      }),
+                _button(a.isAdmin ? 'Remove admin' : 'Make admin', onTap: () {
+                  Navigator.pop(sheet);
+                  a.isAdmin
+                      ? _act(a, 'is no longer an admin',
+                          () => context.read<AppState>().setRole(a.email, 'user'))
+                      : _act(a, 'is an admin',
+                          () => context.read<AppState>().setRole(a.email, 'admin'));
+                }),
+                _button('Remove account', danger: true, onTap: () {
+                  Navigator.pop(sheet);
+                  _confirmRemove(a);
+                }),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detail(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+                width: 108,
+                child: Text(label, style: T.metaFaint)),
+            Expanded(child: Text(value, style: T.body.copyWith(fontSize: 14.5))),
+          ],
+        ),
+      );
+
+  /// A date somebody can act on: when it was, and how long ago that was.
+  static String _when(DateTime? t) {
+    if (t == null) return 'never';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}'
+        ' · ${_ago(t)}';
   }
 
   String _subtitle(Account a) {
@@ -278,7 +387,10 @@ class _AdminScreenState extends State<AdminScreen> {
         child: Text(s, style: T.metaFaint.copyWith(color: c, fontSize: 11)),
       );
 
-  Widget _button(String label, {bool primary = false, required VoidCallback onTap}) =>
+  Widget _button(String label,
+          {bool primary = false,
+          bool danger = false,
+          required VoidCallback onTap}) =>
       Material(
         color: primary ? T.pill : Colors.transparent,
         borderRadius: BorderRadius.circular(T.rPill),
@@ -290,12 +402,17 @@ class _AdminScreenState extends State<AdminScreen> {
             decoration: primary
                 ? null
                 : BoxDecoration(
-                    border: Border.all(color: T.border),
+                    border: Border.all(
+                        color: danger ? T.danger.withValues(alpha: 0.5) : T.border),
                     borderRadius: BorderRadius.circular(T.rPill),
                   ),
             child: Text(label,
                 style: TextStyle(
-                  color: primary ? T.pillText : T.textDim,
+                  color: primary
+                      ? T.pillText
+                      : danger
+                          ? T.danger
+                          : T.textDim,
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                 )),
