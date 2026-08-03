@@ -44,7 +44,7 @@ func (s *Server) handleProviders(w http.ResponseWriter, _ *http.Request) {
 // lead's list would offer a picker full of ids it will fail on. Absent, the
 // answer is the lead's, which is what every existing client gets.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	models, current := s.mgr.modelsFor(r.URL.Query().Get("chat") == "1")
+	models, current := s.mgr.modelsFor(r.Context(), r.URL.Query().Get("chat") == "1")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"models":  models,
 		"current": current,

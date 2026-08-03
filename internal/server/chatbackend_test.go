@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // A chat backend is optional. Without one, chat has to behave exactly as it did
 // before there was such a thing — same provider, same model, same endpoint.
@@ -85,7 +88,7 @@ func TestModelsForSessionKind(t *testing.T) {
 	m.SetModels([]string{"qwen3-coder:30b", "qwen2.5-coder:14b"})
 
 	// No chat backend: chat and code are the same server, so the same list.
-	if got, cur := m.modelsFor(true); len(got) != 2 || cur != "qwen3-coder:30b" {
+	if got, cur := m.modelsFor(context.Background(), true); len(got) != 2 || cur != "qwen3-coder:30b" {
 		t.Errorf("without a chat backend, chat should get the lead's list, got %v/%q", got, cur)
 	}
 
@@ -94,18 +97,18 @@ func TestModelsForSessionKind(t *testing.T) {
 	// list here would load an 18 GB model onto a machine sized for smaller
 	// ones the moment somebody picked one.
 	m.SetChat(&fakeProvider{}, "gemma2:9b", "http://small:11434/v1")
-	got, cur := m.modelsFor(true)
+	got, cur := m.modelsFor(context.Background(), true)
 	if len(got) != 1 || got[0] != "gemma2:9b" || cur != "gemma2:9b" {
 		t.Errorf("chat picker = %v/%q, want just the chat model", got, cur)
 	}
 	// Code is unaffected by any of it.
-	if got, cur := m.modelsFor(false); len(got) != 2 || cur != "qwen3-coder:30b" {
+	if got, cur := m.modelsFor(context.Background(), false); len(got) != 2 || cur != "qwen3-coder:30b" {
 		t.Errorf("code picker = %v/%q, want the lead's list", got, cur)
 	}
 
 	// An explicit list wins, for a chat server that does have several.
 	m.SetChatModels([]string{"gemma2:9b", "llama3.1:8b"})
-	if got, _ := m.modelsFor(true); len(got) != 2 || got[1] != "llama3.1:8b" {
+	if got, _ := m.modelsFor(context.Background(), true); len(got) != 2 || got[1] != "llama3.1:8b" {
 		t.Errorf("chat picker = %v, want the configured list", got)
 	}
 }

@@ -437,6 +437,11 @@ type Manager struct {
 	// that live on the lead's server, because picking one loads a model onto a
 	// machine that was sized for smaller ones.
 	chatModels []string
+	// What each backend reports actually having, so a picker offers ids that
+	// will work rather than ids somebody wrote down once. One per backend
+	// because they are different servers with different models.
+	leadInstalled installedCache
+	chatInstalled installedCache
 	repo      string                 // owner/repo (or dir) label shown on session cards
 	hub       *deviceHub             // linked devices (session relay)
 	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
@@ -473,22 +478,30 @@ func (m *Manager) SetChatModels(models []string) { m.chatModels = models }
 
 // modelsFor returns the list to offer, and the default, for one kind of
 // session.
-func (m *Manager) modelsFor(chat bool) ([]string, string) {
+//
+// The configured allow-list is narrowed to what the backend reports having, so
+// the picker cannot offer an id that will fail the turn or pull a model onto a
+// server sized for smaller ones. A backend that cannot be asked leaves its list
+// untouched — see offerable.
+func (m *Manager) modelsFor(ctx context.Context, chat bool) ([]string, string) {
 	if !chat {
-		return m.models, m.model
+		return offerable(m.models, m.leadInstalled.installed(ctx, m.leadURL)), m.model
 	}
-	_, defaultModel, _ := m.chatBackend()
+	_, defaultModel, chatURL := m.chatBackend()
+	present := m.chatInstalled.installed(ctx, chatURL)
 	switch {
 	case len(m.chatModels) > 0:
-		return m.chatModels, defaultModel
+		return offerable(m.chatModels, present), defaultModel
 	case m.chat != nil:
-		// A chat backend with nothing configured to offer: the only model it is
-		// known to have is the one it was configured with. Better a picker with
-		// one entry than one that offers models the server will fail on.
+		// A chat backend with nothing configured to offer: everything it has,
+		// or failing that the one model it was configured with.
+		if len(present) > 0 {
+			return present, defaultModel
+		}
 		return []string{defaultModel}, defaultModel
 	default:
 		// Chat is on the lead backend, so the lead's list is right.
-		return m.models, defaultModel
+		return offerable(m.models, present), defaultModel
 	}
 }
 
