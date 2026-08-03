@@ -16,6 +16,7 @@ import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/composer_keys.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
 /// calls, delegation indented, cost). The transcript is set in mono end to end,
@@ -77,69 +78,65 @@ class _SessionScreenState extends State<SessionScreen> {
     // made the web build read as a stretched phone.
     final wide = isWide(context);
     final pane = Column(
-          children: [
-            FlatHeader(
-              // The session's own name when it has one, so a renamed session is
-              // identifiable from the screen it is open on.
-              title: sess?.displayTitle ?? 'session',
-              subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
-              leading: wide
-                  ? null
-                  : CircleIconButton(
-                      icon: Icons.chevron_left,
-                      onTap: () => backOrHome(context)),
-              trailing: sess == null
-                  ? null
-                  : _sessionMenu(context, sess),
-            ),
-            // Same signal at the top of the window the session owns, so a run
-            // is visible without going back to the list to see its card.
-            if (sess?.isRunning ?? false) const RunningBar(),
-            if (_starting(sess)) _StartingPanel(resuming: s.events.isNotEmpty),
-            Expanded(
-              child: Builder(builder: (_) {
-                final timeline = buildTimeline(s.events);
-                final shells = buildShells(s.events);
-                final runningShells = shells.where((x) => x.running).length;
-                // Trailing items after the conversation: the live spinner (while
-                // the turn runs) and a "N running task" link (background shells).
-                final trailing = <Widget>[
-                  if (sess?.isRunning ?? false) _runningRow(s),
-                  if (runningShells > 0)
-                    _tasksLink(context, shells, runningShells),
-                ];
-                return RefreshIndicator(
-                  onRefresh: () => context.read<AppState>().reloadCurrent(),
-                  color: T.accent,
-                  backgroundColor: T.surface,
-                  child: Readable(
-                    child: ListView.builder(
-                      controller: _follow.controller,
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                      itemCount: timeline.length + trailing.length,
-                      itemBuilder: (_, i) {
-                        if (i >= timeline.length) {
-                          return trailing[i - timeline.length];
-                        }
-                        final item = timeline[i];
-                        if (item is Activity) return ActivityBlock(item);
-                        return _eventRow(item as Event);
-                      },
-                    ),
-                  ),
-                );
-              }),
-            ),
-            AnimatedBuilder(
-              animation: _follow,
-              builder: (_, __) => JumpToLatest(
-                  follow: _follow,
-                  label: (sess?.isRunning ?? false) ? 'Working' : 'Latest'),
-            ),
-            if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
-            Readable(child: _inputBar(context, s)),
-          ],
-        );
+      children: [
+        FlatHeader(
+          // The session's own name when it has one, so a renamed session is
+          // identifiable from the screen it is open on.
+          title: sess?.displayTitle ?? 'session',
+          subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
+          leading: wide
+              ? null
+              : CircleIconButton(
+                  icon: Icons.chevron_left, onTap: () => backOrHome(context)),
+          trailing: sess == null ? null : _sessionMenu(context, sess),
+        ),
+        // Same signal at the top of the window the session owns, so a run
+        // is visible without going back to the list to see its card.
+        if (sess?.isRunning ?? false) const RunningBar(),
+        if (_starting(sess)) _StartingPanel(resuming: s.events.isNotEmpty),
+        Expanded(
+          child: Builder(builder: (_) {
+            final timeline = buildTimeline(s.events);
+            final shells = buildShells(s.events);
+            final runningShells = shells.where((x) => x.running).length;
+            // Trailing items after the conversation: the live spinner (while
+            // the turn runs) and a "N running task" link (background shells).
+            final trailing = <Widget>[
+              if (sess?.isRunning ?? false) _runningRow(s),
+              if (runningShells > 0) _tasksLink(context, shells, runningShells),
+            ];
+            return RefreshIndicator(
+              onRefresh: () => context.read<AppState>().reloadCurrent(),
+              color: T.accent,
+              backgroundColor: T.surface,
+              child: Readable(
+                child: ListView.builder(
+                  controller: _follow.controller,
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  itemCount: timeline.length + trailing.length,
+                  itemBuilder: (_, i) {
+                    if (i >= timeline.length) {
+                      return trailing[i - timeline.length];
+                    }
+                    final item = timeline[i];
+                    if (item is Activity) return ActivityBlock(item);
+                    return _eventRow(item as Event);
+                  },
+                ),
+              ),
+            );
+          }),
+        ),
+        AnimatedBuilder(
+          animation: _follow,
+          builder: (_, __) => JumpToLatest(
+              follow: _follow,
+              label: (sess?.isRunning ?? false) ? 'Working' : 'Latest'),
+        ),
+        if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
+        Readable(child: _inputBar(context, s)),
+      ],
+    );
     return SelectionArea(
         child: Scaffold(
       backgroundColor: T.chatBg,
@@ -156,7 +153,8 @@ class _SessionScreenState extends State<SessionScreen> {
   }
 
   /// The session's own menu, top right of the page it belongs to.
-  Widget _sessionMenu(BuildContext context, Session sess) => PopupMenuButton<String>(
+  Widget _sessionMenu(BuildContext context, Session sess) =>
+      PopupMenuButton<String>(
         icon: const Icon(Icons.more_horiz, color: T.text),
         color: T.surface,
         position: PopupMenuPosition.under,
@@ -174,7 +172,6 @@ class _SessionScreenState extends State<SessionScreen> {
           ),
         ],
       );
-
 
   Widget _tasksLink(
           BuildContext context, List<ShellTask> shells, int running) =>
@@ -201,7 +198,9 @@ class _SessionScreenState extends State<SessionScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(currentActivityLabel(s.events),
-                style: metaFor(context), maxLines: 1, overflow: TextOverflow.ellipsis),
+                style: metaFor(context),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
           ),
         ]),
       );
@@ -350,127 +349,139 @@ class _SessionScreenState extends State<SessionScreen> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
-          decoration: BoxDecoration(
-            color: T.inputBg,
-            borderRadius: BorderRadius.circular(T.rCard),
-            border: Border.all(color: T.border),
-          ),
-          child: Column(
-            children: [
-              if (s.mashWarning != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6, top: 2),
-                  child: Row(children: [
-                    const Icon(Icons.pets, size: 15, color: T.textDim),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(s.mashWarning!, style: T.metaFaint)),
-                  ]),
-                ),
-              if (s.remotePending.isNotEmpty) _attachChips(context, s),
-              Row(children: [
-                // The terminal's prompt marker, on the desktop layout only. On
-                // a phone the composer is obviously a composer and the glyph
-                // would just take a character's width from a short line.
-                if (isWide(context))
+        // Enter sends where there is a keyboard to press it with. A running
+        // turn still accepts one: this composer queues while the agent works.
+        child: SendOnEnter(
+          onSend: () => _send(context),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+            decoration: BoxDecoration(
+              color: T.inputBg,
+              borderRadius: BorderRadius.circular(T.rCard),
+              border: Border.all(color: T.border),
+            ),
+            child: Column(
+              children: [
+                if (s.mashWarning != null)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Text('❯',
-                        style: T.termBody.copyWith(
-                            color: T.accent, fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.only(bottom: 6, top: 2),
+                    child: Row(children: [
+                      const Icon(Icons.pets, size: 15, color: T.textDim),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(s.mashWarning!, style: T.metaFaint)),
+                    ]),
                   ),
-                Expanded(
-                  child: TextField(
-                    controller: _input,
-                    focusNode: _inputFocus,
-                    minLines: 1,
-                    maxLines: 5,
-                    style: bodyFor(context),
-                    decoration: InputDecoration.collapsed(
-                        hintText: running
-                            ? 'Queue after this turn…'
-                            : 'Build anything…',
-                        hintStyle: const TextStyle(color: T.textDim)),
-                    onSubmitted: (_) => _send(context),
+                if (s.remotePending.isNotEmpty) _attachChips(context, s),
+                Row(children: [
+                  // The terminal's prompt marker, on the desktop layout only. On
+                  // a phone the composer is obviously a composer and the glyph
+                  // would just take a character's width from a short line.
+                  if (isWide(context))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text('❯',
+                          style: T.termBody.copyWith(
+                              color: T.accent, fontWeight: FontWeight.w600)),
+                    ),
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      focusNode: _inputFocus,
+                      minLines: 1,
+                      maxLines: 5,
+                      style: bodyFor(context),
+                      decoration: InputDecoration.collapsed(
+                          hintText: running
+                              ? 'Queue after this turn…'
+                              : 'Build anything…',
+                          hintStyle: const TextStyle(color: T.textDim)),
+                      onSubmitted: (_) => _send(context),
+                    ),
                   ),
-                ),
-                // Button is a square by default; it becomes the round send arrow
-                // only when the composer has text. While running with an empty
-                // composer the square acts as the Stop control (interrupt).
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _input,
-                  builder: (context, value, _) {
-                    final hasText = value.text.trim().isNotEmpty;
-                    if (hasText) {
-                      return GestureDetector(
-                        onTap: () => _send(context),
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            gradient: T.auroraGrad,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: T.violet.withValues(alpha: .5),
-                                blurRadius: 16,
-                                spreadRadius: -2,
-                              ),
-                            ],
+                  // Button is a square by default; it becomes the round send arrow
+                  // only when the composer has text. While running with an empty
+                  // composer the square acts as the Stop control (interrupt).
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _input,
+                    builder: (context, value, _) {
+                      final hasText = value.text.trim().isNotEmpty;
+                      if (hasText) {
+                        return GestureDetector(
+                          onTap: () => _send(context),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              gradient: T.auroraGrad,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: T.violet.withValues(alpha: .5),
+                                  blurRadius: 16,
+                                  spreadRadius: -2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                                running ? Icons.add : Icons.arrow_upward,
+                                size: 20,
+                                color: T.bg),
                           ),
-                          child: Icon(running ? Icons.add : Icons.arrow_upward,
-                              size: 20, color: T.bg),
-                        ),
-                      );
-                    }
-                    // Running with an empty composer: the square is Stop.
-                    if (running) {
-                      return GestureDetector(
-                        onTap: () => context.read<AppState>().interrupt(),
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: T.accent,
-                            borderRadius: BorderRadius.circular(10),
+                        );
+                      }
+                      // Running with an empty composer: the square is Stop.
+                      if (running) {
+                        return GestureDetector(
+                          onTap: () => context.read<AppState>().interrupt(),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: T.accent,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child:
+                                const Icon(Icons.stop, size: 18, color: T.bg),
                           ),
-                          child: const Icon(Icons.stop, size: 18, color: T.bg),
+                        );
+                      }
+                      // Idle with nothing typed: a dimmed, inert send arrow — the
+                      // resting state shouldn't offer a Stop for a run that isn't
+                      // happening.
+                      return Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          color: T.surfaceAlt,
+                          shape: BoxShape.circle,
                         ),
+                        child: const Icon(Icons.arrow_upward,
+                            size: 20, color: T.textFaint),
                       );
-                    }
-                    // Idle with nothing typed: a dimmed, inert send arrow — the
-                    // resting state shouldn't offer a Stop for a run that isn't
-                    // happening.
-                    return Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        color: T.surfaceAlt,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.arrow_upward,
-                          size: 20, color: T.textFaint),
-                    );
-                  },
-                ),
-              ]),
-              const SizedBox(height: 8),
-              Row(children: [
-                _circleAction(Icons.add, () => _pickFile(context)),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: OutlineChip(
-                    onTap: () => showServerModelSheet(context),
-                    child: Text(s.current?.model ?? 'model',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: T.textDim, fontSize: 13)),
+                    },
                   ),
-                ),
-                const Spacer(),
-              ]),
-            ],
+                ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  _circleAction(Icons.add, () => _pickFile(context)),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: OutlineChip(
+                      onTap: () => showServerModelSheet(context),
+                      child: Text(s.current?.model ?? 'model',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(color: T.textDim, fontSize: 13)),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (isWide(context))
+                    Text('Enter to send · Shift+Enter for a new line',
+                        style: T.metaFaint.copyWith(fontSize: 11.5)),
+                ]),
+              ],
+            ),
           ),
         ),
       ),

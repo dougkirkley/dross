@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
-import 'readable.dart';
+import 'modal.dart';
 
 /// Change the model of the current session: the models the server offers, a
 /// free-text field for an arbitrary id, and which of them is loaded right now.
@@ -16,26 +16,9 @@ import 'readable.dart';
 Future<void> showServerModelSheet(BuildContext context) {
   final s = context.read<AppState>();
   final ctrl = TextEditingController(text: s.current?.model ?? '');
-  if (isWide(context)) {
-    return showDialog<void>(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: _Sheet(state: s, ctrl: ctrl, dialog: true),
-        ),
-      ),
-    );
-  }
-  return showModalBottomSheet<void>(
+  return showResponsiveModal<void>(
     context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-      child: _Sheet(state: s, ctrl: ctrl),
-    ),
+    builder: (_, dialog) => _Sheet(state: s, ctrl: ctrl, dialog: dialog),
   );
 }
 
@@ -98,17 +81,7 @@ class _SheetState extends State<_Sheet> {
     final ctrl = widget.ctrl;
     return SafeArea(
       child: Container(
-        decoration: widget.dialog
-            ? BoxDecoration(
-                color: T.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: T.border),
-              )
-            : const BoxDecoration(
-                color: T.surface,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                border: Border(top: BorderSide(color: T.border)),
-              ),
+        decoration: modalDecoration(widget.dialog),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(

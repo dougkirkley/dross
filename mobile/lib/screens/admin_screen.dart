@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/readable.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/modal.dart';
 
 /// Accounts: who is waiting to be let in, and everyone who already was.
 ///
@@ -265,31 +266,31 @@ class _AdminScreenState extends State<AdminScreen> {
   /// The actions come with it. Opening a card to read who somebody is and then
   /// having to close it to act on them is a step that exists for no reason.
   void _showAccount(Account a) {
-    showModalBottomSheet<void>(
+    showResponsiveModal<void>(
       context: context,
-      backgroundColor: T.surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(T.rCard)),
-      ),
-      builder: (sheet) => SafeArea(
-        child: Padding(
+      builder: (sheet, dialog) => SafeArea(
+        child: Container(
+          decoration: modalDecoration(dialog),
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: T.border,
-                    borderRadius: BorderRadius.circular(2),
+              // The grab handle is what says "drag me down"; a dialog is
+              // dismissed by clicking away from it, so the affordance would be
+              // a lie.
+              if (!dialog)
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: T.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
               // Wrapped, not elided: the address is the one thing on this sheet
               // somebody might need to read character by character.
               SelectionArea(

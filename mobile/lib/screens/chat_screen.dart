@@ -14,6 +14,7 @@ import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/composer_keys.dart';
 
 /// Conversational view of an `dross serve` session — the same look as the old
 /// direct-mode chat (greeting, mono assistant prose, dark right-aligned user
@@ -68,59 +69,58 @@ class _ChatScreenState extends State<ChatScreen> {
     // affordance and stays a phone affordance.
     final wide = isWide(context);
     final pane = Column(
-            children: [
-              FlatHeader(
-                title: sess?.displayTitle ?? 'New chat',
-                subtitle: sess?.model,
-                leading: wide
-                    ? null
-                    : CircleIconButton(
-                        icon: Icons.chevron_left,
-                        onTap: () => backOrHome(context)),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => context.read<AppState>().reloadCurrent(),
-                  color: T.accent,
-                  backgroundColor: T.surface,
-                  child: msgs.isEmpty && !running
-                      // The greeting isn't scrollable on its own, so give it
-                      // scroll physics or there's nothing to pull on.
-                      ? Readable(
-                          child: ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: [_greeting(sess)],
-                          ),
-                        )
-                      : Readable(
-                          child: ListView.builder(
-                            controller: _follow.controller,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                            // After the messages: the answer as it streams in,
-                            // then the orb — lively while Dross is answering,
-                            // calm (just blinking) once it's done.
-                            itemCount: msgs.length + 2,
-                            itemBuilder: (_, i) {
-                              if (i == msgs.length) return _streaming(s);
-                              if (i > msgs.length) return _spinner(running, s);
-                              return _message(msgs[i]);
-                            },
-                          ),
-                        ),
-                ),
-              ),
-              // Offered only once the reader has left the end of the thread,
-              // and only when there is a thread to have left.
-              if (msgs.isNotEmpty || running)
-                AnimatedBuilder(
-                  animation: _follow,
-                  builder: (_, __) => JumpToLatest(
-                      follow: _follow, label: running ? 'Writing' : 'Latest'),
-                ),
-              Readable(child: _inputBar(context, s, running)),
-            ],
-          );
+      children: [
+        FlatHeader(
+          title: sess?.displayTitle ?? 'New chat',
+          subtitle: sess?.model,
+          leading: wide
+              ? null
+              : CircleIconButton(
+                  icon: Icons.chevron_left, onTap: () => backOrHome(context)),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => context.read<AppState>().reloadCurrent(),
+            color: T.accent,
+            backgroundColor: T.surface,
+            child: msgs.isEmpty && !running
+                // The greeting isn't scrollable on its own, so give it
+                // scroll physics or there's nothing to pull on.
+                ? Readable(
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [_greeting(sess)],
+                    ),
+                  )
+                : Readable(
+                    child: ListView.builder(
+                      controller: _follow.controller,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      // After the messages: the answer as it streams in,
+                      // then the orb — lively while Dross is answering,
+                      // calm (just blinking) once it's done.
+                      itemCount: msgs.length + 2,
+                      itemBuilder: (_, i) {
+                        if (i == msgs.length) return _streaming(s);
+                        if (i > msgs.length) return _spinner(running, s);
+                        return _message(msgs[i]);
+                      },
+                    ),
+                  ),
+          ),
+        ),
+        // Offered only once the reader has left the end of the thread,
+        // and only when there is a thread to have left.
+        if (msgs.isNotEmpty || running)
+          AnimatedBuilder(
+            animation: _follow,
+            builder: (_, __) => JumpToLatest(
+                follow: _follow, label: running ? 'Writing' : 'Latest'),
+          ),
+        Readable(child: _inputBar(context, s, running)),
+      ],
+    );
     return SelectionArea(
       child: Scaffold(
         backgroundColor: T.chatBg,
@@ -222,7 +222,9 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Icon(Icons.error_outline, size: 18, color: T.danger),
           const SizedBox(width: 10),
-          Expanded(child: Text(e.data, style: bodyFor(context).copyWith(color: T.danger))),
+          Expanded(
+              child: Text(e.data,
+                  style: bodyFor(context).copyWith(color: T.danger))),
         ]),
       );
     }
@@ -366,56 +368,68 @@ class _ChatScreenState extends State<ChatScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-            decoration: BoxDecoration(
-              color: T.inputBg,
-              borderRadius: BorderRadius.circular(T.rCard),
-              border: Border.all(color: T.border),
-            ),
-            child: Column(
-              children: [
-                if (s.remotePending.isNotEmpty) _attachmentChips(context, s),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        focusNode: _focus,
-                        minLines: 1,
-                        maxLines: 6,
-                        style: bodyFor(context),
-                        decoration: InputDecoration.collapsed(
-                          hintText: (s.events.isNotEmpty)
-                              ? 'Reply to Dross'
-                              : 'Chat with Dross',
-                          hintStyle: const TextStyle(color: T.textDim),
+          // Enter sends where there is a keyboard to press it with; not while a
+          // turn is running, when the button is a Stop and Enter would mean
+          // nothing.
+          child: SendOnEnter(
+            enabled: !running,
+            onSend: () => _send(context),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              decoration: BoxDecoration(
+                color: T.inputBg,
+                borderRadius: BorderRadius.circular(T.rCard),
+                border: Border.all(color: T.border),
+              ),
+              child: Column(
+                children: [
+                  if (s.remotePending.isNotEmpty) _attachmentChips(context, s),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          focusNode: _focus,
+                          minLines: 1,
+                          maxLines: 6,
+                          style: bodyFor(context),
+                          decoration: InputDecoration.collapsed(
+                            hintText: (s.events.isNotEmpty)
+                                ? 'Reply to Dross'
+                                : 'Chat with Dross',
+                            hintStyle: const TextStyle(color: T.textDim),
+                          ),
+                          onSubmitted: (_) => _send(context),
                         ),
-                        onSubmitted: (_) => _send(context),
+                      ),
+                      const SizedBox(width: 8),
+                      _sendButton(context, running),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    _circleAction(Icons.add, () => _pickFile(context)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: OutlineChip(
+                        onTap: () => showServerModelSheet(context),
+                        child: Text(s.current?.model ?? 'model',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: T.textDim, fontSize: 13)),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _sendButton(context, running),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(children: [
-                  _circleAction(Icons.add, () => _pickFile(context)),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: OutlineChip(
-                      onTap: () => showServerModelSheet(context),
-                      child: Text(s.current?.model ?? 'model',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              const TextStyle(color: T.textDim, fontSize: 13)),
-                    ),
-                  ),
-                  const Spacer(),
-                ]),
-              ],
+                    const Spacer(),
+                    // Says the shortcut exists. A keyboard user who has to guess
+                    // whether Enter sends will use the mouse instead.
+                    if (isWide(context) && !running)
+                      Text('Enter to send · Shift+Enter for a new line',
+                          style: T.metaFaint.copyWith(fontSize: 11.5)),
+                  ]),
+                ],
+              ),
             ),
           ),
         ),
@@ -488,9 +502,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _sendButton(BuildContext context, bool running) => GestureDetector(
         behavior: HitTestBehavior.opaque,
         // Pressing Stop twice does nothing the first press did not already do.
-        onTap: () => running
-            ? (_stopping ? null : _stop(context))
-            : _send(context),
+        onTap: () =>
+            running ? (_stopping ? null : _stop(context)) : _send(context),
         child: Container(
           width: 40,
           height: 40,

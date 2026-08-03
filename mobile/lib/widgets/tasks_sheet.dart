@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'modal.dart';
 
 String _fmtRuntime(Duration d) {
   final s = d.inSeconds;
@@ -19,18 +20,20 @@ Future<void> showBackgroundTasksSheet(
     BuildContext context, List<ShellTask> shells) {
   final running = shells.where((s) => s.running).toList();
   final finished = shells.where((s) => !s.running).toList();
-  return showModalBottomSheet<void>(
+  return showResponsiveModal<void>(
     context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) => _Sheet(running: running, finished: finished),
+    maxWidth: 640, // shell output is wide; a 480 column wraps every line
+    builder: (_, dialog) =>
+        _Sheet(running: running, finished: finished, dialog: dialog),
   );
 }
 
 class _Sheet extends StatefulWidget {
-  const _Sheet({required this.running, required this.finished});
+  const _Sheet(
+      {required this.running, required this.finished, this.dialog = false});
   final List<ShellTask> running;
   final List<ShellTask> finished;
+  final bool dialog;
   @override
   State<_Sheet> createState() => _SheetState();
 }
@@ -44,11 +47,7 @@ class _SheetState extends State<_Sheet> {
       child: Container(
         constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height * 0.8),
-        decoration: const BoxDecoration(
-          color: T.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border(top: BorderSide(color: T.border)),
-        ),
+        decoration: modalDecoration(widget.dialog),
         child: ListView(
           padding: const EdgeInsets.all(16),
           shrinkWrap: true,
@@ -135,19 +134,14 @@ class _SheetState extends State<_Sheet> {
       );
 
   void _openDetail(BuildContext context, ShellTask s) {
-    showModalBottomSheet<void>(
+    showResponsiveModal<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SafeArea(
+      maxWidth: 640,
+      builder: (_, dialog) => SafeArea(
         child: Container(
           constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.85),
-          decoration: const BoxDecoration(
-            color: T.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border(top: BorderSide(color: T.border)),
-          ),
+          decoration: modalDecoration(dialog),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
