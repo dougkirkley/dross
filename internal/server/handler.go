@@ -43,11 +43,22 @@ func (s *Server) handleProviders(w http.ResponseWriter, _ *http.Request) {
 // chat answers on its own backend: that server has its own models, and the
 // lead's list would offer a picker full of ids it will fail on. Absent, the
 // answer is the lead's, which is what every existing client gets.
+// "loaded" is which of them are resident on that backend right now. Picking one
+// that is not costs a cold load — a minute or more here — and on a server that
+// holds one model at a time it unloads whatever was there, for everyone using
+// it and not just the person who changed the setting. A picker that says which
+// is warm makes that cost visible before it is paid rather than after.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	models, current := s.mgr.modelsFor(r.Context(), r.URL.Query().Get("chat") == "1")
+	chat := r.URL.Query().Get("chat") == "1"
+	models, current := s.mgr.modelsFor(r.Context(), chat)
+	url := s.mgr.leadURL
+	if chat {
+		_, _, url = s.mgr.chatBackend()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"models":  models,
 		"current": current,
+		"loaded":  loadedModels(r.Context(), url),
 	})
 }
 

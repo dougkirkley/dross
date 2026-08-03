@@ -103,16 +103,15 @@ class DrossClient {
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
-  /// The models the server offers (GET /api/models -> {models, current}).
-  /// Models the server offers for a picker. [chat] asks for a chat session's
-  /// list, which differs when the server answers chat on its own backend.
-  Future<List<String>> serverModels({bool chat = false}) async {
+  /// Models the server offers for a picker, and which of them are loaded.
+  ///
+  /// [chat] asks for a chat session's list, which differs when the server
+  /// answers chat on its own backend.
+  Future<ModelChoices> serverModels({bool chat = false}) async {
     final r = await _http.get(_uri('api/models${chat ? '?chat=1' : ''}'),
         headers: _headers);
     _check(r);
-    final body = jsonDecode(r.body) as Map<String, dynamic>;
-    final list = (body['models'] as List?) ?? const [];
-    return list.map((e) => e.toString()).toList();
+    return ModelChoices.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
   Future<void> prompt(String id, String text) async {

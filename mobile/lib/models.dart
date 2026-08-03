@@ -272,3 +272,42 @@ class Source {
     }
   }
 }
+
+/// What a session's model picker should show: the ids the server offers, and
+/// which of them that backend has resident right now.
+///
+/// Loading a model that is not resident costs a cold load — a minute or more
+/// against a local model — and a backend that holds one at a time unloads
+/// whatever was there, for everyone using it. Knowing which is warm is the
+/// difference between choosing a model and discovering the cost afterwards.
+class ModelChoices {
+  const ModelChoices({
+    this.models = const [],
+    this.current = '',
+    this.loaded = const [],
+  });
+
+  final List<String> models;
+  final String current;
+
+  /// Resident on the backend now. Empty from a server that could not be asked
+  /// as well as from one with nothing loaded — so it is a reason to say more,
+  /// never a reason to claim a model is cold.
+  final List<String> loaded;
+
+  bool isLoaded(String model) => loaded.contains(model);
+
+  /// Whether choosing [model] would unload something somebody else may be
+  /// using. True only when the backend has said what it holds, that model is
+  /// not among it, and something else is.
+  bool evicts(String model) => loaded.isNotEmpty && !loaded.contains(model);
+
+  static List<String> _strings(dynamic v) =>
+      (v as List?)?.map((e) => e.toString()).toList() ?? const [];
+
+  factory ModelChoices.fromJson(Map<String, dynamic> j) => ModelChoices(
+        models: _strings(j['models']),
+        current: j['current'] as String? ?? '',
+        loaded: _strings(j['loaded']),
+      );
+}

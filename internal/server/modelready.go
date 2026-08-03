@@ -75,3 +75,60 @@ func checkModel(ctx context.Context, baseURL, model string) modelState {
 	}
 	return modelCold
 }
+
+// loadedModels lists what a backend has resident right now.
+//
+// Which model is warm is the single most useful thing to know before picking
+// one, and the most expensive thing to find out by trying: on this hardware
+// loading a model that is not resident costs a minute or more, and a server
+// that can only hold one unloads whatever was there — for everybody, not just
+// the person who changed the setting. A picker that shows this turns an
+// invisible cost into a visible one.
+//
+// nil when the backend cannot be asked, which is not the same as "nothing is
+// loaded" and must not be shown as though it were.
+func loadedModels(ctx context.Context, baseURL string) []string {
+	root := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(baseURL), "/"), "/v1")
+	if root == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/ps", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var out struct {
+		Models []struct {
+			Name  string `json:"name"`
+			Model string `json:"model"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil
+	}
+	list := make([]string, 0, len(out.Models))
+	for _, m := range out.Models {
+		if name := cmpOr(m.Name, m.Model); name != "" {
+			list = append(list, name)
+		}
+	}
+	return list
+}
+
+// cmpOr returns the first non-empty string. ollama fills one field or the
+// other depending on version.
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}

@@ -352,16 +352,17 @@ class AppState extends ChangeNotifier {
     _deleting.remove(s.id);
   }
 
-  /// Models the server offers for the current session's model picker.
+  /// Models the server offers for the current session's model picker, and
+  /// which of them that backend has loaded.
   ///
   /// Asked per session kind, because a server can answer chat on a different
   /// backend from code — and then the two have different models. Offering the
   /// lead's list in a chat would offer ids the chat server has never heard of.
-  Future<List<String>> availableServerModels() async {
+  Future<ModelChoices> availableServerModels() async {
     try {
       return await _client.serverModels(chat: current?.chat ?? false);
     } catch (_) {
-      return [];
+      return const ModelChoices();
     }
   }
 

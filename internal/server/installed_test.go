@@ -85,3 +85,34 @@ func TestInstalledIsUnknownOnFailure(t *testing.T) {
 		t.Errorf("got %v, want nil when there is no endpoint to ask", got)
 	}
 }
+
+func TestLoadedModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ps" {
+			t.Errorf("asked for %q, want ollama's running-models route", r.URL.Path)
+		}
+		w.Write([]byte(`{"models":[{"name":"devstral:latest","model":"devstral"},{"model":"gemma2:9b"}]}`))
+	}))
+	defer srv.Close()
+
+	// The base URL is the OpenAI-compatible one; /api/ps lives a level up.
+	got := loadedModels(context.Background(), srv.URL+"/v1")
+	if len(got) != 2 || got[0] != "devstral:latest" || got[1] != "gemma2:9b" {
+		t.Errorf("got %v, want both resident models named", got)
+	}
+}
+
+func TestLoadedModelsIsUnknownOnFailure(t *testing.T) {
+	// nil, not empty. "Nothing is loaded" would tell somebody every model costs
+	// a cold load; "we could not ask" should say nothing at all.
+	if got := loadedModels(context.Background(), ""); got != nil {
+		t.Errorf("got %v, want nil with no endpoint", got)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	if got := loadedModels(context.Background(), srv.URL+"/v1"); got != nil {
+		t.Errorf("got %v, want nil from a backend that would not answer", got)
+	}
+}

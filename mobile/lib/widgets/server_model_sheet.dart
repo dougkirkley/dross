@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../models.dart';
 import '../theme.dart';
 
 /// Bottom sheet to change the model of the current remote (code) session. Lists
@@ -29,14 +30,45 @@ class _Sheet extends StatefulWidget {
 }
 
 class _SheetState extends State<_Sheet> {
-  List<String>? _models; // null = loading
+  ModelChoices? _choices; // null = still asking the server
 
   @override
   void initState() {
     super.initState();
     widget.state.availableServerModels().then((m) {
-      if (mounted) setState(() => _models = m);
+      if (mounted) setState(() => _choices = m);
     });
+  }
+
+  /// Confirm a change that would unload a model somebody else may be mid-answer
+  /// on.
+  ///
+  /// Not a warning about the person's own wait — that is theirs to accept — but
+  /// about everyone else's. These backends hold one model at a time, so picking
+  /// a cold one takes the warm one away from every other session pointed at
+  /// that server, and nothing about the picker said so.
+  Future<bool> _confirmEviction(String picked, String loaded) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Swap the loaded model?', style: T.title),
+        content: Text(
+          '$loaded is loaded now. Switching to $picked unloads it for everyone '
+          'using this server, and loading $picked takes a minute or two.',
+          style: T.metaFaint,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('Cancel', style: TextStyle(color: T.textDim))),
+          TextButton(
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('Switch', style: TextStyle(color: T.accent))),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   @override
@@ -64,7 +96,7 @@ class _SheetState extends State<_Sheet> {
                 const SizedBox(width: 44),
               ]),
               const SizedBox(height: 12),
-              if (_models == null)
+              if (_choices == null)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
                   child: Center(
@@ -74,7 +106,7 @@ class _SheetState extends State<_Sheet> {
                           child: CircularProgressIndicator(
                               strokeWidth: 1.5, color: T.textFaint))),
                 )
-              else if (_models!.isEmpty)
+              else if (_choices!.models.isEmpty)
                 const Text('No models advertised by the server.',
                     style: T.metaFaint)
               else
@@ -82,15 +114,40 @@ class _SheetState extends State<_Sheet> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final m in _models!)
+                    for (final m in _choices!.models)
                       OutlineChip(
                         filled: ctrl.text == m,
                         onTap: () => setState(() => ctrl.text = m),
-                        child: Text(m,
-                            style: const TextStyle(color: T.text, fontSize: 13)),
+                        // A dot on the ones that are warm. The cost of picking
+                        // a model is entirely invisible otherwise: they all
+                        // look alike, and one of them answers immediately while
+                        // the rest cost a minute and take the loaded one away
+                        // from whoever is using it.
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          if (_choices!.isLoaded(m)) ...[
+                            const Icon(Icons.circle, size: 7, color: T.ok),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(m,
+                              style:
+                                  const TextStyle(color: T.text, fontSize: 13)),
+                        ]),
                       ),
                   ],
                 ),
+              if (_choices != null && _choices!.loaded.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  const Icon(Icons.circle, size: 7, color: T.ok),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                        'Loaded now: ${_choices!.loaded.join(', ')}. '
+                        'Anything else takes a minute or two to load.',
+                        style: T.metaFaint),
+                  ),
+                ]),
+              ],
               const SizedBox(height: 16),
               const Text('Custom', style: T.metaFaint),
               const SizedBox(height: 8),
@@ -113,8 +170,17 @@ class _SheetState extends State<_Sheet> {
               const SizedBox(height: 16),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  widget.state.setSessionModel(ctrl.text);
+                onTap: () async {
+                  final picked = ctrl.text.trim();
+                  final choices = _choices;
+                  if (picked.isNotEmpty &&
+                      choices != null &&
+                      choices.evicts(picked) &&
+                      !await _confirmEviction(picked, choices.loaded.first)) {
+                    return;
+                  }
+                  if (!context.mounted) return;
+                  widget.state.setSessionModel(picked);
                   Navigator.pop(context);
                 },
                 child: Container(
