@@ -6,6 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
 import '../util/nav.dart';
+import '../widgets/app_drawer.dart';
 
 /// Accounts: who is waiting to be let in, and everyone who already was.
 ///
@@ -103,7 +104,7 @@ class _AdminScreenState extends State<AdminScreen> {
       // stock AppBar looked like a different app, and on web its implied back
       // button did not reliably appear — leaving Admin a page with no exit.
       body: SafeArea(
-        child: Column(children: [
+        child: _shell(Column(children: [
           FlatHeader(
             title: 'Admin',
             leading: CircleIconButton(
@@ -111,9 +112,20 @@ class _AdminScreenState extends State<AdminScreen> {
             trailing: CircleIconButton(icon: Icons.refresh, onTap: _reload),
           ),
           Expanded(child: _body()),
-        ]),
+        ])),
       ),
     );
+  }
+
+  /// Desktop widths keep the sidebar, so leaving this page is the same
+  /// gesture everywhere; phones keep the plain page and its back button.
+  Widget _shell(Widget pane) {
+    if (!isWide(context)) return pane;
+    return Row(children: [
+      const SizedBox(width: 300, child: AppDrawer()),
+      Container(width: 1, color: T.border),
+      Expanded(child: pane),
+    ]);
   }
 
   Widget _body() {

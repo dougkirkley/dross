@@ -13,6 +13,7 @@ import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
 import '../util/nav.dart';
+import '../widgets/app_drawer.dart';
 
 /// Conversational view of an `dross serve` session — the same look as the old
 /// direct-mode chat (greeting, mono assistant prose, dark right-aligned user
@@ -60,18 +61,22 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     }
     _follow.follow();
-    return SelectionArea(
-      child: Scaffold(
-        backgroundColor: T.chatBg,
-        body: SafeArea(
-          child: Column(
+    // Desktop widths keep the sidebar beside the conversation, like every
+    // desktop chat app — a full-bleed page with a phone back button is what
+    // made the web build read as a stretched phone. The sidebar is the way
+    // around (tabs, recents, settings), so the back chevron is a phone
+    // affordance and stays a phone affordance.
+    final wide = isWide(context);
+    final pane = Column(
             children: [
               FlatHeader(
                 title: sess?.displayTitle ?? 'New chat',
                 subtitle: sess?.model,
-                leading: CircleIconButton(
-                    icon: Icons.chevron_left,
-                    onTap: () => backOrHome(context)),
+                leading: wide
+                    ? null
+                    : CircleIconButton(
+                        icon: Icons.chevron_left,
+                        onTap: () => backOrHome(context)),
               ),
               Expanded(
                 child: RefreshIndicator(
@@ -115,7 +120,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               Readable(child: _inputBar(context, s, running)),
             ],
-          ),
+          );
+    return SelectionArea(
+      child: Scaffold(
+        backgroundColor: T.chatBg,
+        body: SafeArea(
+          child: wide
+              ? Row(children: [
+                  const SizedBox(width: 300, child: AppDrawer()),
+                  Container(width: 1, color: T.border),
+                  Expanded(child: pane),
+                ])
+              : pane,
         ),
       ),
     );

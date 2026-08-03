@@ -8,6 +8,7 @@ import '../screens/chat_screen.dart';
 import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/admin_screen.dart';
+import '../util/nav.dart';
 
 /// The left navigation drawer: a Chat tab and a Code tab (both `dross serve`
 /// sessions, differing only in presentation), plus recent sessions. Mirrors the
@@ -67,12 +68,11 @@ class AppDrawer extends StatelessWidget {
                             final st = context.read<AppState>();
                             st.attach(sess);
                             _closeDrawer(context);
-                            Navigator.push(
+                            openConversation(
                                 context,
-                                MaterialPageRoute(
-                                    builder: (_) => isChat
-                                        ? const ChatScreen()
-                                        : const SessionScreen()));
+                                isChat
+                                    ? const ChatScreen()
+                                    : const SessionScreen());
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -132,6 +132,11 @@ class AppDrawer extends StatelessWidget {
   void _go(BuildContext context, AppMode mode) {
     _closeDrawer(context);
     context.read<AppState>().setMode(mode); // Home re-routes to the tab
+    // Home is what shows the tab, and it lives at the bottom of the stack. On
+    // a phone the drawer only exists on Home, so this is a no-op; on desktop
+    // the sidebar rides on every screen, and without this the tap changed a
+    // mode nobody could see under the conversation still on top.
+    Navigator.popUntil(context, (r) => r.isFirst);
   }
 
   /// Closes the drawer — when there is one. On wide screens this widget is a

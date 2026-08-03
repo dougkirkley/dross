@@ -15,6 +15,7 @@ import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
 import '../widgets/tasks_sheet.dart';
 import '../util/nav.dart';
+import '../widgets/app_drawer.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
 /// calls, delegation indented, cost). The transcript is set in mono end to end,
@@ -71,20 +72,22 @@ class _SessionScreenState extends State<SessionScreen> {
     final s = context.watch<AppState>();
     final sess = s.current;
     _follow.follow();
-    return SelectionArea(
-        child: Scaffold(
-      backgroundColor: T.chatBg,
-      body: SafeArea(
-        child: Column(
+    // Sidebar beside the transcript on desktop widths, same as ChatScreen and
+    // for the same reason: a full-bleed page with a phone back button is what
+    // made the web build read as a stretched phone.
+    final wide = isWide(context);
+    final pane = Column(
           children: [
             FlatHeader(
               // The session's own name when it has one, so a renamed session is
               // identifiable from the screen it is open on.
               title: sess?.displayTitle ?? 'session',
               subtitle: '\$${(sess?.cost ?? 0).toStringAsFixed(4)}',
-              leading: CircleIconButton(
-                  icon: Icons.chevron_left,
-                  onTap: () => backOrHome(context)),
+              leading: wide
+                  ? null
+                  : CircleIconButton(
+                      icon: Icons.chevron_left,
+                      onTap: () => backOrHome(context)),
               trailing: sess == null
                   ? null
                   : _sessionMenu(context, sess),
@@ -136,7 +139,18 @@ class _SessionScreenState extends State<SessionScreen> {
             if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
             Readable(child: _inputBar(context, s)),
           ],
-        ),
+        );
+    return SelectionArea(
+        child: Scaffold(
+      backgroundColor: T.chatBg,
+      body: SafeArea(
+        child: wide
+            ? Row(children: [
+                const SizedBox(width: 300, child: AppDrawer()),
+                Container(width: 1, color: T.border),
+                Expanded(child: pane),
+              ])
+            : pane,
       ),
     ));
   }

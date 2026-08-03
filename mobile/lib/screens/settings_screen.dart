@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../util/nav.dart';
+import '../widgets/readable.dart';
+import '../widgets/app_drawer.dart';
 
 /// Settings hold only the server URL — every agent/provider/permission setting
 /// lives on the `dross serve` instance. Also offers sign out.
@@ -56,16 +58,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // construction and was a page with no exit.
       appBar: null,
       body: SafeArea(
-        child: Column(children: [
+        child: _shell(Column(children: [
           FlatHeader(
             title: 'Settings',
             leading: CircleIconButton(
                 icon: Icons.chevron_left, onTap: () => backOrHome(context)),
           ),
           Expanded(child: _bodyList(context, s)),
-        ]),
+        ])),
       ),
     );
+  }
+
+  /// Desktop widths keep the sidebar, so leaving this page is the same
+  /// gesture everywhere; phones keep the plain page and its back button.
+  Widget _shell(Widget pane) {
+    if (!isWide(context)) return pane;
+    return Row(children: [
+      const SizedBox(width: 300, child: AppDrawer()),
+      Container(width: 1, color: T.border),
+      Expanded(child: pane),
+    ]);
   }
 
   Widget _bodyList(BuildContext context, AppState s) {
