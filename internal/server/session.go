@@ -662,8 +662,18 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 	opts = append(opts, m.policy...)
 	identity := config.DefaultIdentity
+	// Chat retrieves before the model reads the prompt rather than hoping it
+	// asks. What comes back is given to the model as context and to the reader
+	// as sources - the same list, which is the only way the citations under an
+	// answer can be trusted to be what it was written from.
+	context_ := ""
 	if chat {
 		identity = config.DefaultChatIdentity
+		block, sources := m.retrieveFor(prompt)
+		if len(sources) > 0 {
+			context_ = block
+			opts = append(opts, agent.WithSeedSources(sources))
+		}
 	}
 	ag, err := agent.New(agent.Config{
 		Name: "dross", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
@@ -682,9 +692,16 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	s.emit("prompt", prompt)
 	m.sayIfModelIsCold(s)
 	s.warnIfSilent()
+	// What the model reads and what the transcript shows are deliberately
+	// different: the results belong in the context, not in the person's own
+	// message played back at them.
+	asked := prompt
+	if context_ != "" {
+		asked = context_ + "\n\nQuestion: " + prompt
+	}
 	go func() {
 		defer ag.Close() // release MCP connections when the turn ends
-		res, err := ag.Run(ctx, prompt)
+		res, err := ag.Run(ctx, asked)
 		if err != nil {
 			// Interrupting cancels the run's context. That's the user pressing
 			// Stop, not a failure, so close the turn normally rather than

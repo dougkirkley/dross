@@ -177,3 +177,24 @@ func recordSourcesFromToolOutput(ctx context.Context, tool, output string) {
 		}
 	}
 }
+
+// SearchWeb runs a search outside of a turn, for a caller that wants results
+// before the model sees the prompt rather than if the model asks for them.
+//
+// It returns the formatted text a model reads and the sources behind it, so the
+// caller can put one in the context and the other in front of the reader.
+func SearchWeb(ctx context.Context, query string) (string, []Source, error) {
+	ctx, sink := withSourceSink(ctx)
+	out, err := webSearch(ctx, query)
+	if err != nil {
+		return "", nil, err
+	}
+	return out, sink.all(), nil
+}
+
+// WithSeedSources gives a turn sources that were gathered before it started, so
+// what the reader sees is everything the answer was built from and not only the
+// part the model went looking for.
+func WithSeedSources(src []Source) Option {
+	return func(a *Agent) { a.seedSources = append(a.seedSources, src...) }
+}

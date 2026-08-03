@@ -414,6 +414,9 @@ type editRec struct {
 
 // Agent is a configured, runnable coding agent. Construct with New.
 type Agent struct {
+	// seedSources are gathered before the turn starts, by a caller that
+	// retrieves rather than waiting to be asked.
+	seedSources  []Source
 	cfg          Config
 	prov         provider.Provider
 	ws           *workspace
@@ -535,6 +538,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	// context, so the list is what was retrieved rather than what the model
 	// says it retrieved — the distinction the whole feature rests on.
 	ctx, sources := withSourceSink(ctx)
+	for _, seed := range a.seedSources {
+		recordSource(ctx, seed)
+	}
 	defer func() {
 		if got := sources.all(); len(got) > 0 {
 			a.emit("sources", encodeSources(got))
