@@ -82,9 +82,12 @@ class AppState extends ChangeNotifier {
   /// loading screen (not the empty state) until sessions are actually available.
   bool sessionsLoaded = false;
 
-  /// Ids whose server-side delete is in flight. A concurrent refreshSessions
-  /// must not re-add these, or a just-deleted session flickers back until the
-  /// DELETE lands.
+  /// Ids that have been deleted here and may still appear in a server list.
+  ///
+  /// Held until a fetch comes back without them, not until the DELETE is
+  /// acknowledged: the session list polls every three seconds, so a fetch
+  /// issued before the delete landed can still be in flight, and applying its
+  /// stale list afterwards put the row back on screen.
   final Set<String> _deleting = {};
   Session? current;
   final List<Event> events = [];
@@ -225,10 +228,7 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final fetched = await _client.listSessions();
-      // Drop any session whose delete is still in flight so it doesn't flicker
-      // back into the list mid-delete.
-      sessions = fetched.where((x) => !_deleting.contains(x.id)).toList();
+      sessions = visibleSessions(await _client.listSessions(), _deleting);
     } catch (e) {
       error = e.toString();
     } finally {
@@ -349,7 +349,8 @@ class AppState extends ChangeNotifier {
       await refreshSessions();
       return;
     }
-    _deleting.remove(s.id);
+    // Deliberately still marked. refreshSessions clears it once a fetch comes
+    // back without the session — see there for why the ack alone is not enough.
   }
 
   /// Models the server offers for the current session's model picker, and
@@ -727,4 +728,20 @@ String defaultWebServer() {
     }
   } catch (_) {}
   return '';
+}
+
+/// The sessions a fetch should leave on screen, and which tombstones survive
+/// it. Mutates [deleted] — ids the server has stopped returning are forgotten.
+///
+/// Split out because this is where the resurrection bug lived and it is the
+/// one part of the delete path that can be tested without a server. A
+/// tombstone that lifted the moment the DELETE was acknowledged was not
+/// enough: the session list polls every three seconds, so a fetch issued
+/// before the delete landed could still be in flight, and applying its stale
+/// list afterwards put the row back. Holding the id until a fetch actually
+/// comes back without it closes that window whatever the ordering.
+List<Session> visibleSessions(List<Session> fetched, Set<String> deleted) {
+  final present = fetched.map((x) => x.id).toSet();
+  deleted.removeWhere((id) => !present.contains(id));
+  return fetched.where((x) => !deleted.contains(x.id)).toList();
 }
