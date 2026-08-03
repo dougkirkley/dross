@@ -5,6 +5,8 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
+import '../widgets/rename_dialog.dart';
+import '../widgets/swipe_actions.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
@@ -102,42 +104,58 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  Widget _row(BuildContext context, Session sess) => Dismissible(
+  // Swiping used to dismiss the row outright, with a sheet to confirm it, and
+  // a long-press for the same thing. Both are gone: the swipe reveals what can
+  // be done instead of doing it, which is what makes room for renaming a chat
+  // from the list rather than having to open it first — and it means the
+  // confirmation is a tap on a small red target rather than a sheet thrown up
+  // to ask about something the gesture already said.
+  Widget _row(BuildContext context, Session sess) => SwipeActions(
         key: ValueKey(sess.id),
-        direction: DismissDirection.endToStart,
-        background: _swipeBg(),
-        confirmDismiss: (_) => _confirmDelete(context, sess),
-        onDismissed: (_) => context.read<AppState>().deleteSession(sess),
-        child: InkWell(
-          onTap: () => _open(context, sess),
-          onLongPress: () async {
-            if (await _confirmDelete(context, sess) && context.mounted) {
-              await context.read<AppState>().deleteSession(sess);
-            }
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(sess.displayTitle,
-                          style: T.rowTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                      const SizedBox(height: 4),
-                      Text(
-                          sess.updated != null
-                              ? relTimeLong(sess.updated!)
-                              : '',
-                          style: T.metaFaint),
-                    ],
+        actions: [
+          SwipeAction(
+            icon: Icons.drive_file_rename_outline,
+            label: 'Rename',
+            onTap: () => showRenameDialog(context, sess),
+          ),
+          SwipeAction(
+            icon: Icons.delete_outline,
+            label: 'Delete',
+            color: T.danger,
+            iconColor: T.bg,
+            onTap: () => context.read<AppState>().deleteSession(sess),
+          ),
+        ],
+        // Opaque, so the row travelling left covers the buttons rather than
+        // showing them through it. The list rows have no card of their own.
+        child: Material(
+          color: T.bg,
+          child: InkWell(
+            onTap: () => _open(context, sess),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(sess.displayTitle,
+                            style: T.rowTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        Text(
+                            sess.updated != null
+                                ? relTimeLong(sess.updated!)
+                                : '',
+                            style: T.metaFaint),
+                      ],
+                    ),
                   ),
-                ),
-                const Icon(Icons.chevron_right, color: T.textFaint),
-              ],
+                  const Icon(Icons.chevron_right, color: T.textFaint),
+                ],
+              ),
             ),
           ),
         ),
@@ -188,32 +206,4 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
         ),
       );
-
-  Widget _swipeBg() => Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        decoration: BoxDecoration(
-          color: T.danger.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(T.rCard),
-        ),
-        child: const Icon(Icons.delete_outline, color: T.danger),
-      );
-
-  Future<bool> _confirmDelete(BuildContext context, Session sess) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: T.surface,
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.delete_outline, color: T.danger),
-            title: const Text('Delete chat', style: TextStyle(color: T.text)),
-            subtitle: Text(sess.displayTitle, style: T.metaFaint),
-            onTap: () => Navigator.pop(context, true),
-          ),
-        ]),
-      ),
-    );
-    return ok == true;
-  }
 }

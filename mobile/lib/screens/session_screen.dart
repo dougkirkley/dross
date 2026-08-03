@@ -9,6 +9,7 @@ import '../widgets/readable.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
 import '../widgets/follow_bottom.dart';
+import '../widgets/rename_dialog.dart';
 import '../widgets/prose.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
@@ -145,7 +146,7 @@ class _SessionScreenState extends State<SessionScreen> {
         color: T.surface,
         position: PopupMenuPosition.under,
         onSelected: (v) {
-          if (v == 'rename') _rename(context, sess);
+          if (v == 'rename') showRenameDialog(context, sess);
         },
         itemBuilder: (_) => const [
           PopupMenuItem(
@@ -159,38 +160,6 @@ class _SessionScreenState extends State<SessionScreen> {
         ],
       );
 
-  /// Rename the session. The id is untouched — this is a label for a human,
-  /// and everything else keys on the id.
-  Future<void> _rename(BuildContext context, Session sess) async {
-    final ctrl = TextEditingController(text: sess.title);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dctx) => AlertDialog(
-        backgroundColor: T.surface,
-        title: const Text('Rename session', style: T.title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          style: T.body,
-          decoration: const InputDecoration(
-            hintText: 'a name you will recognise',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.pop(dctx, v),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(dctx, ctrl.text),
-              child: const Text('Rename')),
-        ],
-      ),
-    );
-    ctrl.dispose();
-    if (name == null || !context.mounted) return;
-    await context.read<AppState>().renameSession(sess.id, name);
-  }
 
   Widget _tasksLink(
           BuildContext context, List<ShellTask> shells, int running) =>

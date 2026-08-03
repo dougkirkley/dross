@@ -7,7 +7,8 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
-import '../widgets/swipe_delete.dart';
+import '../widgets/rename_dialog.dart';
+import '../widgets/swipe_actions.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
@@ -171,9 +172,22 @@ class _SessionsScreenState extends State<SessionsScreen> {
     );
   }
 
-  Widget _sessionCard(BuildContext context, Session sess) => SwipeToDelete(
+  Widget _sessionCard(BuildContext context, Session sess) => SwipeActions(
         key: ValueKey(sess.id),
-        onDelete: () => context.read<AppState>().deleteSession(sess),
+        actions: [
+          SwipeAction(
+            icon: Icons.drive_file_rename_outline,
+            label: 'Rename',
+            onTap: () => showRenameDialog(context, sess),
+          ),
+          SwipeAction(
+            icon: Icons.delete_outline,
+            label: 'Delete',
+            color: T.danger,
+            iconColor: T.bg,
+            onTap: () => context.read<AppState>().deleteSession(sess),
+          ),
+        ],
         child: _openTap(
           context,
           sess,
