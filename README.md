@@ -348,6 +348,11 @@ DROSS_LIVE=1 go test -tags integration ./pkg/provider/claudecode/
 They use the lowest alias that reliably drives tools (`sonnet`); override with
 `DROSS_LIVE_MODEL` (e.g. `opus`).
 
+## Contributing
+
+Patches welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO
+sign-off (`git commit -s`).
+
 ## License
 
 MIT.

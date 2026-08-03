@@ -1,0 +1,24 @@
+name: dco
+
+# A rule that is not checked is a suggestion. Every commit on a PR must carry a
+# Signed-off-by line; this fails the ones that do not, naming them.
+on:
+  pull_request:
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check every commit is signed off
+        run: |
+          missing=0
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            if ! git log -1 --format=%B "$sha" | grep -qi '^Signed-off-by: .\+<.\+@.\+>'; then
+              echo "::error::commit $sha has no Signed-off-by line (use git commit -s)"
+              missing=1
+            fi
+          done
+          exit $missing
