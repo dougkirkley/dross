@@ -50,3 +50,17 @@ func TestChatPromptRequiresLookingThingsUp(t *testing.T) {
 		}
 	}
 }
+
+// The advanced search is only offered when the MCP server was asked to expose
+// it — describing a tool the session does not hold is how the last version of
+// this prompt sent the model looking for something that was not there.
+func TestChatPromptOffersAdvancedSearchOnlyWhenPresent(t *testing.T) {
+	with := chatPrompt([]string{"web_search_exa", "web_fetch_exa", "web_search_advanced_exa"})
+	if !strings.Contains(with, "web_search_advanced_exa(query)") {
+		t.Error("advanced search was enabled but not described")
+	}
+	without := chatPrompt([]string{"web_search_exa", "web_fetch_exa"})
+	if strings.Contains(without, "web_search_advanced_exa") {
+		t.Error("described a tool this session does not have")
+	}
+}

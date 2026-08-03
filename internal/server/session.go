@@ -634,7 +634,8 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		chatTools := []string{"web_fetch", "web_search"}
 		for _, spec := range m.mcp {
 			if spec.Name == "exa" {
-				chatTools = append(chatTools, "web_search_exa", "web_fetch_exa")
+				chatTools = append(chatTools,
+					"web_search_exa", "web_fetch_exa", "web_search_advanced_exa")
 			}
 		}
 		opts = append(opts, agent.WithAllowedTools(chatTools))

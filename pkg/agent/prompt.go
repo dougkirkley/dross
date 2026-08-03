@@ -59,6 +59,9 @@ Your tools:
 	case has("web_search"):
 		b.WriteString("- web_search(query): search the web and get ranked results with snippets.\n")
 	}
+	if has("web_search_advanced_exa") {
+		b.WriteString("- web_search_advanced_exa(query): a slower, more thorough search. Worth it when the plain one comes back thin, or the question turns on something specific.\n")
+	}
 	if has("web_search") && has("web_search_exa") {
 		b.WriteString("- web_search(query): a second search backend, if the first returns nothing useful.\n")
 	}
