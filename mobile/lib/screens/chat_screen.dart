@@ -8,6 +8,7 @@ import '../theme.dart';
 import '../widgets/readable.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
+import '../widgets/follow_bottom.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
@@ -24,33 +25,43 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
-  final _scroll = ScrollController();
+  final _follow = FollowBottom();
   final _focus = FocusNode();
+
+  /// Stop has been asked for and the run has not ended yet.
+  ///
+  /// The server accepts the request and the turn ends when the model call
+  /// unwinds, which is not instant. Without this the UI is unchanged in the
+  /// meantime — same Stop button, same "Working…" — so the only reading
+  /// available is that the button does nothing.
+  bool _stopping = false;
 
   @override
   void dispose() {
     _input.dispose();
-    _scroll.dispose();
+    _follow.dispose();
     _focus.dispose();
     super.dispose();
-  }
-
-  void _autoScroll() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
-      }
-    });
   }
 
   // Prompts, assistant prose, what it consulted, and anything that went wrong.
   // Tool and shell chrome stays hidden - but an error is not chrome. Leaving it
   // out is why a model that could not be reached looked like a model that was
   // thinking: the failure was recorded and never shown.
+  //
+  // "meta" is the same argument one step earlier. The server says when a local
+  // model is cold and the first reply will take a minute or two; filtered out,
+  // that minute was spent watching a spinner that said "Reading results…" with
+  // nothing to explain it, which is indistinguishable from a hang.
+  //
+  // A cancelled "done" is kept for the same reason: a turn that stops with no
+  // answer in it has to say that it stopped, or pressing Stop reads as Stop
+  // having done nothing.
   List<Event> _messages(List<Event> events) => events
       .where((e) =>
-          const {'prompt', 'text', 'review', 'sources', 'error'}.contains(e.baseKind))
+          const {'prompt', 'text', 'review', 'sources', 'error', 'meta'}
+              .contains(e.baseKind) ||
+          (e.baseKind == 'done' && e.data == 'cancelled'))
       .toList();
 
   @override
@@ -59,7 +70,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final sess = s.current;
     final msgs = _messages(s.events);
     final running = sess?.isRunning ?? false;
-    _autoScroll();
+    // The run ended, however it ended: the stop request is no longer pending.
+    if (!running && _stopping) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _stopping = false);
+      });
+    }
+    _follow.follow();
     return SelectionArea(
       child: Scaffold(
         backgroundColor: T.chatBg,
@@ -89,7 +106,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         )
                       : Readable(
                           child: ListView.builder(
-                            controller: _scroll,
+                            controller: _follow.controller,
                             physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                             // The orb trails the conversation: lively while Dross
@@ -103,6 +120,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                 ),
               ),
+              // Offered only once the reader has left the end of the thread,
+              // and only when there is a thread to have left.
+              if (msgs.isNotEmpty || running)
+                AnimatedBuilder(
+                  animation: _follow,
+                  builder: (_, __) => JumpToLatest(
+                      follow: _follow, label: running ? 'Writing' : 'Latest'),
+                ),
               Readable(child: _inputBar(context, s, running)),
             ],
           ),
@@ -139,9 +164,12 @@ class _ChatScreenState extends State<ChatScreen> {
             if (active) ...[
               const SizedBox(width: 10),
               // "Working…" or a more specific label (Reading…, Running…) while
-              // Dross does work.
+              // Dross does work — and "Stopping…" once Stop has been asked for,
+              // because until the turn actually ends that request is the most
+              // recent true thing about the run.
               Flexible(
-                child: Text(currentActivityLabel(s.events),
+                child: Text(
+                    _stopping ? 'Stopping…' : currentActivityLabel(s.events),
                     style: metaFor(context),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
@@ -185,6 +213,29 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     if (e.baseKind == 'sources') return _sources(Source.listFrom(e.data));
+    // The server's own note about the wait — a cold model loading, most often.
+    // Dim and unbordered: it is the reason for a pause, not a message from
+    // anybody, and it should not read as part of the answer.
+    if (e.baseKind == 'meta') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.hourglass_empty, size: 15, color: T.textFaint),
+          const SizedBox(width: 8),
+          Expanded(child: Text(e.data, style: T.metaFaint)),
+        ]),
+      );
+    }
+    if (e.baseKind == 'done') {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          Icon(Icons.stop_circle_outlined, size: 15, color: T.textFaint),
+          SizedBox(width: 8),
+          Text('Stopped.', style: T.metaFaint),
+        ]),
+      );
+    }
 
     // assistant text / review
     return Padding(
@@ -422,22 +473,47 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _sendButton(BuildContext context, bool running) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () =>
-            running ? context.read<AppState>().interrupt() : _send(context),
+        // Pressing Stop twice does nothing the first press did not already do.
+        onTap: () => running
+            ? (_stopping ? null : _stop(context))
+            : _send(context),
         child: Container(
           width: 40,
           height: 40,
-          decoration:
-              const BoxDecoration(color: T.accent, shape: BoxShape.circle),
-          child: Icon(running ? Icons.stop : Icons.arrow_upward,
-              size: 20, color: T.bg),
+          decoration: BoxDecoration(
+            color: running && _stopping ? T.surfaceAlt : T.accent,
+            shape: BoxShape.circle,
+          ),
+          child: running && _stopping
+              ? const Padding(
+                  padding: EdgeInsets.all(11),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: T.textDim),
+                )
+              : Icon(running ? Icons.stop : Icons.arrow_upward,
+                  size: 20, color: T.bg),
         ),
       );
+
+  /// Ask the server to end the running turn, and say so while it unwinds.
+  Future<void> _stop(BuildContext context) async {
+    setState(() => _stopping = true);
+    final err = await context.read<AppState>().interrupt();
+    if (err == null || !context.mounted) return;
+    // The request did not land, so the run is still going and the button has to
+    // go back to being one that can be pressed.
+    setState(() => _stopping = false);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Could not stop: $err')));
+  }
 
   Future<void> _send(BuildContext context) async {
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
+    // Saying something is asking to see the answer, wherever you had scrolled
+    // back to.
+    _follow.pin();
     // Keep the text in the composer if it wasn't actually sent (e.g. the
     // keyboard-mash guard held it back), so a second tap sends the same thing.
     final sent = await context.read<AppState>().sendPrompt(text);

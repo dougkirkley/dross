@@ -8,6 +8,7 @@ import '../widgets/ask_card.dart';
 import '../widgets/readable.dart';
 import '../util/file_pick.dart';
 import '../widgets/activity.dart';
+import '../widgets/follow_bottom.dart';
 import '../widgets/prose.dart';
 import '../widgets/logo.dart';
 import '../widgets/server_model_sheet.dart';
@@ -26,7 +27,7 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen> {
   final _input = TextEditingController();
   final _inputFocus = FocusNode();
-  final _scroll = ScrollController();
+  final _follow = FollowBottom();
 
   AppState? _app;
 
@@ -47,7 +48,7 @@ class _SessionScreenState extends State<SessionScreen> {
     if (s != null) _app?.markRead(s);
     _input.dispose();
     _inputFocus.dispose();
-    _scroll.dispose();
+    _follow.dispose();
     super.dispose();
   }
 
@@ -63,20 +64,11 @@ class _SessionScreenState extends State<SessionScreen> {
     _inputFocus.requestFocus();
   }
 
-  void _autoScroll() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final sess = s.current;
-    _autoScroll();
+    _follow.follow();
     return SelectionArea(
         child: Scaffold(
       backgroundColor: T.chatBg,
@@ -117,7 +109,7 @@ class _SessionScreenState extends State<SessionScreen> {
                   backgroundColor: T.surface,
                   child: Readable(
                     child: ListView.builder(
-                      controller: _scroll,
+                      controller: _follow.controller,
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                       itemCount: timeline.length + trailing.length,
                       itemBuilder: (_, i) {
@@ -132,6 +124,12 @@ class _SessionScreenState extends State<SessionScreen> {
                   ),
                 );
               }),
+            ),
+            AnimatedBuilder(
+              animation: _follow,
+              builder: (_, __) => JumpToLatest(
+                  follow: _follow,
+                  label: (sess?.isRunning ?? false) ? 'Working' : 'Latest'),
             ),
             if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
             Readable(child: _inputBar(context, s)),
@@ -513,6 +511,9 @@ class _SessionScreenState extends State<SessionScreen> {
       return;
     }
     _input.clear();
+    // Saying something is asking to see the answer, wherever you had scrolled
+    // back to.
+    _follow.pin();
     // Keep the text in the composer if it wasn't actually sent (e.g. the
     // keyboard-mash guard held it back), so a second tap sends the same thing.
     final sent = await context.read<AppState>().sendPrompt(text);

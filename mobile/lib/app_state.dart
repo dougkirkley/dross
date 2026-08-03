@@ -614,12 +614,21 @@ class AppState extends ChangeNotifier {
     return s;
   }
 
-  Future<void> interrupt() async {
+  /// Stop the running turn. Returns an error string when the server refused,
+  /// null when it accepted.
+  ///
+  /// Swallowing the failure here is what made a Stop that never landed look the
+  /// same as one that did: the button stayed on Stop, the spinner kept
+  /// spinning, and nothing said the request had not been taken.
+  Future<String?> interrupt() async {
     final s = current;
-    if (s == null) return;
+    if (s == null) return null;
     try {
       await _client.interrupt(s.id);
-    } catch (_) {}
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   /// Answer a permission gate raised by the machine running this session.
