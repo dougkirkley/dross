@@ -193,67 +193,109 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// What the answer was built from.
+  /// What the answer was built from, as cards you can move through.
+  ///
+  /// A vertical list of ten links pushes the answer off the screen and reads
+  /// like a second search results page. Sideways, they sit under the answer as
+  /// something to browse if you want to check, and cost one line of height if
+  /// you do not.
   ///
   /// These are the pages the turn actually fetched, in the order it met them -
-  /// not a list the model wrote, which is the only reason they can be trusted
-  /// enough to put a tap target on.
+  /// not a list the model wrote, which is the only reason a tap target belongs
+  /// on one.
   Widget _sources(List<Source> sources) {
     if (sources.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 14),
+      padding: const EdgeInsets.only(top: 8, bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text('SOURCES',
+            child: Text('SOURCES · ${sources.length}',
                 style: T.metaFaint.copyWith(letterSpacing: 1.1, fontSize: 11)),
           ),
-          ...sources.asMap().entries.map((entry) => _sourceRow(entry.key + 1, entry.value)),
+          SizedBox(
+            height: 132,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: sources.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (_, i) => _sourceCard(sources[i]),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _sourceRow(int n, Source src) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+  Widget _sourceCard(Source src) => SizedBox(
+        width: 240,
         child: Material(
           color: T.surface,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(T.rCard),
           child: InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(T.rCard),
             onTap: () => launchUrl(Uri.parse(src.url),
                 mode: LaunchMode.externalApplication),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('$n',
-                    style: T.metaFaint.copyWith(
-                        fontFeatures: const [], fontSize: 12)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(src.label,
-                          maxLines: 2,
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(src.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: bodyFor(context)
+                          .copyWith(fontSize: 14, fontWeight: FontWeight.w600)),
+                  if (src.snippet.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Expanded(
+                      child: Text(src.snippet,
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: bodyFor(context).copyWith(fontSize: 14)),
-                      if (src.site.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(src.site, style: T.metaFaint.copyWith(fontSize: 12)),
-                        ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.north_east, size: 14, color: T.textFaint),
-              ]),
+                          style: T.metaFaint.copyWith(fontSize: 12.5)),
+                    ),
+                  ] else
+                    const Spacer(),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    // The site's own mark, fetched from the site. No third
+                    // party is asked which pages this household reads.
+                    _favicon(src),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(src.site,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: T.metaFaint.copyWith(fontSize: 12)),
+                    ),
+                    const Icon(Icons.north_east, size: 13, color: T.textFaint),
+                  ]),
+                ],
+              ),
             ),
           ),
         ),
       );
+
+  Widget _favicon(Source src) {
+    if (src.site.isEmpty) {
+      return const Icon(Icons.link, size: 14, color: T.textFaint);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        'https://${src.site}/favicon.ico',
+        width: 14,
+        height: 14,
+        // Plenty of sites have no favicon at that path; a broken image icon
+        // would be worse than none.
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.public, size: 13, color: T.textFaint),
+      ),
+    );
+  }
 
   Widget _inputBar(BuildContext context, AppState s, bool running) => SafeArea(
         top: false,
