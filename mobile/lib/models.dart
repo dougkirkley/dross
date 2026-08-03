@@ -295,12 +295,21 @@ class ModelChoices {
   /// never a reason to claim a model is cold.
   final List<String> loaded;
 
-  bool isLoaded(String model) => loaded.contains(model);
+  /// ollama reports "devstral:latest" where a config says "devstral"; they are
+  /// one model spelled two ways, and comparing them literally showed the loaded
+  /// model as cold.
+  static String _same(String id) {
+    final s = id.trim();
+    return s.endsWith(':latest') ? s.substring(0, s.length - 7) : s;
+  }
+
+  bool isLoaded(String model) =>
+      loaded.any((m) => _same(m) == _same(model));
 
   /// Whether choosing [model] would unload something somebody else may be
   /// using. True only when the backend has said what it holds, that model is
   /// not among it, and something else is.
-  bool evicts(String model) => loaded.isNotEmpty && !loaded.contains(model);
+  bool evicts(String model) => loaded.isNotEmpty && !isLoaded(model);
 
   static List<String> _strings(dynamic v) =>
       (v as List?)?.map((e) => e.toString()).toList() ?? const [];

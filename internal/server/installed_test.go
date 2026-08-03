@@ -116,3 +116,13 @@ func TestLoadedModelsIsUnknownOnFailure(t *testing.T) {
 		t.Errorf("got %v, want nil from a backend that would not answer", got)
 	}
 }
+
+// ollama reports the tagged form and configs are written with the bare one.
+// Compared literally, the default model vanished from its own picker.
+func TestOfferableMatchesTheLatestTag(t *testing.T) {
+	got := offerable([]string{"devstral", "qwen2.5-coder:14b"},
+		[]string{"devstral:latest", "qwen2.5-coder:14b"})
+	if len(got) != 2 || got[0] != "devstral" {
+		t.Errorf("got %v, want both, spelled the way the config spells them", got)
+	}
+}

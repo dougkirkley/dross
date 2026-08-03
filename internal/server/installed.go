@@ -113,11 +113,11 @@ func offerable(allowed, present []string) []string {
 	}
 	have := make(map[string]bool, len(present))
 	for _, m := range present {
-		have[m] = true
+		have[sameModel(m)] = true
 	}
 	out := make([]string, 0, len(allowed))
 	for _, m := range allowed {
-		if have[m] {
+		if have[sameModel(m)] {
 			out = append(out, m)
 		}
 	}
@@ -125,4 +125,14 @@ func offerable(allowed, present []string) []string {
 		return allowed
 	}
 	return out
+}
+
+// sameModel normalises a model id for comparison.
+//
+// ollama's registry treats a bare name as its :latest tag, and reports the
+// tagged form while configs are written with the bare one — so "devstral" and
+// "devstral:latest" are one model spelled two ways. Compared literally, the
+// default model vanished from its own picker.
+func sameModel(id string) string {
+	return strings.TrimSuffix(strings.TrimSpace(id), ":latest")
 }
