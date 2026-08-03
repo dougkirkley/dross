@@ -128,6 +128,35 @@ const (
 	silenceTimeout = 6 * time.Minute
 )
 
+// sayIfModelIsCold explains a wait before it happens.
+//
+// The silence warning covers the same ground eventually, but only after the
+// wait has become long enough to worry about - by which point somebody has
+// already wondered whether it is broken. Where the answer is knowable it is
+// worth saying up front, and where it is not, this says nothing at all.
+func (m *Manager) sayIfModelIsCold(s *Session) {
+	model := s.Model
+	if model == "" {
+		model = m.model
+	}
+	go func() {
+		if checkModel(context.Background(), m.leadURL, model) != modelCold {
+			return
+		}
+		// Racing the first token: if the model turned out to be quick, or the
+		// run has already said something, this would be noise.
+		s.mu.Lock()
+		quiet := s.status == "running"
+		s.mu.Unlock()
+		if !quiet {
+			return
+		}
+		s.emit("meta", "loading "+model+" — it is not in memory yet. "+
+			"On this hardware a large local model takes a minute or two to load, "+
+			"and the first reply follows once it has.")
+	}()
+}
+
 // warnIfSilent says something when a run produces nothing for a long time.
 //
 // A run that is waiting on a model to load looks exactly like one that has
@@ -358,9 +387,12 @@ func (s *Session) interrupt() {
 
 // Manager owns sessions and builds agents for them.
 type Manager struct {
-	lead      provider.Provider
-	worker    provider.Provider // optional
-	model     string            // default lead model
+	lead   provider.Provider
+	worker provider.Provider // optional
+	model  string            // default lead model
+	// leadURL is the endpoint lead was configured with. Kept so a session can
+	// ask whether its model is loaded before blaming the silence on the run.
+	leadURL   string
 	workdir   string
 	publish   agent.PublishFunc // optional; enables the publish tool
 	reviewer  provider.Provider // optional; enables the code-review skill
@@ -635,6 +667,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	}
 
 	s.emit("prompt", prompt)
+	m.sayIfModelIsCold(s)
 	s.warnIfSilent()
 	go func() {
 		defer ag.Close() // release MCP connections when the turn ends

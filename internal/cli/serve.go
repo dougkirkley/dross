@@ -120,6 +120,7 @@ func newServeCmd() *cobra.Command {
 					mgr.SetCompactStats(newCompactRecorder(p))
 				}
 			}
+			mgr.SetLeadEndpoint(res.Lead.BaseURL)
 			mgr.SetModels(res.File.Models)
 			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetPolicy(config.PolicyOptions(res.File))
