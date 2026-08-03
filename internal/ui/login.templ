@@ -5,13 +5,15 @@ package ui
 // thing a user sees is dross rather than a Cloudflare interstitial. The button
 // starts the same OIDC flow the redirect used to.
 //
-// Both buttons start that same flow, because in this model signing in *is* the
-// request: a Google account dross has never seen registers as pending and waits
-// for an admin. The second button exists so a stranger is not asked to "sign in"
-// to something they have no account on, and so the wait that follows is not a
-// surprise. It asks Google which account to use, since someone requesting access
-// is more likely than a returning user to want a different one.
-templ Login(loginURL, requestURL string) {
+// There is one button, because there is one thing to do: signing in *is* the
+// request. A Google account dross has never seen registers as pending and waits
+// for an admin. A second button labelled "request access" started the identical
+// flow, which is a choice a stranger has to think about for no gain - the copy
+// underneath says what happens instead.
+//
+// This screen is the fallback for a deployment where Kratos is not running the
+// login. With Kratos, its own flow page is what a browser sees.
+templ Login(loginURL string) {
 	@cardPage("Sign in") {
 		@mark()
 		<h1>Dross</h1>
@@ -25,9 +27,8 @@ templ Login(loginURL, requestURL string) {
 			</svg>
 			Continue with Google
 		</a>
-		<a class="btn ghost" href={ templ.SafeURL(requestURL) }>Request access</a>
 		<div class="hairline"></div>
-		<p class="foot">New here? Requesting takes one tap: pick a Google account and an admin approves it.</p>
+		<p class="foot">New here? Signing in is how you ask: pick a Google account and an admin approves it.</p>
 	}
 }
 

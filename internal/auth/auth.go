@@ -206,10 +206,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				// Show dross's own sign-in screen rather than bouncing straight to
 				// the identity provider, so the first thing a user sees is dross.
 				// The button starts the same OIDC flow.
-				next := url.QueryEscape(safeNext(r.URL.RequestURI()))
-				serveLoginPage(w,
-					"/auth/login?next="+next,
-					"/auth/login?reauth=1&next="+next)
+				serveLoginPage(w, "/auth/login?next="+url.QueryEscape(safeNext(r.URL.RequestURI())))
 				return
 			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -279,7 +276,7 @@ func (a *Authenticator) Authenticate(next http.Handler) http.Handler {
 		if !ok {
 			if wantsHTML(r) && a.oauth != nil {
 				next := url.QueryEscape(safeNext(r.URL.RequestURI()))
-				serveLoginPage(w, "/auth/login?next="+next, "/auth/login?reauth=1&next="+next)
+				serveLoginPage(w, "/auth/login?next="+next)
 				return
 			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -338,11 +335,15 @@ func (a *Authenticator) identify(r *http.Request) (email string, exempt bool, ok
 			return e, false, true
 		}
 	}
-	// 5. Session cookie, issued by this package's own OIDC flow. Kept while the
-	// move to Kratos completes, so a deploy does not sign everyone out.
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		if e, ok := a.readSession(c.Value); ok {
-			return e, false, true
+	// 5. This package's own session cookie — only where Kratos is not running
+	// the login. Two cookie-shaped credentials for the same browser is one more
+	// than anything needs, and the one being kept is the one a person can sign
+	// out of. A deployment without Kratos (a local run) still has this.
+	if a.kratos == nil {
+		if c, err := r.Cookie(sessionCookie); err == nil {
+			if e, ok := a.readSession(c.Value); ok {
+				return e, false, true
+			}
 		}
 	}
 	return "", false, false
@@ -377,10 +378,26 @@ type flowState struct {
 }
 
 // Login starts the OIDC authorization-code flow (with PKCE).
+//
+// With Kratos running the login this exists for the clients Kratos cannot serve:
+// the phone, which captures a custom-scheme callback, and the CLI, which
+// captures a loopback one. Both need a bearer token rather than a cookie, and
+// Kratos issues browser sessions. A browser arriving here is sent to Kratos
+// instead, so there is exactly one way for a browser to sign in.
 func (a *Authenticator) Login(w http.ResponseWriter, r *http.Request) {
 	if a.oauth == nil {
 		http.Error(w, "OIDC login not configured", http.StatusNotFound)
 		return
+	}
+	if a.kratos != nil {
+		switch r.URL.Query().Get("mode") {
+		case "app", "cli":
+			// A native client, which is what this flow is still for.
+		default:
+			http.Redirect(w, r, "/kratos/self-service/login/browser?return_to="+
+				url.QueryEscape(safeNext(r.URL.Query().Get("next"))), http.StatusFound)
+			return
+		}
 	}
 	state := hex.EncodeToString(randomBytes(16))
 	nonce := hex.EncodeToString(randomBytes(16))
@@ -505,7 +522,9 @@ func (a *Authenticator) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, red+sep+"token="+url.QueryEscape(session), http.StatusFound)
 		return
 	}
-	a.setCookie(w, sessionCookie, session, sessionTTL)
+	if a.kratos == nil {
+		a.setCookie(w, sessionCookie, session, sessionTTL)
+	}
 	http.Redirect(w, r, next, http.StatusFound)
 }
 

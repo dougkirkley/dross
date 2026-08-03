@@ -15,12 +15,11 @@ import (
 // serveLoginPage renders the sign-in screen, carrying the originally requested
 // path through so the user lands where they were headed.
 //
-// requestURL is the same OIDC flow with reauth set, which is what the request
-// button uses: someone asking for access is more likely than a returning user to
-// want a different Google account than the one their browser is already in.
-func serveLoginPage(w http.ResponseWriter, loginURL, requestURL string) {
+// Only reached where Kratos is not running the login: with Kratos, the
+// middleware sends browsers into its flow and this never renders.
+func serveLoginPage(w http.ResponseWriter, loginURL string) {
 	writePage(w, http.StatusOK)
-	_ = ui.Login(loginURL, requestURL).Render(context.Background(), w)
+	_ = ui.Login(loginURL).Render(context.Background(), w)
 }
 
 // servePendingPage renders the holding page for an account that is authenticated

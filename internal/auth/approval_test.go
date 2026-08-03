@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
 
 type fakeApprover map[string]bool
@@ -203,5 +205,45 @@ func TestNoSetupNeededMeansTheHoldingPage(t *testing.T) {
 	}
 	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Request received") {
 		t.Errorf("expected the holding page, got %d: %.120s", w.Code, w.Body.String())
+	}
+}
+
+// With Kratos running the login there is one way for a browser to sign in.
+// The old flow stays for the clients Kratos cannot serve - the phone and the
+// CLI, which need a bearer token rather than a cookie - and a browser that
+// wanders into it is sent to Kratos.
+func TestOldLoginIsForMachinesOnceKratosRunsTheBrowserFlow(t *testing.T) {
+	k, err := NewKratosSessions("http://kratos-public.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Authenticator{cfg: Config{}, cookieKey: []byte("test-key")}
+	a.oauth = &oauth2.Config{} // an OIDC flow is configured
+	a.SetKratosSessions(k)
+
+	// A browser is redirected into Kratos rather than served the old screen.
+	w := httptest.NewRecorder()
+	a.Login(w, httptest.NewRequest("GET", "/auth/login?next=%2Fsessions", nil))
+	if w.Code != http.StatusFound ||
+		!strings.HasPrefix(w.Header().Get("Location"), "/kratos/self-service/login/browser") {
+		t.Errorf("browser login = %d %q; want a redirect into Kratos",
+			w.Code, w.Header().Get("Location"))
+	}
+
+	// The native modes still start the old flow: they are why it survives.
+	for _, mode := range []string{"app", "cli"} {
+		w := httptest.NewRecorder()
+		a.Login(w, httptest.NewRequest("GET", "/auth/login?mode="+mode, nil))
+		if loc := w.Header().Get("Location"); strings.HasPrefix(loc, "/kratos/") {
+			t.Errorf("mode=%s was redirected to Kratos, which cannot serve it: %q", mode, loc)
+		}
+	}
+
+	// And the cookie this package issues is no longer a credential in a browser
+	// that has Kratos: one cookie-shaped session, not two.
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.signSession("doug@example.com")})
+	if _, _, ok := a.identify(r); ok {
+		t.Error("the retired browser cookie still authenticates")
 	}
 }
