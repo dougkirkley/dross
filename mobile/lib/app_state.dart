@@ -479,6 +479,7 @@ class AppState extends ChangeNotifier {
     events.clear();
     queue.clear();
     remotePending.clear();
+    streamingText = '';
     notifyListeners();
     try {
       events.addAll(await _client.events(s.id));
@@ -490,13 +491,28 @@ class AppState extends ChangeNotifier {
     _startStream();
   }
 
+  /// The answer as it is being written, one delta at a time. Empty when no
+  /// answer is streaming. The final "text" event carries the whole of it, so
+  /// this clears the moment that arrives.
+  String streamingText = '';
+
   void _startStream() {
     final s = current;
     if (s == null) return;
     final after = events.isEmpty ? 0 : events.last.seq;
     _sub = _client.streamEvents(s.id, after: after).listen(
       (ev) {
+        // Deltas are not history: the server does not store them and their seq
+        // numbers are consumed by the stream alone. Accumulate and move on.
+        if (ev.kind == 'text-delta') {
+          streamingText += ev.data;
+          notifyListeners();
+          return;
+        }
         if (events.isEmpty || ev.seq > events.last.seq) {
+          // Anything that lands ends the streaming bubble: a "text" event is
+          // the finished form of it, and an error supersedes it.
+          if (streamingText.isNotEmpty) streamingText = '';
           events.add(ev);
           if (ev.kind == 'done' || ev.kind == 'error') {
             _refreshCurrent().then((_) => _drainQueue());

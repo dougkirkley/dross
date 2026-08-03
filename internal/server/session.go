@@ -249,7 +249,15 @@ func (s *Session) emit(kind, data string) {
 	s.mu.Lock()
 	s.seq++
 	e := Event{Seq: s.seq, Kind: kind, Data: data, Time: time.Now()}
-	s.events = append(s.events, e)
+	// Deltas are ephemeral by design: they exist so a watching client sees the
+	// answer arrive word by word, and the "text" event that follows carries the
+	// whole of it. Storing them would put every answer in the history twice —
+	// once as hundreds of fragments — and push real events out of the bounded
+	// window. A client that reconnects mid-answer misses only what the final
+	// text is about to say anyway.
+	if kind != "text-delta" {
+		s.events = append(s.events, e)
+	}
 	// Bound the history. A long-running session would otherwise grow without
 	// limit, and every reconnect re-serializes the whole slice. Seq stays
 	// monotonic, so clients reconnecting with ?after= still work; they just
@@ -271,7 +279,9 @@ func (s *Session) emit(kind, data string) {
 	}
 	mgr := s.mgr
 	s.mu.Unlock()
-	if mgr != nil {
+	// Deltas do not change what is worth persisting, and marking dirty on each
+	// one would rewrite the session file hundreds of times per answer.
+	if mgr != nil && kind != "text-delta" {
 		mgr.markDirty(s.ID)
 	}
 }
@@ -613,6 +623,13 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 	// Persist immediately: a session with no events yet is still a session, and
 	// only marking on emit would lose one created just before a restart.
 	m.markDirty(s.ID)
+	// Start loading the chat model now, while the first message is being
+	// typed. The typing hides most of a small model's load; waiting for send
+	// to trigger it is how a fresh chat's first answer took a minute.
+	if req.Chat {
+		_, _, chatURL := m.chatBackend()
+		go warmModel(context.Background(), chatURL, model)
+	}
 	return s
 }
 

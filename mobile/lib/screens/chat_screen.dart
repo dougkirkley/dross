@@ -44,25 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  // Prompts, assistant prose, what it consulted, and anything that went wrong.
-  // Tool and shell chrome stays hidden - but an error is not chrome. Leaving it
-  // out is why a model that could not be reached looked like a model that was
-  // thinking: the failure was recorded and never shown.
-  //
-  // "meta" is the same argument one step earlier. The server says when a local
-  // model is cold and the first reply will take a minute or two; filtered out,
-  // that minute was spent watching a spinner that said "Reading results…" with
-  // nothing to explain it, which is indistinguishable from a hang.
-  //
-  // A cancelled "done" is kept for the same reason: a turn that stops with no
-  // answer in it has to say that it stopped, or pressing Stop reads as Stop
-  // having done nothing.
-  List<Event> _messages(List<Event> events) => events
-      .where((e) =>
-          const {'prompt', 'text', 'review', 'sources', 'error', 'meta'}
-              .contains(e.baseKind) ||
-          (e.baseKind == 'done' && e.data == 'cancelled'))
-      .toList();
+  List<Event> _messages(List<Event> events) => chatMessages(events);
 
   @override
   Widget build(BuildContext context) {
@@ -109,11 +91,13 @@ class _ChatScreenState extends State<ChatScreen> {
                             controller: _follow.controller,
                             physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                            // The orb trails the conversation: lively while Dross
-                            // is answering, calm (just blinking) once it's done.
-                            itemCount: msgs.length + 1,
+                            // After the messages: the answer as it streams in,
+                            // then the orb — lively while Dross is answering,
+                            // calm (just blinking) once it's done.
+                            itemCount: msgs.length + 2,
                             itemBuilder: (_, i) {
-                              if (i >= msgs.length) return _spinner(running, s);
+                              if (i == msgs.length) return _streaming(s);
+                              if (i > msgs.length) return _spinner(running, s);
                               return _message(msgs[i]);
                             },
                           ),
@@ -154,6 +138,19 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
       );
+
+  /// The answer while it is being written — the same prose block the final
+  /// "text" event will replace, growing a word at a time. This, not the
+  /// spinner, is what makes a local model feel alive: the tokens were always
+  /// being produced during those forty-five silent seconds, they were just
+  /// being buffered into one dump.
+  Widget _streaming(AppState s) {
+    if (s.streamingText.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: ProseText(s.streamingText),
+    );
+  }
 
   Widget _spinner(bool active, AppState s) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -519,4 +516,46 @@ class _ChatScreenState extends State<ChatScreen> {
     final sent = await context.read<AppState>().sendPrompt(text);
     if (!sent) _input.text = text;
   }
+}
+
+/// The events a chat renders, in reading order. Top-level so the ordering
+/// rules are testable without building the widget.
+///
+/// Prompts, assistant prose, what it consulted, and anything that went wrong.
+/// Tool and shell chrome stays hidden - but an error is not chrome, and "meta"
+/// (the server explaining a wait, e.g. a cold model loading) is not either:
+/// filtering them out is how a failure or a load looked like a hang. A
+/// cancelled "done" is kept so that pressing Stop visibly stopped something.
+///
+/// Sources sink to the end of their turn. They are what the answer was built
+/// from, which only makes sense under the answer — but the server emits them
+/// when retrieval settles, which on a failed turn is before the error. Shown
+/// in arrival order, the reading was "here are ten sources" followed by the
+/// failure they never fed.
+List<Event> chatMessages(List<Event> events) {
+  final out = <Event>[];
+  Event? pendingSources;
+  void flushSources() {
+    if (pendingSources != null) {
+      out.add(pendingSources!);
+      pendingSources = null;
+    }
+  }
+
+  for (final e in events) {
+    if (e.baseKind == 'sources') {
+      pendingSources = e;
+      continue;
+    }
+    // A new prompt starts a new turn; the previous turn's sources belong
+    // above it, however that turn ended.
+    if (e.baseKind == 'prompt') flushSources();
+    if (const {'prompt', 'text', 'review', 'error', 'meta'}
+            .contains(e.baseKind) ||
+        (e.baseKind == 'done' && e.data == 'cancelled')) {
+      out.add(e);
+    }
+  }
+  flushSources();
+  return out;
 }

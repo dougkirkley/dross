@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -74,6 +75,38 @@ func checkModel(ctx context.Context, baseURL, model string) modelState {
 		}
 	}
 	return modelCold
+}
+
+// warmModel asks ollama to load a model without generating anything.
+//
+// The first message of a chat is typed by a human, which takes long enough to
+// hide most of a small model's load — but only if the load starts when the
+// chat opens rather than when send is pressed. A generate request with no
+// prompt is ollama's documented way to say "load this and hold it"; the
+// server's own keep_alive policy decides for how long.
+//
+// Best effort in every direction: a backend that is not ollama answers 404 and
+// nothing happens, an unreachable one times out quietly, and the person typing
+// never waits on this call.
+func warmModel(ctx context.Context, baseURL, model string) {
+	root := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(baseURL), "/"), "/v1")
+	if root == "" || model == "" {
+		return
+	}
+	// Loading can take a minute-plus; the timeout is for the load, not a ping.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	body := strings.NewReader(`{"model":` + strconv.Quote(model) + `}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/generate", body)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }
 
 // loadedModels lists what a backend has resident right now.

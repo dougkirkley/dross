@@ -7,6 +7,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -87,6 +88,14 @@ type chatRequest struct {
 	Messages  []chatMessage `json:"messages"`
 	Tools     []toolSpec    `json:"tools,omitempty"`
 	MaxTokens int           `json:"max_tokens,omitempty"`
+	Stream    bool          `json:"stream,omitempty"`
+	// StreamOptions asks for the usage numbers a streaming response otherwise
+	// omits; ollama and OpenAI both honour it.
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatResponse struct {
@@ -122,12 +131,20 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		s.messages = append(s.messages, chatMessage{Role: "user", Content: in.Text})
 	}
 
-	reqBody, _ := json.Marshal(chatRequest{
+	req := chatRequest{
 		Model:     s.model,
 		Messages:  s.messages,
 		Tools:     s.tools,
 		MaxTokens: s.maxTokens,
-	})
+	}
+	// Stream when the caller wants to watch. A local model produces tokens for
+	// the whole generation; buffering them meant forty-five seconds of silence
+	// followed by the entire answer, which reads as a hang and then a dump.
+	if in.OnText != nil {
+		req.Stream = true
+		req.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	reqBody, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.prov.base+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
@@ -143,11 +160,15 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("openai: %s: %s", resp.Status, truncate(body, 300))
 	}
+	if req.Stream {
+		return s.readStream(resp.Body, in.OnText)
+	}
 
+	body, _ := io.ReadAll(resp.Body)
 	var cr chatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
 		return nil, fmt.Errorf("openai: decode: %w", err)
@@ -158,14 +179,22 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	if len(cr.Choices) == 0 {
 		return nil, fmt.Errorf("openai: no choices in response")
 	}
+	return s.finish(cr.Choices[0].Message, cr.Choices[0].FinishReason, provider.Usage{
+		InputTokens:  cr.Usage.PromptTokens,
+		OutputTokens: cr.Usage.CompletionTokens,
+	}), nil
+}
 
-	msg := cr.Choices[0].Message
+// finish normalizes an assistant message, applies the XML tool-call fallback,
+// records it in the conversation, and shapes the provider response. Shared by
+// the buffered and streaming paths so they cannot drift.
+func (s *session) finish(msg chatMessage, finishReason string, usage provider.Usage) *provider.Response {
 	msg.Role = "assistant" // normalize before appending to history
 
 	// Some ollama models (e.g. qwen3-coder) emit tool calls as XML text in the
 	// content instead of structured tool_calls. Parse that fallback so the tool
 	// actually runs, and rewrite the stored message so tool-result IDs match.
-	stop := normStop(cr.Choices[0].FinishReason)
+	stop := normStop(finishReason)
 	if len(msg.ToolCalls) == 0 {
 		if synth, cleaned := parseXMLToolCalls(msg.Content); len(synth) > 0 {
 			msg.ToolCalls = synth
@@ -175,14 +204,7 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 	s.messages = append(s.messages, msg)
 
-	out := &provider.Response{
-		Text:       msg.Content,
-		StopReason: stop,
-		Usage: provider.Usage{
-			InputTokens:  cr.Usage.PromptTokens,
-			OutputTokens: cr.Usage.CompletionTokens,
-		},
-	}
+	out := &provider.Response{Text: msg.Content, StopReason: stop, Usage: usage}
 	for _, tc := range msg.ToolCalls {
 		args := tc.Function.Arguments
 		if strings.TrimSpace(args) == "" {
@@ -194,7 +216,110 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 			Input: json.RawMessage(args),
 		})
 	}
-	return out, nil
+	return out
+}
+
+// streamChunk is one SSE data frame of a streaming completion.
+type streamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// readStream consumes an SSE completion, forwarding text deltas as they arrive
+// and accumulating the full message for the conversation history.
+//
+// Tool-call deltas accumulate by index: the id and name arrive once, the
+// arguments in fragments. Usage rides in a final chunk with no choices, which
+// stream_options asked for.
+func (s *session) readStream(body io.Reader, onText func(string)) (*provider.Response, error) {
+	var (
+		content strings.Builder
+		calls   = map[int]*toolCall{}
+		finish  string
+		usage   provider.Usage
+		sc      = bufio.NewScanner(body)
+	)
+	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var ch streamChunk
+		if err := json.Unmarshal([]byte(data), &ch); err != nil {
+			continue // a malformed frame is not worth killing the answer over
+		}
+		if ch.Error != nil {
+			return nil, fmt.Errorf("openai: %s", ch.Error.Message)
+		}
+		if ch.Usage != nil {
+			usage.InputTokens = ch.Usage.PromptTokens
+			usage.OutputTokens = ch.Usage.CompletionTokens
+		}
+		if len(ch.Choices) == 0 {
+			continue
+		}
+		c := ch.Choices[0]
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+		if c.Delta.Content != "" {
+			content.WriteString(c.Delta.Content)
+			onText(c.Delta.Content)
+		}
+		for _, d := range c.Delta.ToolCalls {
+			tc := calls[d.Index]
+			if tc == nil {
+				tc = &toolCall{}
+				calls[d.Index] = tc
+			}
+			if d.ID != "" {
+				tc.ID = d.ID
+			}
+			if d.Type != "" {
+				tc.Type = d.Type
+			}
+			if d.Function.Name != "" {
+				tc.Function.Name = d.Function.Name
+			}
+			tc.Function.Arguments += d.Function.Arguments
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("openai: stream: %w", err)
+	}
+
+	msg := chatMessage{Content: content.String()}
+	for i := 0; i < len(calls); i++ {
+		if tc := calls[i]; tc != nil {
+			msg.ToolCalls = append(msg.ToolCalls, *tc)
+		}
+	}
+	return s.finish(msg, finish, usage), nil
 }
 
 // XML tool-call syntax emitted by some ollama models (qwen3-coder etc.):
