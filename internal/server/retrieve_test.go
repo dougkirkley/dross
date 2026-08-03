@@ -17,6 +17,8 @@ func TestWorthSearching(t *testing.T) {
 		"why is my postgres connection timing out",
 		"k8s networkpolicy egress namespaceselector",
 		"no idea what this error means: dial tcp i/o timeout", // starts with "no" but is not an acknowledgement
+		// A pronoun inside a real question is a detail, not a follow-up.
+		"where can i buy a memory foam mattress for a heavy side sleeper like me",
 	}
 	for _, p := range search {
 		if !worthSearching(p) {
@@ -29,6 +31,10 @@ func TestWorthSearching(t *testing.T) {
 		"explain that again", "what did you mean by the second one",
 		"summarize that", "shorter", "continue",
 		"",
+		// Questions that lean on the last answer. Searched literally these look
+		// up the word "them", which is nobody's question.
+		"where to get them?", "how much are they", "which one is best",
+		"is that any good",
 	}
 	for _, p := range skip {
 		if worthSearching(p) {
@@ -98,5 +104,14 @@ func TestPromptDoesNotBlockOnRetrieval(t *testing.T) {
 	// And it has to be handed the run's context, or Stop cannot reach it.
 	if !strings.Contains(fn, "m.retrieveFor(ctx,") {
 		t.Error("retrieval does not take the run's context, so Stop cannot cancel it")
+	}
+}
+
+// A ceiling on searches per question, so adding a site later is a decision
+// rather than a drift: each query is a request, a share of the rate limit, and
+// a second of somebody's wait.
+func TestQueryCeilingIsDocumentedAndSmall(t *testing.T) {
+	if maxQueries > 5 {
+		t.Errorf("maxQueries = %d; a question should not become more than a handful of searches", maxQueries)
 	}
 }

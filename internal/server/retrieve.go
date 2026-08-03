@@ -28,6 +28,9 @@ import (
 // then the model.
 const retrievalTimeout = 12 * time.Second
 
+// maxQueries bounds how many searches one question turns into.
+const maxQueries = 5
+
 // retrieveFor searches the web for a chat prompt and returns the context block
 // to give the model plus the sources behind it. Both are empty when the prompt
 // does not warrant a search or the search finds nothing.
@@ -47,6 +50,12 @@ func (m *Manager) retrieveFor(runCtx context.Context, s *Session, prompt string)
 	queries := []string{prompt, prompt + " reddit"}
 	if looksLikeShopping(prompt) {
 		queries = append(queries, prompt+" amazon", prompt+" wirecutter")
+	}
+	// A ceiling, so adding a site here later is a decision rather than a drift.
+	// Each query is a request, a share of the rate limit, and a second of
+	// somebody's wait.
+	if len(queries) > maxQueries {
+		queries = queries[:maxQueries]
 	}
 
 	type found struct {
@@ -72,6 +81,10 @@ func (m *Manager) retrieveFor(runCtx context.Context, s *Session, prompt string)
 		}(i, q)
 	}
 	wg.Wait()
+	// Searching is over; what follows is the model. Leaving the last search on
+	// screen makes a two-minute wait look like a stuck search, which is the
+	// opposite of what naming the search was for.
+	s.emit("searched", "")
 
 	var b strings.Builder
 	var sources []agent.Source
@@ -101,6 +114,37 @@ Use these to answer. They are current; your training data is not. Cite the ones
 you use, and say so if they do not actually answer the question rather than
 filling the gap from memory.`, prompt, results)
 	return block, sources
+}
+
+// contentWords strips the words that carry no query of their own, leaving what
+// a search would actually be for.
+func contentWords(p string) []string {
+	filler := map[string]bool{
+		"a": true, "an": true, "the": true, "is": true, "are": true, "was": true,
+		"be": true, "to": true, "of": true, "for": true, "in": true, "on": true,
+		"how": true, "what": true, "where": true, "which": true, "who": true,
+		"why": true, "when": true, "do": true, "does": true, "did": true,
+		"can": true, "could": true, "should": true, "would": true, "i": true,
+		"me": true, "my": true, "you": true, "get": true, "much": true,
+		"any": true, "some": true, "good": true, "and": true, "or": true,
+		"about": true, "from": true, "with": true,
+		// The referential ones: the whole point is that they stand for
+		// something said earlier.
+		"it": true, "them": true, "they": true, "that": true, "this": true,
+		"those": true, "these": true, "one": true, "ones": true,
+	}
+	var out []string
+	for _, w := range strings.Fields(strings.Map(func(r rune) rune {
+		if r == '?' || r == '.' || r == ',' || r == '!' || r == '\'' {
+			return ' '
+		}
+		return r
+	}, p)) {
+		if !filler[w] {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // looksLikeShopping reports whether a prompt is about buying or choosing
@@ -142,6 +186,17 @@ func worthSearching(prompt string) bool {
 		if p == ack || p == ack+"!" || p == ack+"." {
 			return false
 		}
+	}
+	// A question that leans on the last answer. "where to get them?" searched
+	// literally looks up the word "them", which is nobody's question - the
+	// meaning is in the conversation, and the model already has that.
+	//
+	// The test is not whether a pronoun appears: "is the framework laptop worth
+	// it" ends in one and is a perfectly good query. It is whether anything is
+	// left to search for once the filler is removed. A follow-up is a question
+	// with its subject somewhere else.
+	if content := contentWords(p); len(content) < 2 {
+		return false
 	}
 	// A follow-up about the conversation rather than about the world. Searching
 	// the literal text would look up the wrong thing: "explain that again" is

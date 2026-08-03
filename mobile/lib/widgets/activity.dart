@@ -190,6 +190,11 @@ String currentActivityLabel(List<Event> events) {
         } catch (_) {
           return 'Editing a file';
         }
+      case 'searched':
+        // Searching is done and the model is the wait now. Without this the
+        // last search stays on screen for the whole answer, which makes a
+        // working model look like a stuck search.
+        return 'Reading results…';
       case 'search':
         // The retrieval that happens before the model reads anything. Naming
         // the query turns a wait into a report: the same seconds pass, with
