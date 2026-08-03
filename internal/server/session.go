@@ -669,7 +669,7 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 	context_ := ""
 	if chat {
 		identity = config.DefaultChatIdentity
-		block, sources := m.retrieveFor(prompt)
+		block, sources := m.retrieveFor(s, prompt)
 		if len(sources) > 0 {
 			context_ = block
 			opts = append(opts, agent.WithSeedSources(sources))

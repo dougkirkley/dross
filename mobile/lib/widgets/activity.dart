@@ -190,6 +190,11 @@ String currentActivityLabel(List<Event> events) {
         } catch (_) {
           return 'Editing a file';
         }
+      case 'search':
+        // The retrieval that happens before the model reads anything. Naming
+        // the query turns a wait into a report: the same seconds pass, with
+        // far less doubt about whether something is happening.
+        return 'Searching ${_searchLabel(e.data)}';
       case 'tool':
         final s = _toolStep(e.data);
         if (s != null) return _present(s.label);
@@ -199,6 +204,21 @@ String currentActivityLabel(List<Event> events) {
     }
   }
   return 'Working…';
+}
+
+/// What to call a search in the activity line.
+///
+/// The queries dross runs are the question plus a site - "best mattresses
+/// reddit" - so the site is the useful half to lead with when there is one, and
+/// the query itself otherwise.
+String _searchLabel(String query) {
+  final q = query.trim();
+  for (final site in const ['reddit', 'amazon', 'wirecutter', 'youtube']) {
+    if (q.toLowerCase().endsWith(' $site')) {
+      return '$site for "${q.substring(0, q.length - site.length - 1)}"';
+    }
+  }
+  return 'the web for "$q"';
 }
 
 // Turn a past-tense step label into a present-tense running label.

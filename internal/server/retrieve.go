@@ -31,7 +31,7 @@ const retrievalTimeout = 12 * time.Second
 // retrieveFor searches the web for a chat prompt and returns the context block
 // to give the model plus the sources behind it. Both are empty when the prompt
 // does not warrant a search or the search finds nothing.
-func (m *Manager) retrieveFor(prompt string) (string, []agent.Source) {
+func (m *Manager) retrieveFor(s *Session, prompt string) (string, []agent.Source) {
 	if !worthSearching(prompt) {
 		return "", nil
 	}
@@ -57,6 +57,11 @@ func (m *Manager) retrieveFor(prompt string) (string, []agent.Source) {
 		wg.Add(1)
 		go func(i int, q string) {
 			defer wg.Done()
+			// Say what is being looked up while it happens. A spinner that
+			// names the thing it is waiting on is the difference between
+			// "working" and "searching reddit for best mattresses" - the second
+			// is the same wait and a fraction of the doubt.
+			s.emit("search", q)
 			text, src, err := agent.SearchWeb(ctx, q)
 			if err != nil {
 				return
