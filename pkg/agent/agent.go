@@ -611,6 +611,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			if isErr {
 				a.emit("error", content)
 			} else {
+				// Retrieval tools that are not ours - Exa's, over MCP - return
+				// their findings as text, so their citations have to be read
+				// back out of it. Without this, a turn that searched through MCP
+				// would answer with sources and show none, which looks exactly
+				// like a model that did not search at all.
+				recordSourcesFromToolOutput(ctx, tc.Name, content)
 				content = a.maybeCompact(ctx, tc.Name, content, res)
 				// Emit a generous slice so clients can expand the full output
 				// (the feed still shows a one-line preview); cap to bound payload.

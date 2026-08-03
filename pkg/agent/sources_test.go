@@ -67,3 +67,44 @@ func TestPageTitle(t *testing.T) {
 		t.Errorf("missing title should be empty, got %q", got)
 	}
 }
+
+// Exa answers over MCP with text, so its citations have to be read back out of
+// it — our own tools record as they go, but a tool from somewhere else cannot.
+// Without this a turn that searched through MCP would answer with sources and
+// show none, which looks exactly like one that never searched.
+func TestSourcesAreReadFromOtherPeoplesTools(t *testing.T) {
+	ctx, sink := withSourceSink(context.Background())
+
+	exaOutput := "Title: Best Mattresses 2026 - Reddit's Top Picks\n" +
+		"URL: https://reccs.co/home/mattresses\n" +
+		"Published: 2026-03-26T11:17:22.000Z\n" +
+		"Highlights:\nsome text\n\n" +
+		"Title: r/Mattress on hybrids\nURL: https://www.reddit.com/r/Mattress/comments/abc\n"
+	recordSourcesFromToolOutput(ctx, "web_search_exa", exaOutput)
+
+	got := sink.all()
+	if len(got) != 2 {
+		t.Fatalf("read %d sources from Exa output; want 2: %+v", len(got), got)
+	}
+	if got[0].Title != "Best Mattresses 2026 - Reddit's Top Picks" || got[0].Site != "reccs.co" {
+		t.Errorf("first = %+v", got[0])
+	}
+	if got[1].Site != "reddit.com" {
+		t.Errorf("second lost its site: %+v", got[1])
+	}
+
+	// A tool that formats differently still yields its links.
+	ctx2, sink2 := withSourceSink(context.Background())
+	recordSourcesFromToolOutput(ctx2, "web_fetch_exa", "see https://example.com/page, and https://other.example/x.")
+	if n := len(sink2.all()); n != 2 {
+		t.Errorf("fallback extraction found %d; want 2", n)
+	}
+
+	// And a tool that is not retrieval contributes nothing, however many URLs
+	// it happens to print.
+	ctx3, sink3 := withSourceSink(context.Background())
+	recordSourcesFromToolOutput(ctx3, "bash", "curl https://example.com && echo https://other.example")
+	if n := len(sink3.all()); n != 0 {
+		t.Errorf("a non-retrieval tool contributed %d sources; want 0", n)
+	}
+}

@@ -38,10 +38,12 @@ func TestChatPromptDescribesTheToolsItWasGiven(t *testing.T) {
 func TestChatPromptRequiresLookingThingsUp(t *testing.T) {
 	p := chatPrompt([]string{"web_search", "web_fetch"})
 	for _, want := range []string{
-		"Search before answering",                // retrieval is the default, not a fallback
-		"training data is stale",                 // why memory is not good enough
-		"did not look something up",              // say so rather than implying otherwise
-		"Never write a URL you have not fetched", // the anti-fabrication rule
+		"Search before answering",                        // retrieval is the default, not a fallback
+		"training data is stale",                         // why memory is not good enough
+		"did not look something up",                      // say so rather than implying otherwise
+		"Never write a URL you have not fetched",         // the anti-fabrication rule
+		"\"reddit\" and \"youtube review\" in the query", // where the honest reviews are
+		"rather than using a site: filter",               // the operator is ignored by these backends
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("chat prompt is missing %q", want)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -128,4 +129,51 @@ func pageTitle(html string) string {
 		title = title[:200]
 	}
 	return title
+}
+
+// isRetrievalTool reports whether a tool's output is worth reading citations
+// out of. Named conservatively: a tool that writes files and happens to print a
+// URL is not a source, and treating it as one puts a link in front of somebody
+// that nothing actually fetched.
+func isRetrievalTool(name string) bool {
+	n := strings.ToLower(name)
+	if !strings.HasPrefix(n, "web_") {
+		return false
+	}
+	return strings.Contains(n, "search") || strings.Contains(n, "fetch") || strings.Contains(n, "crawl")
+}
+
+// exaEntry matches the "Title: …\nURL: …" pairs Exa returns over MCP.
+var exaEntry = regexp.MustCompile(`(?m)^Title:[ \t]*(.+)\r?\n(?:.*\r?\n)*?URL:[ \t]*(\S+)`)
+
+// bareURL is the fallback for a tool that formats its results some other way.
+var bareURL = regexp.MustCompile(`https?://[^\s<>"')\]]+`)
+
+// recordSourcesFromToolOutput reads citations out of a tool's text output.
+//
+// Our own tools record as they go, which is exact. A tool from somewhere else
+// can only be read after the fact, so this prefers the structured form and
+// falls back to finding URLs — accepting that a fallback citation is "a link
+// this tool returned" rather than "a page that was definitely read". Both are
+// true statements about where the answer came from, which is the bar; what
+// neither can be is a URL the model invented, because the model never touched
+// this string.
+func recordSourcesFromToolOutput(ctx context.Context, tool, output string) {
+	if !isRetrievalTool(tool) || output == "" {
+		return
+	}
+	if m := exaEntry.FindAllStringSubmatch(output, -1); len(m) > 0 {
+		for _, g := range m {
+			if src, ok := NewSource(strings.TrimSpace(g[1]), strings.TrimSpace(g[2]), ""); ok {
+				recordSource(ctx, src)
+			}
+		}
+		return
+	}
+	for _, u := range bareURL.FindAllString(output, 20) {
+		u = strings.TrimRight(u, ".,;:")
+		if src, ok := NewSource("", u, ""); ok {
+			recordSource(ctx, src)
+		}
+	}
 }
