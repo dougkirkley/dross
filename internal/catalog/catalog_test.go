@@ -47,3 +47,36 @@ func TestClaudeCodeSeparateFromAnthropic(t *testing.T) {
 		t.Fatalf("IDs() missing anthropic=%v claude-code=%v", hasA, hasC)
 	}
 }
+
+func TestOllamaHostOverride(t *testing.T) {
+	t.Setenv("OLLAMA_HOST", "")
+	if p, _ := Get("ollama"); p.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("unset: %q, want the local default", p.BaseURL)
+	}
+
+	// Every shape ollama's own variable accepts.
+	for in, want := range map[string]string{
+		"node2:11434":              "http://node2:11434/v1",
+		"node2":                    "http://node2:11434/v1",
+		"http://node2:11434":       "http://node2:11434/v1",
+		"https://ollama.example":   "https://ollama.example:11434/v1",
+		"http://node2:11434/":      "http://node2:11434/v1",
+	} {
+		t.Setenv("OLLAMA_HOST", in)
+		if p, _ := Get("ollama"); p.BaseURL != want {
+			t.Errorf("OLLAMA_HOST=%q -> %q, want %q", in, p.BaseURL, want)
+		}
+	}
+
+	// Junk falls back rather than producing an unusable URL.
+	t.Setenv("OLLAMA_HOST", "://")
+	if p, _ := Get("ollama"); p.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("garbage: %q, want the local default", p.BaseURL)
+	}
+
+	// Only ollama consults it.
+	t.Setenv("OLLAMA_HOST", "node2:11434")
+	if p, _ := Get("lmstudio"); p.BaseURL != "http://localhost:1234/v1" {
+		t.Errorf("lmstudio moved: %q", p.BaseURL)
+	}
+}

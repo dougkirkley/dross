@@ -411,10 +411,22 @@ func newTUICmd() *cobra.Command {
 				st.workerName, st.workerModel,
 			)
 			// Catalog as provider→models groups for the /model picker.
+			//
+			// A local provider carries no preview models — what is installed on
+			// somebody's machine cannot be guessed — and the picker renders a
+			// provider only through its models, so Ollama, LM Studio and
+			// llama.cpp were absent from the list entirely rather than shown as
+			// empty. Ask them what they have: if one is running, its real
+			// models appear; if not, it stays out, which is the honest answer
+			// for a server that is not there.
 			var groups []tui.ModelGroup
 			for _, id := range catalog.IDs() {
 				c, _ := catalog.Get(id)
-				groups = append(groups, tui.ModelGroup{Provider: id, Models: c.Models})
+				models := c.Models
+				if c.Local && len(models) == 0 {
+					models = fetchModelIDs(id, c.BaseURL, "")
+				}
+				groups = append(groups, tui.ModelGroup{Provider: id, Models: models})
 			}
 			mdl.SetProviders(groups)
 			// Wire /login + /rc when a server is configured, so this TUI can

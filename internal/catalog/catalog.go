@@ -9,7 +9,12 @@
 // OpenAI-compatible endpoints for each service.
 package catalog
 
-import "sort"
+import (
+	"net/url"
+	"os"
+	"sort"
+	"strings"
+)
 
 // Provider describes how to reach a model provider.
 type Provider struct {
@@ -71,7 +76,41 @@ var providers = map[string]Provider{
 // Get returns the catalog entry for id (case-sensitive), if any.
 func Get(id string) (Provider, bool) {
 	p, ok := providers[id]
+	if ok && id == "ollama" {
+		if base := ollamaHost(); base != "" {
+			p.BaseURL = base
+		}
+	}
 	return p, ok
+}
+
+// ollamaHost resolves $OLLAMA_HOST to an OpenAI-compatible base URL.
+//
+// The catalog default is localhost, which is right for the common case and
+// wrong for every ollama that runs somewhere else — and a provider pointed at
+// a host with nothing on it lists no models, which is how a perfectly healthy
+// remote server came to be missing from the picker entirely.
+//
+// OLLAMA_HOST is ollama's own variable, so anyone with a remote server has
+// already set it. It accepts a bare host, a host:port, or a full URL; all
+// three arrive here and leave as "<scheme>://<host>:<port>/v1".
+func ollamaHost() string {
+	h := strings.TrimSpace(os.Getenv("OLLAMA_HOST"))
+	if h == "" {
+		return ""
+	}
+	if !strings.Contains(h, "://") {
+		h = "http://" + h
+	}
+	u, err := url.Parse(h)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	if u.Port() == "" {
+		u.Host = u.Hostname() + ":11434"
+	}
+	u.Path, u.RawQuery, u.Fragment = "/v1", "", ""
+	return u.String()
 }
 
 // IDs returns all provider ids, sorted.
