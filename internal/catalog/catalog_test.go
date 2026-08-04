@@ -54,13 +54,17 @@ func TestOllamaHostOverride(t *testing.T) {
 		t.Errorf("unset: %q, want the local default", p.BaseURL)
 	}
 
-	// Every shape ollama's own variable accepts.
+	// Every shape ollama's own variable accepts. The port is what separates a
+	// local address from a published one: a bare host with a port is plain
+	// http, a bare host without one is a name somebody published and is https.
 	for in, want := range map[string]string{
-		"node2:11434":              "http://node2:11434/v1",
-		"node2":                    "http://node2:11434/v1",
-		"http://node2:11434":       "http://node2:11434/v1",
-		"https://ollama.example":   "https://ollama.example:11434/v1",
-		"http://node2:11434/":      "http://node2:11434/v1",
+		"node2:11434":            "http://node2:11434/v1",
+		"localhost:11434":        "http://localhost:11434/v1",
+		"ollama.example.com":     "https://ollama.example.com/v1",
+		"http://node2:11434":     "http://node2:11434/v1",
+		"http://node2:11434/":    "http://node2:11434/v1",
+		"https://ollama.example": "https://ollama.example/v1",
+		"http://ollama.example":  "http://ollama.example/v1",
 	} {
 		t.Setenv("OLLAMA_HOST", in)
 		if p, _ := Get("ollama"); p.BaseURL != want {

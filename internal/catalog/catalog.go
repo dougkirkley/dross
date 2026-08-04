@@ -10,6 +10,7 @@
 package catalog
 
 import (
+	"net"
 	"net/url"
 	"os"
 	"sort"
@@ -99,15 +100,30 @@ func ollamaHost() string {
 	if h == "" {
 		return ""
 	}
+	// Three shapes, and the port is what separates them.
+	//
+	// A full URL is taken as written: its default port is its scheme's.
+	// Forcing 11434 here turned a working https:// address into a dead one,
+	// because a server published through a gateway answers on 443 and has no
+	// 11434 open to the world at all.
+	//
+	// A bare host with a port is the local convention — "localhost:11434",
+	// "node2:11434" — and speaks plain http.
+	//
+	// A bare host without one is a published name, and a published name is
+	// https. Defaulting those to http://host:11434 was how a perfectly healthy
+	// server stayed invisible: the address was reachable, just not the one
+	// being asked.
 	if !strings.Contains(h, "://") {
-		h = "http://" + h
+		if _, _, err := net.SplitHostPort(h); err == nil {
+			h = "http://" + h
+		} else {
+			h = "https://" + h
+		}
 	}
 	u, err := url.Parse(h)
 	if err != nil || u.Host == "" {
 		return ""
-	}
-	if u.Port() == "" {
-		u.Host = u.Hostname() + ":11434"
 	}
 	u.Path, u.RawQuery, u.Fragment = "/v1", "", ""
 	return u.String()
