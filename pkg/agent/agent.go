@@ -621,7 +621,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			// is checkable in one tap - so it has to be a page this turn
 			// actually retrieved. Anything else is unlinked rather than
 			// deleted: the sentence survives, the false promise does not.
-			resp.Text = keepOnlyRetrievedLinks(ctx, resp.Text)
+			resp.Text = stripCitationMarkup(keepOnlyRetrievedLinks(ctx, resp.Text))
 			res.Text = resp.Text
 			a.emit("text", resp.Text)
 		}

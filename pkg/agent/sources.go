@@ -217,6 +217,32 @@ func WithSeedSources(src []Source) Option {
 // the background so the request that started it can return.
 func (a *Agent) SeedSources(src []Source) { a.seedSources = append(a.seedSources, src...) }
 
+// citationMarkup matches the bracketed reference tags some models emit around
+// a source number, e.g. "[REF]1[/REF]" from devstral.
+var citationMarkup = regexp.MustCompile(`\[REF\]\s*\d+\s*\[/REF\]`)
+
+// stripCitationMarkup removes those tags from prose.
+//
+// They are a model's private notation for "this came from source 1", and no
+// client renders them — devstral's turned up verbatim in the middle of
+// sentences, which reads as the answer having glitched. The sources rail
+// already shows what the turn fetched, in order, so the information the tag
+// carries is on screen either way. Removing the tag is the smallest fix that
+// does not silently drop the source.
+//
+// Deliberately narrow: only this exact shape, so ordinary square brackets in
+// prose or code are untouched.
+func stripCitationMarkup(text string) string {
+	if !strings.Contains(text, "[REF]") {
+		return text
+	}
+	out := citationMarkup.ReplaceAllString(text, "")
+	// A tag sitting before punctuation leaves " ." behind.
+	out = strings.ReplaceAll(out, " .", ".")
+	out = strings.ReplaceAll(out, " ,", ",")
+	return strings.TrimSpace(out)
+}
+
 // markdownLink matches [text](url) so a link can be checked against what was
 // actually fetched.
 var markdownLink = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^)\s]+)\)`)

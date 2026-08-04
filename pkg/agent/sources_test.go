@@ -202,3 +202,26 @@ func TestSourcesAreCapped(t *testing.T) {
 		t.Errorf("capping dropped the earliest sources: first is %q", got[0].URL)
 	}
 }
+
+func TestStripCitationMarkup(t *testing.T) {
+	// devstral's notation, arriving verbatim in the middle of a sentence.
+	got := stripCitationMarkup(
+		"A StatefulSet manages stateful apps [REF]1[/REF]. It gives each pod an identity [REF] 2 [/REF].")
+	want := "A StatefulSet manages stateful apps. It gives each pod an identity."
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	// Ordinary brackets are none of its business — this runs over prose that
+	// routinely contains code.
+	for _, keep := range []string{
+		"use m[REF] to index",
+		"arr[0] and list[i] stay",
+		"a markdown [link](https://example.com) survives",
+		"",
+	} {
+		if out := stripCitationMarkup(keep); out != keep {
+			t.Errorf("stripCitationMarkup(%q) = %q, want it untouched", keep, out)
+		}
+	}
+}
