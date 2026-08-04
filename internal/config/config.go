@@ -47,6 +47,33 @@ type Provider struct {
 	APIKey   string `json:"api_key,omitempty"`
 }
 
+// ProviderDef is a provider named in config: a backend, where to reach it, and
+// optionally what it has.
+//
+// The field names are dross's own — the same provider/base_url/api_key the
+// worker, chat, reviewer and compactor blocks already use — rather than
+// another agent's spelling of the same idea. A config should read consistently
+// with itself before it reads familiarly to somebody arriving from elsewhere.
+type ProviderDef struct {
+	Name string `json:"name,omitempty"` // display name; defaults to the id
+	// Provider is the backend: "openai" (OpenAI-compatible, the default),
+	// "anthropic", "gemini", "bedrock", … — the same values the top-level
+	// provider field takes.
+	Provider string `json:"provider,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	// APIKeyEnv names an environment variable to read the key from, for a
+	// config that is committed somewhere.
+	APIKeyEnv string `json:"api_key_env,omitempty"`
+	// Local marks a server that needs no key, which also makes dross ask it
+	// what models it has rather than rely on the list below.
+	Local bool `json:"local,omitempty"`
+	// Models is optional. Left empty for a local or explicitly-pointed
+	// provider, dross asks the endpoint — a hand-written list of a local
+	// server's models is stale the moment anything is pulled.
+	Models []string `json:"models,omitempty"`
+}
+
 // File is the on-disk config. All fields optional.
 type File struct {
 	Name           string            `json:"name,omitempty"`            // app/wordmark name shown in the TUI
@@ -66,8 +93,8 @@ type File struct {
 	Models         []string          `json:"models,omitempty"`       // allowed model ids to offer
 	Worker         *Provider         `json:"worker,omitempty"`
 	Reviewer       *Provider         `json:"reviewer,omitempty"`
-	Review         *bool             `json:"review,omitempty"`     // disable the code-review skill (default on when a reviewer is set)
-	Compactor      *Provider         `json:"compactor,omitempty"`  // token-efficiency skill
+	Review         *bool             `json:"review,omitempty"`    // disable the code-review skill (default on when a reviewer is set)
+	Compactor      *Provider         `json:"compactor,omitempty"` // token-efficiency skill
 	// Chat is the backend Chat sessions answer on. Unset runs them on the lead
 	// backend. Reading search results and writing prose about them is a
 	// different job from writing code, so it is worth being able to point it at
@@ -77,15 +104,21 @@ type File struct {
 	// {"chat": {"model": "gemma2:9b"}} keeps the same provider and endpoint and
 	// changes only who answers.
 	Chat *Provider `json:"chat,omitempty"`
+	// Providers are named model backends, merged over the built-in catalog so
+	// that a private endpoint can be referred to by name — in `provider`, in a
+	// worker or chat block, or in the TUI's picker. An id that already exists
+	// is merged field by field, so pointing a known provider somewhere else
+	// does not mean restating the rest of it.
+	Providers map[string]ProviderDef `json:"providers,omitempty"`
 	// ChatModels is what a chat session's model picker offers, when that should
 	// differ from Models. Unset falls back to the chat model alone if a chat
 	// backend is configured, and to Models otherwise — because offering the
 	// lead's models to a chat running on a different server is offering models
 	// that server does not have.
-	ChatModels []string `json:"chat_models,omitempty"`
-	CompactAt      int               `json:"compact_at,omitempty"` // tool-result byte threshold
-	Phrases        []string          `json:"phrases,omitempty"`    // TUI status phrases
-	OAuth          *OAuthLogin       `json:"oauth,omitempty"`      // for the claude-sub provider
+	ChatModels []string    `json:"chat_models,omitempty"`
+	CompactAt  int         `json:"compact_at,omitempty"` // tool-result byte threshold
+	Phrases    []string    `json:"phrases,omitempty"`    // TUI status phrases
+	OAuth      *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
 
 	// tools is an allow-list: when set, only these tool ids are enabled (empty =
 	// all). permission is per-tool allow|ask|deny — either a plain string, or,

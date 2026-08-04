@@ -84,3 +84,64 @@ func TestOllamaHostOverride(t *testing.T) {
 		t.Errorf("lmstudio moved: %q", p.BaseURL)
 	}
 }
+
+func TestUserProvidersAddAndMerge(t *testing.T) {
+	t.Cleanup(func() { SetUserProviders(nil) })
+	t.Setenv("OLLAMA_HOST", "")
+
+	SetUserProviders(map[string]Provider{
+		// A provider dross ships no knowledge of.
+		"homelab": {BaseURL: "https://ollama.example.com/v1", Local: true},
+		// A built-in pointed somewhere else, stating only what differs.
+		"ollama": {BaseURL: "https://ollama.example.com/v1"},
+	})
+
+	got, ok := Get("homelab")
+	if !ok || got.BaseURL != "https://ollama.example.com/v1" || !got.Local {
+		t.Fatalf("homelab = %+v", got)
+	}
+	if got.Name != "homelab" || got.Impl != "openai" {
+		t.Errorf("defaults not filled: name=%q impl=%q", got.Name, got.Impl)
+	}
+
+	// The merge keeps what was not restated, and the environment variable must
+	// not overrule an address somebody configured deliberately.
+	t.Setenv("OLLAMA_HOST", "somewhere-else.example")
+	o, _ := Get("ollama")
+	if o.BaseURL != "https://ollama.example.com/v1" {
+		t.Errorf("configured base URL lost to $OLLAMA_HOST: %q", o.BaseURL)
+	}
+	if o.Name != "Ollama" || !o.Local {
+		t.Errorf("built-in fields not inherited: %+v", o)
+	}
+
+	seen := map[string]int{}
+	for _, id := range IDs() {
+		seen[id]++
+	}
+	if seen["homelab"] != 1 || seen["ollama"] != 1 {
+		t.Errorf("IDs listed homelab %d, ollama %d; want 1 each", seen["homelab"], seen["ollama"])
+	}
+
+	// Clearing puts the built-ins back rather than leaving a hole.
+	SetUserProviders(nil)
+	if _, ok := Get("homelab"); ok {
+		t.Error("homelab survived being cleared")
+	}
+	if o, _ := Get("ollama"); o.BaseURL == "https://ollama.example.com/v1" {
+		t.Error("the built-in ollama did not come back")
+	}
+}
+
+func TestProviderAPIKey(t *testing.T) {
+	t.Setenv("SOME_KEY", "from-env")
+	if got := (Provider{Key: "literal", APIKeyEnv: "SOME_KEY"}).APIKey(); got != "literal" {
+		t.Errorf("a configured key must win over the variable, got %q", got)
+	}
+	if got := (Provider{APIKeyEnv: "SOME_KEY"}).APIKey(); got != "from-env" {
+		t.Errorf("got %q, want the variable's value", got)
+	}
+	if got := (Provider{}).APIKey(); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}

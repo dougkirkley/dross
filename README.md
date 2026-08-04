@@ -348,6 +348,47 @@ DROSS_LIVE=1 go test -tags integration ./pkg/provider/claudecode/
 They use the lowest alias that reliably drives tools (`sonnet`); override with
 `DROSS_LIVE_MODEL` (e.g. `opus`).
 
+## Providers
+
+`dross provider` registers a model backend so it can be used by name — a
+server on your own network, a company gateway, anything OpenAI-compatible.
+The config file is dross's to write; you never edit it by hand.
+
+```bash
+dross provider add homelab https://ollama.example.com/v1 --local
+dross provider list
+dross provider remove homelab
+```
+
+Adding one says whether it answered, because a URL that turns out to be wrong
+is the failure worth catching now rather than at your next prompt:
+
+```
+added provider "homelab" -> https://ollama.example.com/v1 in ~/.config/dross/config.json
+9 models: gpt-oss:20b, llama3.1:8b, qwen2.5-coder:14b, …
+```
+
+Models are discovered from the endpoint. Pass `--model` (repeatable) to list
+them by hand instead — worth it for a hosted provider that does not publish a
+model list, and not worth it for a local server, where a written-down list is
+stale the moment you pull anything.
+
+An id that already exists is merged, not replaced, so pointing a known
+provider somewhere else states only what differs:
+
+```bash
+dross provider add ollama https://ollama.example.com/v1   # keeps its name, backend, local flag
+```
+
+Other flags: `--name` for display, `--provider` for the backend when it is not
+OpenAI-compatible (`anthropic`, `gemini`, `bedrock`, …), and `--api-key` or
+`--api-key-env` for a hosted one. `--local` marks a server that needs no key.
+
+A registered provider works everywhere a built-in does: as `provider` in
+config, in a `worker`/`chat`/`compactor` block, and in the TUI's `/model`
+picker. For a one-off you can skip registration entirely — `OPENAI_BASE_URL`,
+`OLLAMA_HOST`, or `/model <provider> <base-url> [key]` in the TUI.
+
 ## Contributing
 
 Patches welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO

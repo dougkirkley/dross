@@ -15,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Provider describes how to reach a model provider.
@@ -26,6 +27,22 @@ type Provider struct {
 	APIKeyEnv string   // env var holding the API key ("" if none, e.g. local)
 	Local     bool     // runs locally (no key needed)
 	Models    []string // a few well-known model ids (preview; live list wins)
+	// Key is a literal API key, set only by a user-defined provider. The
+	// built-in catalog never carries one — it names the environment variable
+	// instead, so the compiled binary holds no credentials.
+	Key string
+}
+
+// APIKey resolves the provider's key: the literal one if configured, otherwise
+// whatever its named environment variable holds.
+func (p Provider) APIKey() string {
+	if p.Key != "" {
+		return p.Key
+	}
+	if p.APIKeyEnv != "" {
+		return os.Getenv(p.APIKeyEnv)
+	}
+	return ""
 }
 
 // providers is the seed catalog. OpenAI-compatible unless Impl says otherwise.
@@ -74,10 +91,78 @@ var providers = map[string]Provider{
 	"cohere":     {ID: "cohere", Name: "Cohere (Command)", Impl: "openai", BaseURL: "https://api.cohere.ai/compatibility/v1", APIKeyEnv: "COHERE_API_KEY", Models: []string{"command-a-03-2025", "command-r-plus-08-2024", "command-r7b-12-2024"}},
 }
 
-// Get returns the catalog entry for id (case-sensitive), if any.
+// User-defined providers, layered over the built-ins.
+//
+// The compiled catalog is a convenience for services everyone can reach; it
+// can never name a private endpoint. Somebody running a model server of their
+// own could point an existing entry at it, but not call it what it is, and a
+// provider that is not in here is one the picker cannot show and /model cannot
+// resolve by name.
+var (
+	userMu        sync.RWMutex
+	userProviders map[string]Provider
+)
+
+// SetUserProviders registers providers from config over the built-in catalog.
+//
+// An id that already exists is merged rather than replaced, field by field, so
+// redirecting one thing about a known provider — usually the base URL — does
+// not mean restating its name, backend and key variable to keep them.
+//
+// Called once at startup, before anything reads the catalog.
+func SetUserProviders(ps map[string]Provider) {
+	merged := make(map[string]Provider, len(ps))
+	for id, p := range ps {
+		if id == "" {
+			continue
+		}
+		p.ID = id
+		if base, ok := providers[id]; ok {
+			if p.Name == "" {
+				p.Name = base.Name
+			}
+			if p.Impl == "" {
+				p.Impl = base.Impl
+			}
+			if p.BaseURL == "" {
+				p.BaseURL = base.BaseURL
+			}
+			if p.APIKeyEnv == "" {
+				p.APIKeyEnv = base.APIKeyEnv
+			}
+			if p.Key == "" {
+				p.Key = base.Key
+			}
+			if len(p.Models) == 0 {
+				p.Models = base.Models
+			}
+			p.Local = p.Local || base.Local
+		}
+		if p.Name == "" {
+			p.Name = id
+		}
+		if p.Impl == "" {
+			p.Impl = "openai" // the compatible default; what most endpoints are
+		}
+		merged[id] = p
+	}
+	userMu.Lock()
+	userProviders = merged
+	userMu.Unlock()
+}
+
+// Get returns the catalog entry for id (case-sensitive), if any. A
+// user-defined provider wins over a built-in of the same id.
 func Get(id string) (Provider, bool) {
-	p, ok := providers[id]
-	if ok && id == "ollama" {
+	userMu.RLock()
+	p, ok := userProviders[id]
+	userMu.RUnlock()
+	if !ok {
+		p, ok = providers[id]
+	}
+	if ok && id == "ollama" && p.BaseURL == providers["ollama"].BaseURL {
+		// Only when nothing more specific was configured: an explicit base URL
+		// is a decision, and an environment variable should not overrule it.
 		if base := ollamaHost(); base != "" {
 			p.BaseURL = base
 		}
@@ -129,12 +214,21 @@ func ollamaHost() string {
 	return u.String()
 }
 
-// IDs returns all provider ids, sorted.
+// IDs returns all provider ids, built-in and user-defined, sorted.
 func IDs() []string {
+	seen := make(map[string]bool, len(providers))
 	out := make([]string, 0, len(providers))
 	for id := range providers {
+		seen[id] = true
 		out = append(out, id)
 	}
+	userMu.RLock()
+	for id := range userProviders {
+		if !seen[id] {
+			out = append(out, id)
+		}
+	}
+	userMu.RUnlock()
 	sort.Strings(out)
 	return out
 }

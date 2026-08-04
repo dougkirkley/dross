@@ -54,6 +54,7 @@ func NewRootCmd() *cobra.Command {
 		newRCCmd(),
 		newPluginCmd(),
 		newMCPCmd(),
+		newProviderCmd(),
 	)
 	return root
 }

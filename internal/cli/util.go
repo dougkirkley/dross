@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dougkirkley/dross/internal/catalog"
 	"github.com/dougkirkley/dross/internal/config"
 )
 
@@ -67,6 +68,10 @@ func resolveProviders(cmd *cobra.Command, provDefault, modelDefault string) (res
 	if err != nil {
 		return resolved{}, fmt.Errorf("config %s: %w", path, err)
 	}
+	// Register configured providers before anything resolves one, so a name
+	// from `dross provider add` works everywhere a built-in id does: as the
+	// lead provider, in a worker or chat block, and in the TUI's picker.
+	catalog.SetUserProviders(userProviders(file))
 
 	provFlag, provChanged := flagStr(cmd, "provider")
 	modelFlag, modelChanged := flagStr(cmd, "model")
