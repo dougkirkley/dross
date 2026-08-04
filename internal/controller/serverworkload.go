@@ -1,6 +1,11 @@
 package controller
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"sort"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -100,7 +105,20 @@ func authEnv(d *dross.Dross) []corev1.EnvVar {
 }
 
 // deploymentFor builds the server workload.
-func deploymentFor(d *dross.Dross) *appsv1.Deployment {
+// configHashAnnotation carries a digest of the mounted config, so that
+// changing the config changes the pod template.
+//
+// Without it a config edit is invisible to the workload: Kubernetes updates
+// the mounted file but never restarts the pod, so the server goes on running
+// whatever it parsed at boot. That is not a theoretical gap — this deployment
+// spent a day answering with a model the config no longer named, and served a
+// model that had since been removed from the node entirely. Any pod-template
+// field would do; an annotation is the one that means nothing to anything else.
+const configHashAnnotation = "dross.sh/config-hash"
+
+// deploymentFor builds the server workload. configHash is a digest of the
+// mounted ConfigMap's contents, or "" when there is no config to mount.
+func deploymentFor(d *dross.Dross, configHash string) *appsv1.Deployment {
 	run := int64(10001)
 	yes, no := true, false
 	replicas := int32(1)
@@ -192,7 +210,10 @@ func deploymentFor(d *dross.Dross) *appsv1.Deployment {
 			// Multi-Attach instead of converging.
 			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: serverLabels(d)},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      serverLabels(d),
+					Annotations: podAnnotations(configHash),
+				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: d.Spec.ServiceAccountName,
 					EnableServiceLinks: &no,
@@ -230,4 +251,43 @@ func deploymentFor(d *dross.Dross) *appsv1.Deployment {
 			},
 		},
 	}
+}
+
+// podAnnotations stamps the config digest on the pod template when there is
+// one. Nil rather than an empty map when there is not, so a deployment with no
+// config keeps a pod template identical to the one it had before this existed
+// and is not rolled by the upgrade that introduced it.
+func podAnnotations(configHash string) map[string]string {
+	if configHash == "" {
+		return nil
+	}
+	return map[string]string{configHashAnnotation: configHash}
+}
+
+// hashConfigMap digests a ConfigMap's contents, stably.
+//
+// Keys are sorted because map iteration is not ordered, and each is written
+// with its length so that no two different maps can serialise the same way.
+// Binary data counts too: it is just as mounted, and just as capable of
+// changing what the server does.
+func hashConfigMap(cm *corev1.ConfigMap) string {
+	h := sha256.New()
+	keys := make([]string, 0, len(cm.Data)+len(cm.BinaryData))
+	for k := range cm.Data {
+		keys = append(keys, k)
+	}
+	for k := range cm.BinaryData {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s=", len(k), k)
+		if v, ok := cm.Data[k]; ok {
+			fmt.Fprintf(h, "%d:%s;", len(v), v)
+		}
+		if v, ok := cm.BinaryData[k]; ok {
+			fmt.Fprintf(h, "%d:%x;", len(v), v)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }

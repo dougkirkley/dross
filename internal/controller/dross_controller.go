@@ -12,7 +12,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
 	"github.com/dougkirkley/dross/internal/subreconciler"
@@ -36,6 +38,9 @@ type DrossReconciler struct {
 // +kubebuilder:rbac:groups=dross.sh,resources=drosses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
+// Read-only, and only to digest what the pods mount: a config change has to
+// reach a running server, and it cannot unless the workload changes with it.
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile brings the server up to what the Dross resource asks for.
 func (r *DrossReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -113,7 +118,26 @@ func (r *DrossReconciler) ensureDeployment(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return subreconciler.Fail(client.IgnoreNotFound(err))
 	}
-	want := deploymentFor(d)
+	// Digest the config the pods will mount, so that editing it is a change to
+	// the workload rather than a change only a restart would reveal.
+	var configHash string
+	if d.Spec.ConfigMap != "" {
+		var cm corev1.ConfigMap
+		key := client.ObjectKey{Namespace: d.Namespace, Name: d.Spec.ConfigMap}
+		switch err := r.Get(ctx, key, &cm); {
+		case err == nil:
+			configHash = hashConfigMap(&cm)
+		case apierrors.IsNotFound(err):
+			// Named but absent. The pods will fail to mount it and say so; not
+			// stamping a hash keeps this from also rolling them on every pass
+			// with a digest of nothing.
+			log.FromContext(ctx).Info("config map not found", "name", d.Spec.ConfigMap)
+		default:
+			return subreconciler.Fail(err)
+		}
+	}
+
+	want := deploymentFor(d, configHash)
 	if err := ctrl.SetControllerReference(d, want, r.Scheme()); err != nil {
 		return subreconciler.Fail(err)
 	}
@@ -282,5 +306,28 @@ func (r *DrossReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&dross.Dross{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		// The config is not owned by the Dross object — it is written by hand
+		// or by whatever applies the manifests — so it needs a watch of its
+		// own. Without one an edit would wait for the next resync to be
+		// noticed, which is a long time to serve a config nobody still means.
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.drossForConfigMap)).
 		Complete(r)
+}
+
+// drossForConfigMap maps a ConfigMap back to the Dross objects that mount it.
+func (r *DrossReconciler) drossForConfigMap(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list dross.DrossList
+	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var out []reconcile.Request
+	for _, d := range list.Items {
+		if d.Spec.ConfigMap != obj.GetName() {
+			continue
+		}
+		out = append(out, reconcile.Request{
+			NamespacedName: client.ObjectKey{Namespace: d.Namespace, Name: d.Name},
+		})
+	}
+	return out
 }
