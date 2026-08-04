@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -71,9 +73,8 @@ func newProviderCmd() *cobra.Command {
 	})
 
 	var (
-		name, impl, apiKey, apiKeyEnv string
-		local                         bool
-		models                        []string
+		name, impl, apiKey, apiKeyEnv, local string
+		models                               []string
 	)
 	add := &cobra.Command{
 		Use:   "add <id> <base-url>",
@@ -91,6 +92,9 @@ func newProviderCmd() *cobra.Command {
 			id, base := args[0], args[1]
 			if strings.TrimSpace(id) == "" {
 				return fmt.Errorf("provider id must not be empty")
+			}
+			if local != "" && !catalog.ValidLocalKind(local) {
+				return fmt.Errorf("unknown local kind %q; one of: %s", local, localKindList())
 			}
 			def := config.ProviderDef{
 				Name: name, Provider: impl, BaseURL: base,
@@ -115,12 +119,13 @@ func newProviderCmd() *cobra.Command {
 			// prompt is finding out too late.
 			catalog.SetUserProviders(userProviders(file))
 			p, _ := catalog.Get(id)
-			key := p.APIKey()
-			if ids := fetchModelIDs(id, p.BaseURL, key); len(ids) > 0 {
-				fmt.Fprintf(out, "%d models: %s\n", len(ids), strings.Join(ids, ", "))
-			} else {
+			ids := fetchModelIDs(id, p.BaseURL, p.APIKey())
+			if len(ids) == 0 {
 				fmt.Fprintf(out, "no models listed — check the URL is reachable and ends in /v1\n")
+				return nil
 			}
+			fmt.Fprintf(out, "%d models:\n", len(ids))
+			describeModels(cmd.Context(), out, p, ids)
 			return nil
 		},
 	}
@@ -128,7 +133,7 @@ func newProviderCmd() *cobra.Command {
 	add.Flags().StringVar(&impl, "provider", "", "backend: openai (default), anthropic, gemini, bedrock, …")
 	add.Flags().StringVar(&apiKey, "api-key", "", "API key, stored in the config file")
 	add.Flags().StringVar(&apiKeyEnv, "api-key-env", "", "environment variable holding the API key")
-	add.Flags().BoolVar(&local, "local", false, "a local server: no key, models discovered")
+	add.Flags().StringVar(&local, "local", "", "local server kind: "+localKindList()+" (no key; models discovered)")
 	add.Flags().StringArrayVar(&models, "model", nil, "model id (repeatable); omit to discover from the endpoint")
 	cmd.AddCommand(add)
 
@@ -179,15 +184,24 @@ func userProviders(f *config.File) map[string]catalog.Provider {
 	for id, d := range f.Providers {
 		out[id] = catalog.Provider{
 			ID: id, Name: d.Name, Impl: d.Provider, BaseURL: d.BaseURL,
-			APIKeyEnv: d.APIKeyEnv, Key: d.APIKey, Local: d.Local, Models: d.Models,
+			APIKeyEnv: d.APIKeyEnv, Key: d.APIKey,
+			Local: catalog.LocalKind(d.Local), Models: d.Models,
 		}
 	}
 	return out
 }
 
+func localKindList() string {
+	names := make([]string, 0, 4)
+	for _, k := range catalog.LocalKinds() {
+		names = append(names, string(k))
+	}
+	return strings.Join(names, ", ")
+}
+
 func localNote(p catalog.Provider) string {
-	if p.Local {
-		return "  (local)"
+	if p.IsLocal() {
+		return "  (" + string(p.Local) + ")"
 	}
 	if p.APIKeyEnv != "" {
 		if os.Getenv(p.APIKeyEnv) == "" {
@@ -196,4 +210,50 @@ func localNote(p catalog.Provider) string {
 		return "  ($" + p.APIKeyEnv + ")"
 	}
 	return ""
+}
+
+// describeModels lists a provider's models, annotated with whatever its kind
+// can tell us.
+//
+// The annotation that matters is tool calling, because a Code session is a
+// tool loop and a model that cannot call one cannot do the work. Saying it
+// here means picking a model for the wrong job is a thing you find out while
+// choosing rather than at the first prompt.
+//
+// Only ollama can answer; for anything else the list is printed plainly rather
+// than padded with unknowns.
+func describeModels(ctx context.Context, out io.Writer, p catalog.Provider, ids []string) {
+	if p.Local != catalog.Ollama {
+		for _, id := range ids {
+			fmt.Fprintf(out, "  %s\n", id)
+		}
+		return
+	}
+	for _, id := range ids {
+		info := p.Describe(ctx, id)
+		if !info.Known {
+			fmt.Fprintf(out, "  %s\n", id)
+			continue
+		}
+		var notes []string
+		if info.Params != "" {
+			notes = append(notes, info.Params)
+		}
+		if info.Quant != "" {
+			notes = append(notes, info.Quant)
+		}
+		// Stated as an absence, not a warning: a model without tools is a fine
+		// chat model, and only wrong for a Code session.
+		if !info.Tools {
+			notes = append(notes, "no tools — chat only")
+		}
+		if info.Thinking {
+			notes = append(notes, "thinking")
+		}
+		if len(notes) == 0 {
+			fmt.Fprintf(out, "  %s\n", id)
+			continue
+		}
+		fmt.Fprintf(out, "  %-22s %s\n", id, strings.Join(notes, " · "))
+	}
 }

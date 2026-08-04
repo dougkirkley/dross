@@ -1,6 +1,9 @@
 package catalog
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestCatalog(t *testing.T) {
 	g, ok := Get("groq")
@@ -91,13 +94,13 @@ func TestUserProvidersAddAndMerge(t *testing.T) {
 
 	SetUserProviders(map[string]Provider{
 		// A provider dross ships no knowledge of.
-		"homelab": {BaseURL: "https://ollama.example.com/v1", Local: true},
+		"homelab": {BaseURL: "https://ollama.example.com/v1", Local: Ollama},
 		// A built-in pointed somewhere else, stating only what differs.
 		"ollama": {BaseURL: "https://ollama.example.com/v1"},
 	})
 
 	got, ok := Get("homelab")
-	if !ok || got.BaseURL != "https://ollama.example.com/v1" || !got.Local {
+	if !ok || got.BaseURL != "https://ollama.example.com/v1" || got.Local != Ollama {
 		t.Fatalf("homelab = %+v", got)
 	}
 	if got.Name != "homelab" || got.Impl != "openai" {
@@ -111,7 +114,7 @@ func TestUserProvidersAddAndMerge(t *testing.T) {
 	if o.BaseURL != "https://ollama.example.com/v1" {
 		t.Errorf("configured base URL lost to $OLLAMA_HOST: %q", o.BaseURL)
 	}
-	if o.Name != "Ollama" || !o.Local {
+	if o.Name != "Ollama" || o.Local != Ollama {
 		t.Errorf("built-in fields not inherited: %+v", o)
 	}
 
@@ -143,5 +146,64 @@ func TestProviderAPIKey(t *testing.T) {
 	}
 	if got := (Provider{}).APIKey(); got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestLocalKinds(t *testing.T) {
+	// The built-in local servers each declare which kind they are, because
+	// what dross may ask beyond inference differs between them.
+	for id, want := range map[string]LocalKind{
+		"ollama":   Ollama,
+		"lmstudio": LMStudio,
+		"llamacpp": LlamaCPP,
+		"litellm":  LiteLLM,
+	} {
+		p, ok := Get(id)
+		if !ok {
+			t.Errorf("%s missing from the catalog", id)
+			continue
+		}
+		if p.Local != want {
+			t.Errorf("%s kind = %q, want %q", id, p.Local, want)
+		}
+		if !p.IsLocal() {
+			t.Errorf("%s should be local", id)
+		}
+		// Inference is the same everywhere: the kind is not a second backend.
+		if p.Impl != "openai" {
+			t.Errorf("%s impl = %q, want openai", id, p.Impl)
+		}
+	}
+
+	// A hosted provider declares no kind.
+	if p, _ := Get("groq"); p.IsLocal() {
+		t.Error("groq should not be local")
+	}
+
+	for _, bad := range []string{"", "ollamaa", "vllm", "OLLAMA"} {
+		if ValidLocalKind(bad) {
+			t.Errorf("ValidLocalKind(%q) = true", bad)
+		}
+	}
+	for _, k := range LocalKinds() {
+		if !ValidLocalKind(string(k)) {
+			t.Errorf("ValidLocalKind(%q) = false", k)
+		}
+	}
+}
+
+// Only ollama can be asked what a model does; the rest have no such route, and
+// an unknown answer must never read as "no".
+func TestDescribeOnlyAsksOllama(t *testing.T) {
+	for _, k := range []LocalKind{LMStudio, LlamaCPP, LiteLLM, NotLocal} {
+		p := Provider{BaseURL: "http://127.0.0.1:1/v1", Local: k}
+		if got := p.Describe(context.Background(), "any"); got.Known {
+			t.Errorf("kind %q claimed to know something", k)
+		}
+	}
+	// Unreachable ollama is unknown, not "no tools".
+	p := Provider{BaseURL: "http://127.0.0.1:1/v1", Local: Ollama}
+	if got := p.Describe(context.Background(), "any"); got.Known || got.Tools {
+		t.Errorf("unreachable server reported %+v", got)
 	}
 }

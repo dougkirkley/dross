@@ -18,20 +18,61 @@ import (
 	"sync"
 )
 
+// LocalKind names a kind of local model server, when a provider is one.
+//
+// Not a boolean, because these servers are not interchangeable in what they
+// can be asked. Ollama will say what a model is capable of and can be told to
+// keep one loaded; llama.cpp answers a single model and knows nothing of the
+// idea. Recording which one it is means dross can use what is there instead of
+// probing blindly or assuming the least.
+//
+// Inference itself is the same everywhere — all four speak the
+// OpenAI-compatible route, which is why Impl stays "openai". The kind decides
+// only what can be asked *besides* inference.
+type LocalKind string
+
+const (
+	NotLocal LocalKind = ""         // a hosted provider
+	Ollama   LocalKind = "ollama"   // /api/show, /api/ps, keep_alive
+	LMStudio LocalKind = "lmstudio" // OpenAI-compatible, model list only
+	LlamaCPP LocalKind = "llamacpp" // one model, served directly
+	LiteLLM  LocalKind = "litellm"  // a proxy in front of anything
+)
+
+// LocalKinds are the kinds a provider may declare, for validation and help.
+func LocalKinds() []LocalKind {
+	return []LocalKind{Ollama, LMStudio, LlamaCPP, LiteLLM}
+}
+
+// ValidLocalKind reports whether s names a local server dross knows.
+func ValidLocalKind(s string) bool {
+	for _, k := range LocalKinds() {
+		if string(k) == s {
+			return true
+		}
+	}
+	return false
+}
+
 // Provider describes how to reach a model provider.
 type Provider struct {
-	ID        string   // short id used in /model and config (e.g. "groq")
-	Name      string   // display name
-	Impl      string   // backend: "openai" (OpenAI-compatible) or "anthropic"
-	BaseURL   string   // API base (empty for local defaults / native backends)
-	APIKeyEnv string   // env var holding the API key ("" if none, e.g. local)
-	Local     bool     // runs locally (no key needed)
-	Models    []string // a few well-known model ids (preview; live list wins)
+	ID        string // short id used in /model and config (e.g. "groq")
+	Name      string // display name
+	Impl      string // backend: "openai" (OpenAI-compatible) or "anthropic"
+	BaseURL   string // API base (empty for local defaults / native backends)
+	APIKeyEnv string // env var holding the API key ("" if none, e.g. local)
+	// Local names the kind of local server, or is empty for a hosted provider.
+	// A local provider needs no API key.
+	Local  LocalKind
+	Models []string // a few well-known model ids (preview; live list wins)
 	// Key is a literal API key, set only by a user-defined provider. The
 	// built-in catalog never carries one — it names the environment variable
 	// instead, so the compiled binary holds no credentials.
 	Key string
 }
+
+// IsLocal reports whether this provider is a local model server.
+func (p Provider) IsLocal() bool { return p.Local != NotLocal }
 
 // APIKey resolves the provider's key: the literal one if configured, otherwise
 // whatever its named environment variable holds.
@@ -53,7 +94,7 @@ var providers = map[string]Provider{
 	"anthropic": {ID: "anthropic", Name: "Anthropic (API key)", Impl: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY", Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
 	// Claude subscription via the local `claude` CLI — no API key. Distinct from
 	// the API-key "anthropic" provider above.
-	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Local: true, Models: []string{"opus", "sonnet", "haiku"}},
+	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Models: []string{"opus", "sonnet", "haiku"}},
 	// Claude on Amazon Bedrock (credentials/region from the AWS default chain).
 	// Model ids are region inference-profile ids; edit for your region.
 	// Claude uses the anthropic-over-bedrock path; other ids use the Converse API.
@@ -66,10 +107,12 @@ var providers = map[string]Provider{
 	// Azure OpenAI: endpoint via AZURE_OPENAI_ENDPOINT; model = deployment name.
 	"azure": {ID: "azure", Name: "Azure OpenAI", Impl: "azure", APIKeyEnv: "AZURE_OPENAI_API_KEY", Models: []string{"gpt-4o", "gpt-4o-mini", "o4-mini"}},
 
-	// Local, OpenAI-compatible (no key).
-	"ollama":   {ID: "ollama", Name: "Ollama", Impl: "openai", BaseURL: "http://localhost:11434/v1", Local: true},
-	"lmstudio": {ID: "lmstudio", Name: "LM Studio", Impl: "openai", BaseURL: "http://localhost:1234/v1", Local: true},
-	"llamacpp": {ID: "llamacpp", Name: "llama.cpp", Impl: "openai", BaseURL: "http://localhost:8080/v1", Local: true},
+	// Local servers, OpenAI-compatible (no key). Each declares its kind, which
+	// is what dross can ask it beyond inference.
+	"ollama":   {ID: "ollama", Name: "Ollama", Impl: "openai", BaseURL: "http://localhost:11434/v1", Local: Ollama},
+	"lmstudio": {ID: "lmstudio", Name: "LM Studio", Impl: "openai", BaseURL: "http://localhost:1234/v1", Local: LMStudio},
+	"llamacpp": {ID: "llamacpp", Name: "llama.cpp", Impl: "openai", BaseURL: "http://localhost:8080/v1", Local: LlamaCPP},
+	"litellm":  {ID: "litellm", Name: "LiteLLM", Impl: "openai", BaseURL: "http://localhost:4000/v1", Local: LiteLLM},
 
 	// Hosted, OpenAI-compatible.
 	"groq":       {ID: "groq", Name: "Groq", Impl: "openai", BaseURL: "https://api.groq.com/openai/v1", APIKeyEnv: "GROQ_API_KEY", Models: []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}},
@@ -136,7 +179,9 @@ func SetUserProviders(ps map[string]Provider) {
 			if len(p.Models) == 0 {
 				p.Models = base.Models
 			}
-			p.Local = p.Local || base.Local
+			if p.Local == NotLocal {
+				p.Local = base.Local
+			}
 		}
 		if p.Name == "" {
 			p.Name = id

@@ -73,7 +73,7 @@ OpenAI-compatible and share one backend, selected by base URL.
 
 | Kind | How |
 |------|-----|
-| **Local** (ollama, LM Studio, llama.cpp) | no key; `/model ollama` |
+| **Local** (ollama, LM Studio, llama.cpp, LiteLLM) | no key; `/model ollama` |
 | **OpenAI-compatible hosted** (openai, groq, cerebras, deepseek, xai, mistral, openrouter, together, fireworks, deepinfra, perplexity, nebius, hyperbolic, moonshot, zai, dashscope, github, cohere) | `<PROVIDER>_API_KEY` in env; `/model <id>` |
 | **Anthropic** (native) | `ANTHROPIC_API_KEY`; `/model anthropic` |
 | **Google Gemini** (native, function calling) | `GEMINI_API_KEY`; `/model gemini` (gemini-3-pro, 2.5-pro/flash, …) |
@@ -355,18 +355,33 @@ server on your own network, a company gateway, anything OpenAI-compatible.
 The config file is dross's to write; you never edit it by hand.
 
 ```bash
-dross provider add homelab https://ollama.example.com/v1 --local
+dross provider add homelab https://ollama.example.com/v1 --local ollama
 dross provider list
 dross provider remove homelab
 ```
 
+`--local` names the kind of server: `ollama`, `lmstudio`, `llamacpp` or
+`litellm`. A kind rather than a flag because they differ in what they can be
+asked besides inference — ollama will say what a model is capable of, the
+others cannot.
+
 Adding one says whether it answered, because a URL that turns out to be wrong
-is the failure worth catching now rather than at your next prompt:
+is the failure worth catching now rather than at your next prompt. Against an
+ollama it also says what each model can do:
 
 ```
 added provider "homelab" -> https://ollama.example.com/v1 in ~/.config/dross/config.json
-9 models: gpt-oss:20b, llama3.1:8b, qwen2.5-coder:14b, …
+9 models:
+  gemma2:9b              9.2B · Q4_0 · no tools — chat only
+  gpt-oss:20b            20.9B · MXFP4 · thinking
+  llama3.1:8b            8.0B · Q4_K_M
 ```
+
+"no tools" is the one worth reading. A Code session is a tool loop, so a model
+without them cannot do that work however good it is otherwise — it is still a
+perfectly good chat model. Note the reverse does not hold: the flag is what a
+model's template declares, and a model that declares tools may still fail to
+emit a usable call.
 
 Models are discovered from the endpoint. Pass `--model` (repeatable) to list
 them by hand instead — worth it for a hosted provider that does not publish a
@@ -382,7 +397,7 @@ dross provider add ollama https://ollama.example.com/v1   # keeps its name, back
 
 Other flags: `--name` for display, `--provider` for the backend when it is not
 OpenAI-compatible (`anthropic`, `gemini`, `bedrock`, …), and `--api-key` or
-`--api-key-env` for a hosted one. `--local` marks a server that needs no key.
+`--api-key-env` for a hosted one.
 
 A registered provider works everywhere a built-in does: as `provider` in
 config, in a `worker`/`chat`/`compactor` block, and in the TUI's `/model`
