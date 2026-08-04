@@ -574,11 +574,6 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	in := provider.Input{Text: prompt}
 	if fresh {
 		in.Text = seedPrompt(a.resume, prompt) // resume brief only seeds a new session
-		// The first reply of a new (non-resume) code session opens with a fixed
-		// request-acknowledgement marker + one-line task summary.
-		if a.resume == "" && !a.cfg.Chat {
-			in.Text += "\n\n" + firstReplyDirective
-		}
 	}
 	// Stream assistant prose live (providers that support it call this as text
 	// arrives); the TUI renders a growing block, finalized by the "text" event.
@@ -727,9 +722,18 @@ func (a *Agent) friendlyErr(err error) error {
 	return err
 }
 
-// firstReplyDirective is appended to the first user turn of a new code session so
-// the reply opens with a fixed marker restating the request, before any work.
-const firstReplyDirective = `[system] This is the first message of the session. Begin your reply with the literal marker "[Information Requested]" followed on the same line by a brief one-line summary of the request above (what you're about to do). Then proceed. Do NOT add any other bracketed marker anywhere in this reply — "[Information Requested]" is the only bracket allowed, and only on this first reply.`
+// A first-reply directive used to be appended here, asking the model to open
+// with an "[Information Requested]" marker and a one-line summary before
+// proceeding. It is gone, and worth recording why.
+//
+// Nothing ever consumed the marker — no client parsed it, no view rendered it
+// — so it bought presentation only. What it cost was a turn, and on smaller
+// models the whole session: given "acknowledge, then proceed", a 14B model
+// treats the acknowledgement as the task, satisfies it, and ends its turn.
+// Measured against qwen2.5-coder:14b, a Code session produced a tidy summary
+// of files it was about to create and then stopped, twice, with an empty
+// workspace. A frontier model absorbs the instruction and works anyway, which
+// is exactly why an instruction like this can sit unnoticed for a long time.
 
 func seedPrompt(resume, prompt string) string {
 	if resume == "" {
