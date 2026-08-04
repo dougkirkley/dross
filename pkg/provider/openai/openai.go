@@ -200,6 +200,10 @@ func (s *session) finish(msg chatMessage, finishReason string, usage provider.Us
 			msg.ToolCalls = synth
 			msg.Content = cleaned
 			stop = provider.StopToolUse
+		} else if synth, cleaned := s.parseJSONToolCalls(msg.Content); len(synth) > 0 {
+			msg.ToolCalls = synth
+			msg.Content = cleaned
+			stop = provider.StopToolUse
 		}
 	}
 	s.messages = append(s.messages, msg)
@@ -320,6 +324,71 @@ func (s *session) readStream(body io.Reader, onText func(string)) (*provider.Res
 		}
 	}
 	return s.finish(msg, finish, usage), nil
+}
+
+// jsonFence strips a ```json … ``` wrapper, which models add as often as not.
+var jsonFence = regexp.MustCompile("(?s)^\\s*```(?:json)?\\s*(.*?)\\s*```\\s*$")
+
+// parseJSONToolCalls recovers a tool call a model wrote into its message text
+// instead of the structured tool_calls field.
+//
+// qwen2.5-coder does this: given a tool definition it produces exactly the
+// right call — correct name, correct arguments — as a bare JSON object in the
+// content, and leaves tool_calls null. The agent loop then sees prose, calls
+// nothing, and ends the turn having announced work it never did. A Code
+// session with that model could not write a file at all.
+//
+// The guard against reading an ordinary JSON answer as a call is the tool
+// name: only an object naming a tool this session actually offered counts.
+// A model answering a question *about* JSON does not happen to name one of
+// our tools at the top level of an object with an arguments field.
+func (s *session) parseJSONToolCalls(content string) ([]toolCall, string) {
+	body := strings.TrimSpace(content)
+	if m := jsonFence.FindStringSubmatch(body); m != nil {
+		body = strings.TrimSpace(m[1])
+	}
+	if !strings.HasPrefix(body, "{") && !strings.HasPrefix(body, "[") {
+		return nil, content
+	}
+	known := make(map[string]bool, len(s.tools))
+	for _, t := range s.tools {
+		known[t.Function.Name] = true
+	}
+	if len(known) == 0 {
+		return nil, content
+	}
+
+	type wire struct {
+		Name string          `json:"name"`
+		Args json.RawMessage `json:"arguments"`
+	}
+	var list []wire
+	if strings.HasPrefix(body, "[") {
+		if json.Unmarshal([]byte(body), &list) != nil {
+			return nil, content
+		}
+	} else {
+		var one wire
+		if json.Unmarshal([]byte(body), &one) != nil {
+			return nil, content
+		}
+		list = []wire{one}
+	}
+
+	var calls []toolCall
+	for i, w := range list {
+		if !known[w.Name] || len(w.Args) == 0 {
+			return nil, content // not ours; leave the text alone
+		}
+		var tc toolCall
+		tc.ID = fmt.Sprintf("call_json_%d", i)
+		tc.Type = "function"
+		tc.Function.Name = w.Name
+		tc.Function.Arguments = string(w.Args)
+		calls = append(calls, tc)
+	}
+	// The whole message was the call, so nothing is left to say.
+	return calls, ""
 }
 
 // XML tool-call syntax emitted by some ollama models (qwen3-coder etc.):
