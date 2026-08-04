@@ -541,7 +541,7 @@ func pickerGroups() []tui.ModelGroup {
 			base, key = envBase, envKey
 		}
 		models := c.Models
-		if c.IsLocal() || base != c.BaseURL {
+		if c.Local || base != c.BaseURL {
 			if live := fetchModelIDs(id, base, key); len(live) > 0 {
 				models = live
 			}
