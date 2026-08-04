@@ -410,25 +410,7 @@ func newTUICmd() *cobra.Command {
 				},
 				st.workerName, st.workerModel,
 			)
-			// Catalog as provider→models groups for the /model picker.
-			//
-			// A local provider carries no preview models — what is installed on
-			// somebody's machine cannot be guessed — and the picker renders a
-			// provider only through its models, so Ollama, LM Studio and
-			// llama.cpp were absent from the list entirely rather than shown as
-			// empty. Ask them what they have: if one is running, its real
-			// models appear; if not, it stays out, which is the honest answer
-			// for a server that is not there.
-			var groups []tui.ModelGroup
-			for _, id := range catalog.IDs() {
-				c, _ := catalog.Get(id)
-				models := c.Models
-				if c.Local && len(models) == 0 {
-					models = fetchModelIDs(id, c.BaseURL, "")
-				}
-				groups = append(groups, tui.ModelGroup{Provider: id, Models: models})
-			}
-			mdl.SetProviders(groups)
+			mdl.SetProviders(pickerGroups())
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {
@@ -531,4 +513,40 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation over /rc)")
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")
 	return cmd
+}
+
+// pickerGroups builds the /model picker's provider→models list.
+//
+// A provider is described from the catalog unless it has been pointed
+// somewhere, in which case it is asked. Two things were wrong before:
+//
+// A local provider carries no preview models — what is installed on somebody
+// else's machine cannot be guessed — and the picker renders a provider through
+// its models, so Ollama, LM Studio and llama.cpp contributed zero rows and
+// vanished from a list they were supposed to be in.
+//
+// And OPENAI_BASE_URL, the usual way to aim an OpenAI-compatible client at
+// something that is not OpenAI, was read everywhere except here. The picker
+// went on offering gpt-5 from an endpoint that had never heard of it.
+//
+// Fetching is limited to those two cases. Asking every hosted provider in the
+// catalog would mean a dozen API calls at startup to list models nobody asked
+// for, and would need keys for services the user may not use.
+func pickerGroups() []tui.ModelGroup {
+	var groups []tui.ModelGroup
+	for _, id := range catalog.IDs() {
+		c, _ := catalog.Get(id)
+		base, key := c.BaseURL, ""
+		if envBase, envKey := config.EnvFor(id); envBase != "" {
+			base, key = envBase, envKey
+		}
+		models := c.Models
+		if c.Local || base != c.BaseURL {
+			if live := fetchModelIDs(id, base, key); len(live) > 0 {
+				models = live
+			}
+		}
+		groups = append(groups, tui.ModelGroup{Provider: id, Models: models})
+	}
+	return groups
 }
