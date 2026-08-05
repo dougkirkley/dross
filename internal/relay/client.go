@@ -170,8 +170,11 @@ func runDeviceOnce(ctx context.Context, opts DeviceOptions, sessionID string, sa
 	// files are here, and a session that has quietly read a project's own
 	// documents looks identical to one that has not.
 	if said != nil && !*said {
+		// Its own kind, not "meta": the server keeps one of these per session
+		// and drops a repeat, which is what makes this true once rather than
+		// once per link. Guarding here as well only saves the round trip.
 		if line := agent.WorkspaceContext(opts.Workdir); line != "" {
-			d.publishLocal(ctx, sessionID, "meta", line)
+			d.publishLocal(ctx, sessionID, WorkspaceKind, line)
 			*said = true
 		}
 	}

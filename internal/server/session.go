@@ -61,8 +61,11 @@ type Session struct {
 	// somebody looks once they already suspect something; what a session is
 	// waiting on belongs on the card that is otherwise saying "waiting".
 	setupDoing string
-	repo       string // owner/repo (or dir name) label for the session card
-	title      string // first prompt, truncated — the session's display name
+	// workspaceSaid is the one-line account of what this session read about its
+	// workspace, kept so it is said once and not once per link.
+	workspaceSaid string
+	repo          string // owner/repo (or dir name) label for the session card
+	title         string // first prompt, truncated — the session's display name
 	// titleAuto marks a name the server invented (the workload's, given at
 	// creation) rather than one that means something. The first prompt replaces
 	// it, because "add retry to the uploader" says more than "eager-island";
@@ -367,6 +370,23 @@ func (s *Session) finishSetup() bool {
 	if s.mgr != nil {
 		s.mgr.markDirty(s.ID)
 	}
+	return true
+}
+
+// noteWorkspace records what a session read about its workspace and reports
+// whether this is the first time it has been said.
+//
+// The pod says it on linking, and it links again whenever the server restarts
+// or its own pod is replaced — which is every deploy, and a deploy replaces
+// every session pod. Guarding in the pod guards one process; the transcript
+// outlives all of them, so the same sentence appeared twice in a row.
+func (s *Session) noteWorkspace(line string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.workspaceSaid == line {
+		return false
+	}
+	s.workspaceSaid = line
 	return true
 }
 

@@ -45,6 +45,9 @@ type persisted struct {
 	// SetupDoing is the present-tense half, so a restart mid-clone comes back
 	// still saying what it is waiting on rather than saying nothing.
 	SetupDoing string `json:"setup_doing,omitempty"`
+	// Workspace is what the session read about the workspace it starts in, kept
+	// so a restart does not let the device say it a second time.
+	Workspace string `json:"workspace_context,omitempty"`
 }
 
 // snapshotForDisk copies the fields worth keeping, under the session lock.
@@ -59,6 +62,7 @@ func (s *Session) snapshotForDisk() persisted {
 		Cost: s.cost, Seq: s.seq,
 		Events: append([]Event(nil), s.events...),
 		Device: s.device, Setup: s.setup, SetupDoing: s.setupDoing,
+		Workspace: s.workspaceSaid,
 	}
 }
 
@@ -142,7 +146,7 @@ func (m *Manager) Restore() (int, error) {
 		s := &Session{
 			ID: p.ID, Model: p.Model, Provider: p.Provider,
 			WorkerModel: p.WorkerModel, Style: p.Style, Chat: p.Chat,
-			owner: p.Owner, workdir: p.Workdir, repo: p.Repo, setup: p.Setup, setupDoing: p.SetupDoing,
+			owner: p.Owner, workdir: p.Workdir, repo: p.Repo, setup: p.Setup, setupDoing: p.SetupDoing, workspaceSaid: p.Workspace,
 			title: p.Title, last: p.Last, updated: p.Updated,
 			status: "idle", cost: p.Cost, seq: p.Seq, events: p.Events,
 			device: p.Device,

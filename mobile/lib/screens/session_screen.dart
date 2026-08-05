@@ -335,6 +335,7 @@ class _SessionScreenState extends State<SessionScreen> {
       case 'checkpoint':
         content = _mono('✓ ${e.data}', T.accentHi);
         break;
+      case 'workspace':
       case 'meta':
         // The session saying what it is doing before it can do anything —
         // cloning a repository, waiting on a model to load. Undecorated: this
