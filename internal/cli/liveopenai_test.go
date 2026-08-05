@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"testing"
+
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 // Live check that OPENAI_BASE_URL points the picker at a real endpoint.
@@ -14,7 +16,7 @@ func TestLivePickerOpenAIBase(t *testing.T) {
 	}
 	t.Setenv("OPENAI_BASE_URL", base)
 	t.Setenv("OLLAMA_HOST", "")
-	for _, g := range pickerGroups() {
+	for _, g := range pickerGroups(&config.File{}) {
 		if g.Provider == "openai" {
 			t.Logf("openai -> %v", g.Models)
 			for _, m := range g.Models {

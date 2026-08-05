@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 func groupFor(t *testing.T, id string) []string {
 	t.Helper()
-	for _, g := range pickerGroups() {
+	for _, g := range pickerGroups(&config.File{}) {
 		if g.Provider == id {
 			return g.Models
 		}

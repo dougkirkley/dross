@@ -410,7 +410,7 @@ func newTUICmd() *cobra.Command {
 				},
 				st.workerName, st.workerModel,
 			)
-			mdl.SetProviders(pickerGroups())
+			mdl.SetProviders(pickerGroups(res.File))
 			// Wire /login + /rc when a server is configured, so this TUI can
 			// advertise the machine as drivable by the logged-in SSO user.
 			if server != "" {
@@ -532,7 +532,12 @@ func newTUICmd() *cobra.Command {
 // Fetching is limited to those two cases. Asking every hosted provider in the
 // catalog would mean a dozen API calls at startup to list models nobody asked
 // for, and would need keys for services the user may not use.
-func pickerGroups() []tui.ModelGroup {
+func pickerGroups(file *config.File) []tui.ModelGroup {
+	// Register configured providers here rather than trusting that something
+	// earlier did. resolveProviders does call SetUserProviders, so the order
+	// happens to work today; a picker that silently falls back to built-ins
+	// when it does not is a bad way to find that out.
+	catalog.SetUserProviders(userProviders(file))
 	var groups []tui.ModelGroup
 	for _, id := range catalog.IDs() {
 		c, _ := catalog.Get(id)

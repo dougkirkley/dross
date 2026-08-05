@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"testing"
+
+	"github.com/dougkirkley/dross/internal/config"
 )
 
 // Live check against a real ollama. Skipped unless DROSS_LIVE_OLLAMA names one.
@@ -14,7 +16,7 @@ func TestLivePicker(t *testing.T) {
 	t.Setenv("OLLAMA_HOST", host)
 	t.Setenv("OPENAI_BASE_URL", "")
 	t.Setenv("OPENAI_API_BASE", "")
-	for _, g := range pickerGroups() {
+	for _, g := range pickerGroups(&config.File{}) {
 		if g.Provider == "ollama" {
 			t.Logf("ollama -> %v", g.Models)
 			if len(g.Models) == 0 {
