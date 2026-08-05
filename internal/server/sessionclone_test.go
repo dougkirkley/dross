@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,10 +58,8 @@ func TestCreateSessionClonesThePickedRepository(t *testing.T) {
 	if !clone.called {
 		t.Fatal("the session was created without cloning anything")
 	}
-	// The workspace root, not a directory beneath it: the session is meant to
-	// be in the repository, not next to it.
-	if clone.dir == "" || !strings.HasPrefix(filepath.Base(clone.dir), "ses_") {
-		t.Errorf("cloned into %q, want the session's own workspace root", clone.dir)
+	if filepath.Base(clone.dir) != "dross" {
+		t.Errorf("cloned into %q, want a directory named for the repository", clone.dir)
 	}
 	// The default branch comes from the listing, so a client that does not ask
 	// for one still gets the branch the repository itself considers current.
@@ -212,5 +211,63 @@ func TestCreateSessionWithNoWorkspaceRefusesARepository(t *testing.T) {
 	}
 	if sessions := listSessions(t, srv, "doug@example.com"); len(sessions) != 0 {
 		t.Errorf("a refused create left %d sessions behind", len(sessions))
+	}
+}
+
+// Cloning beside the workspace is only half of it: the session has to run in
+// the clone, or every prompt starts by working out where the code went.
+func TestCreateSessionRunsInsideTheClone(t *testing.T) {
+	srv, tokens := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", repos: []forge.Repo{
+		{FullName: "doug/dross", CloneURL: "https://github.com/doug/dross.git", Branch: "main"},
+	}})
+	_ = tokens.Save("doug@example.com", "github", forge.Token{Access: "gho_abc"})
+	clone := watchClone(t, nil)
+
+	w := createSession(t, srv, `{"forge":"github","repo":"doug/dross"}`, "doug@example.com")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	sess, ok := srv.mgr.get(snap["id"].(string), "doug@example.com")
+	if !ok {
+		t.Fatal("the session is gone")
+	}
+	if sess.workdir != clone.dir {
+		t.Errorf("session runs in %q, cloned into %q", sess.workdir, clone.dir)
+	}
+}
+
+// Deleting takes the session's own directory, not just the clone inside it.
+// Removing only what it ran in would leave the parent behind for ever.
+func TestDeleteRemovesTheWholeSessionDirectory(t *testing.T) {
+	srv, tokens := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", repos: []forge.Repo{
+		{FullName: "doug/dross", CloneURL: "https://github.com/doug/dross.git"},
+	}})
+	_ = tokens.Save("doug@example.com", "github", forge.Token{Access: "gho_abc"})
+	clone := watchClone(t, nil)
+	// The clone is watched, not run, so make the directory it would have made.
+	base := srv.mgr.workdir
+
+	w := createSession(t, srv, `{"forge":"github","repo":"doug/dross"}`, "doug@example.com")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var snap map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &snap)
+	id := snap["id"].(string)
+	if err := os.MkdirAll(clone.dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if !srv.mgr.remove(id, "doug@example.com") {
+		t.Fatal("delete refused")
+	}
+	if _, err := os.Stat(filepath.Join(base, id)); !os.IsNotExist(err) {
+		t.Errorf("the session directory survived deletion: %v", err)
 	}
 }

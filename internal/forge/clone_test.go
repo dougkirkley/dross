@@ -152,59 +152,47 @@ func TestSplitCredential(t *testing.T) {
 	}
 }
 
-// The workspace root is the repository root, and a freshly provisioned volume
-// is not necessarily empty: ext4 puts lost+found in it, which is exactly what
-// `git clone` refuses to write into.
-func TestCloneFillsADirectoryThatIsNotEmpty(t *testing.T) {
+// The workspace already exists and may already hold something — a session
+// volume arrives with lost+found on ext4 — which is why the clone goes in a
+// directory of its own beneath it.
+func TestCloneDirIsBeneathAWorkspaceThatIsNotEmpty(t *testing.T) {
 	src := origin(t)
-	dest := t.TempDir() // already exists, and about to hold something else too
-	if err := os.Mkdir(filepath.Join(dest, "lost+found"), 0o700); err != nil {
+	ws := t.TempDir()
+	if err := os.Mkdir(filepath.Join(ws, "lost+found"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := Clone(context.Background(), dest, "file://"+src, ""); err != nil {
+	dir := CloneDir(ws, "doug/dross")
+	if err := Clone(context.Background(), dir, "file://"+src, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "README.md")); err != nil {
-		t.Errorf("the repository is not at the root: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); err != nil {
+		t.Errorf("no working tree in %s: %v", dir, err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, ".git")); err != nil {
-		t.Errorf("no repository at the root: %v", err)
-	}
-}
-
-// With no branch named, the remote is asked what it considers HEAD — the job
-// `git clone` would have done on its own.
-func TestCloneFindsTheDefaultBranch(t *testing.T) {
-	src := origin(t)
-	dest := filepath.Join(t.TempDir(), "ws")
-
-	if err := Clone(context.Background(), dest, "file://"+src, ""); err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command("git", "-C", dest, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(out)); got != "main" {
-		t.Errorf("checked out %q, want the remote's own default", got)
-	}
-}
-
-// A checkout with no upstream leaves `git pull` with nowhere to pull from,
-// which init and a bare fetch do not set on their own.
-func TestCloneSetsTheUpstream(t *testing.T) {
-	src := origin(t)
-	dest := filepath.Join(t.TempDir(), "ws")
-
-	if err := Clone(context.Background(), dest, "file://"+src, "main"); err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command("git", "-C", dest, "rev-parse", "--abbrev-ref", "main@{upstream}").Output()
+	// git clone's own doing, and the reason for using it: the branch, the
+	// upstream and the tags all come for free.
+	up, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "main@{upstream}").Output()
 	if err != nil {
 		t.Fatalf("no upstream: %v", err)
 	}
-	if got := strings.TrimSpace(string(out)); got != "origin/main" {
+	if got := strings.TrimSpace(string(up)); got != "origin/main" {
 		t.Errorf("upstream is %q", got)
+	}
+}
+
+func TestCloneDir(t *testing.T) {
+	for _, c := range []struct{ full, want string }{
+		{"doug/dross", "dross"},
+		{"doug/dross.git", "dross"},
+		{"group/sub/project", "project"},
+		// A repository name is chosen by whoever owns the repository and this
+		// becomes a path.
+		{"doug/../../etc", "etc"},
+		{"doug/..", "repo"},
+		{"doug/", "repo"},
+	} {
+		if got := CloneDir("/workspace", c.full); got != filepath.Join("/workspace", c.want) {
+			t.Errorf("CloneDir(%q) = %q, want %q", c.full, got, filepath.Join("/workspace", c.want))
+		}
 	}
 }

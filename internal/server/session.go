@@ -320,6 +320,18 @@ func (m *Manager) markBusy(sessionID string, busy bool) {
 func (s *Session) setTitle(t string) { s.setTitleAuto(t, false) }
 
 // setTitleAuto renames a session, recording whether the name was invented.
+// setWorkdir moves the session into a directory beneath the one it was given,
+// which is what starting on a repository does: the clone goes in a
+// subdirectory, and the session runs in the clone.
+func (s *Session) setWorkdir(dir string) {
+	s.mu.Lock()
+	s.workdir = dir
+	s.mu.Unlock()
+	if s.mgr != nil {
+		s.mgr.markDirty(s.ID)
+	}
+}
+
 func (s *Session) setTitleAuto(t string, auto bool) {
 	s.mu.Lock()
 	s.title, s.titleAuto = t, auto
@@ -453,9 +465,9 @@ type Manager struct {
 	// because they are different servers with different models.
 	leadInstalled installedCache
 	chatInstalled installedCache
-	repo      string                 // owner/repo (or dir) label shown on session cards
-	hub       *deviceHub             // linked devices (session relay)
-	mcp       []agent.MCPServerSpec  // MCP servers whose tools code sessions gain
+	repo          string                // owner/repo (or dir) label shown on session cards
+	hub           *deviceHub            // linked devices (session relay)
+	mcp           []agent.MCPServerSpec // MCP servers whose tools code sessions gain
 	// policy is the user's allowed-tools/plugins/permission rules, shared with
 	// every other place an agent is built so a session here is gated the same
 	// way it would be anywhere else.
@@ -692,9 +704,13 @@ func (m *Manager) remove(id, owner string) bool {
 		s.interrupt() // stop any in-flight run
 		// Clean up the session's sandbox dir (only when it's a per-session
 		// subdir under the base workdir, never the base itself).
+		//
+		// The session's own directory rather than the one it runs in: a session
+		// started on a repository runs in a clone one level further down, and
+		// removing only that would leave the parent behind for ever.
 		if m.workdir != "" && s.workdir != "" && s.workdir != m.workdir &&
 			strings.HasPrefix(s.workdir, m.workdir+string(filepath.Separator)) {
-			_ = os.RemoveAll(s.workdir)
+			_ = os.RemoveAll(filepath.Join(m.workdir, s.ID))
 		}
 	}
 	return ok
