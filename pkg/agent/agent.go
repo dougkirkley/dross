@@ -63,6 +63,12 @@ type Config struct {
 	// pod-hosted remote Code sessions; left off for local CLI and device-relay
 	// (remote-control) sessions, which use the user's real environment.
 	Sandbox bool
+	// Repo and Branch say what the workspace is a checkout of, when it is one.
+	// A session started on a repository otherwise opens blind and spends its
+	// first turns working out where it is — on a workspace that was put there
+	// deliberately and whose name the caller knew before the session existed.
+	Repo   string // "owner/name"
+	Branch string // the branch checked out for this session
 	// Chat marks a conversational session with no filesystem/shell tools: the
 	// system prompt describes only web access and context, not the coding tools.
 	// Callers still restrict the actual toolset via WithAllowedTools.

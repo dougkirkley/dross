@@ -24,11 +24,14 @@ import (
 type DeviceOptions struct {
 	Server, Token       string // server URL and the SSO session token to auth as
 	Name, Workdir, Repo string
-	Lead                provider.Provider
-	LeadModel           string
-	Worker              provider.Provider
-	WorkerModel         string
-	Log                 func(string) // optional status sink
+	// Branch the workspace is checked out on, when it was made for this
+	// session. Told to the model, which would otherwise have to go and look.
+	Branch      string
+	Lead        provider.Provider
+	LeadModel   string
+	Worker      provider.Provider
+	WorkerModel string
+	Log         func(string) // optional status sink
 
 	// Ready is called once the link is up, with a function that publishes a
 	// locally-driven event into the same session the phone is watching.
@@ -296,7 +299,12 @@ func (d *device) run(ctx context.Context, id, text string) {
 		aopts = append(aopts, agent.WithWorker(d.opts.Worker, d.opts.WorkerModel))
 	}
 	aopts = append(aopts, d.opts.Policy...)
-	ag, err := agent.New(agent.Config{Name: "dross", Model: d.opts.LeadModel, Workdir: d.opts.Workdir}, d.opts.Lead, aopts...)
+	// Repo and Branch are what a session pod knows about itself and the model
+	// otherwise has to go and find out.
+	ag, err := agent.New(agent.Config{
+		Name: "dross", Model: d.opts.LeadModel, Workdir: d.opts.Workdir,
+		Repo: d.opts.Repo, Branch: d.opts.Branch,
+	}, d.opts.Lead, aopts...)
 	if err != nil {
 		d.send(ctx, Frame{Type: "event", SessionID: id, Kind: "error", Data: err.Error()})
 		return

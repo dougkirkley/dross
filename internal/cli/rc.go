@@ -140,7 +140,8 @@ func newRCCmd() *cobra.Command {
 
 			opts := relay.DeviceOptions{
 				Server: server, Token: token, Name: name, Workdir: abs, Repo: label,
-				Lead: lead, LeadModel: res.Lead.Model, Worker: worker, WorkerModel: res.Worker.Model,
+				Branch: workBranch,
+				Lead:   lead, LeadModel: res.Lead.Model, Worker: worker, WorkerModel: res.Worker.Model,
 				Policy: config.PolicyOptions(res.File),
 				Log:    func(s string) { fmt.Fprintln(out, s) },
 			}

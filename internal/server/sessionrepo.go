@@ -116,6 +116,19 @@ func WorkBranch(session string) string {
 	return "dross/" + name
 }
 
+// repoOf is the repository to tell an agent it is working in.
+//
+// Only ever "owner/name". The workspace label is also set from the directory a
+// device happens to be running in, and telling a model it is "in dross" when
+// that is the name of a folder on somebody's laptop is worse than saying
+// nothing: it invites the model to reason about a repository it has not got.
+func repoOf(chat bool, label string) string {
+	if chat || !strings.Contains(label, "/") {
+		return ""
+	}
+	return label
+}
+
 // The two lines a session says while it sets itself up.
 //
 // git's own words, with the traffic between them left out. Somebody watching a

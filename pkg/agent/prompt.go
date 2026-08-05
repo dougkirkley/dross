@@ -1,10 +1,88 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dougkirkley/dross/pkg/provider"
 )
+
+// workspaceOrientation tells a session what it is sitting in.
+//
+// A session started on a repository used to open blind: the first moves were
+// ls -R, a glob and a read of main.go — several turns spent working out where
+// it was, on a workspace that was put there deliberately and whose name was
+// known before the session existed. Asked what to do with "this repo", it could
+// only ask back.
+//
+// The instruction not to clone is not hypothetical. Asked to build the project
+// it was already standing in, a model answered with `git clone` and a
+// placeholder URL, because nothing had told it the code was under its feet.
+func workspaceOrientation(repo, branch string) string {
+	if repo == "" {
+		return ""
+	}
+	b := "\n\n## This workspace\n\nIt is a checkout of " + repo
+	if branch != "" {
+		b += ", on branch " + branch + ", made for this session"
+	}
+	return b + `. The code is already here: never clone it, and never ask for it to be uploaded.
+- Look before asking. Which project this is, and what is in it, are answered by the files around you.
+- Commit on this branch. Do not switch to the branch it was cut from.`
+}
+
+// projectFiles are the documents a repository uses to explain itself, most
+// specific first: two of them are written for an agent, and the third is
+// written for whoever turns up.
+var projectFiles = []string{"AGENTS.md", "CLAUDE.md", "README.md"}
+
+// docBudget bounds what is quoted from any one of them.
+//
+// A README can be a book. What earns its place in a system prompt is the top of
+// it — what the project is, how it is built, how it is run — which is what the
+// first few thousand characters of one almost always are.
+const docBudget = 6000
+
+// projectDocs puts the repository's own introduction in front of the model.
+//
+// Telling a session to read the README is not the same as it having read one:
+// a model that opens by asking what the project is has already spent the turn
+// that mattered. These are the files a person would be handed on their first
+// day, they are small, and they are the difference between a session that knows
+// what it is looking at and one that goes looking.
+func projectDocs(workdir string) string {
+	if workdir == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, name := range projectFiles {
+		body, err := os.ReadFile(filepath.Join(workdir, name))
+		if err != nil {
+			continue
+		}
+		text := strings.TrimSpace(string(body))
+		if text == "" {
+			continue
+		}
+		if len(text) > docBudget {
+			// Cut on a line, so the quote does not end mid-sentence and read as
+			// though the file itself stops there.
+			text = text[:docBudget]
+			if i := strings.LastIndexByte(text, '\n'); i > 0 {
+				text = text[:i]
+			}
+			text += "\n\n[…truncated. Read " + name + " for the rest.]"
+		}
+		b.WriteString("\n\n## " + name + "\n\n" + text)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n\nThe workspace explains itself in the following. It is quoted as" +
+		" it was when this session started; read the files themselves if you need" +
+		" them exactly." + b.String()
+}
 
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific
@@ -210,6 +288,8 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	if cfg.Sandbox {
 		p += sandboxGuidance
 	}
+	p += workspaceOrientation(cfg.Repo, cfg.Branch)
+	p += projectDocs(cfg.Workdir)
 	if d := styleDirective(cfg.Style); d != "" {
 		p += "\n" + d
 	}

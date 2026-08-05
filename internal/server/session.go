@@ -878,6 +878,9 @@ func (m *Manager) prompt(s *Session, prompt string) error {
 		Name: "dross", Model: model, Workdir: s.workdir, Style: agent.Style(s.Style),
 		Chat:     chat,
 		Identity: identity,
+		// What this session is sitting in, when it is sitting in a repository.
+		// A chat session has no workspace, so it gets neither.
+		Repo: repoOf(chat, s.repo),
 		// Pod-hosted Code sessions are sandboxed: tool installs stay in the
 		// per-session workspace. Chat sessions have no shell, so no sandbox is
 		// needed. Device (remote-control) sessions never reach here — they relay
