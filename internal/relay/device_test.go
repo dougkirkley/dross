@@ -2,6 +2,9 @@ package relay
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,5 +150,31 @@ func TestDrainReturnsImmediatelyWhenIdle(t *testing.T) {
 	d.drain(DeviceOptions{})
 	if took := time.Since(start); took > time.Second {
 		t.Errorf("idle drain took %s", took)
+	}
+}
+
+// An expired credential has to end the loop, not feed it.
+//
+// A session token lasts twelve hours, so leaving a link up overnight lands
+// here. Retrying cannot mint a new one: the loop backed off to its thirty
+// second ceiling and sat there re-reporting a WebSocket handshake code, which
+// is a poor way to say "sign in again".
+func TestUnauthorizedStopsRetrying(t *testing.T) {
+	var dials atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dials.Add(1)
+		http.Error(w, "invalid device token", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := RunDevice(ctx, DeviceOptions{Server: srv.URL, Token: "stale", Name: "mac"})
+
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("RunDevice returned %v; the caller cannot offer a fresh login without this", err)
+	}
+	if n := dials.Load(); n != 1 {
+		t.Errorf("dialed %d times; a rejected credential must not be retried", n)
 	}
 }

@@ -2,7 +2,9 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +84,9 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		if ctx.Err() != nil {
 			return nil // asked to stop
 		}
+		if errors.Is(err, ErrUnauthorized) {
+			return err // a retry cannot mint a credential; hand it back
+		}
 		if err != nil {
 			opts.log(fmt.Sprintf("reconnecting in %s…", wait))
 		} else {
@@ -99,6 +104,14 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		}
 	}
 }
+
+// ErrUnauthorized is returned when the server rejects the credential. It is
+// separated from every other dial failure because it is the one a retry cannot
+// fix: a session token lasts twelve hours, and once it lapses the loop below
+// will back off to thirty seconds and stay there, reporting "expected handshake
+// response status code 101 but got 401" every half minute until someone reads
+// it closely enough to recognise an expired login.
+var ErrUnauthorized = errors.New("server rejected the credential")
 
 func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
 	url := strings.TrimRight(opts.Server, "/") + "/api/device/connect"
@@ -118,8 +131,12 @@ func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
 	// error to log and, in a pod, a restart that retries.
 	dialCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	c, _, err := websocket.Dial(dialCtx, url, dopts)
+	c, resp, err := websocket.Dial(dialCtx, url, dopts)
 	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			opts.log("the server rejected this login (401)")
+			return ErrUnauthorized
+		}
 		opts.log(fmt.Sprintf("connect failed: %v", err))
 		return fmt.Errorf("dial %s: %w", url, err)
 	}

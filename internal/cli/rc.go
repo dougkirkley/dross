@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -89,12 +90,30 @@ func newRCCmd() *cobra.Command {
 				}
 			}
 
-			return relay.RunDevice(ctx, relay.DeviceOptions{
+			opts := relay.DeviceOptions{
 				Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
 				Lead: lead, LeadModel: res.Lead.Model, Worker: worker, WorkerModel: res.Worker.Model,
 				Policy: config.PolicyOptions(res.File),
 				Log:    func(s string) { fmt.Fprintln(out, s) },
-			})
+			}
+			err = relay.RunDevice(ctx, opts)
+			// A stored session lasts twelve hours, so the common way to meet a
+			// 401 here is to have left the link up overnight. Sign in again and
+			// carry on, rather than making the expiry the user's problem to
+			// diagnose from a WebSocket handshake code.
+			//
+			// Only for the stored one. A token given with --token or through
+			// the environment is a deliberate choice of credential, and quietly
+			// replacing it with whoever happens to be signed into the browser
+			// would attach the device as the wrong identity.
+			if errors.Is(err, relay.ErrUnauthorized) && source == "stored session" {
+				fmt.Fprintln(out, "stored session expired — opening browser to sign in…")
+				if opts.Token, err = relay.Login(ctx, server); err != nil {
+					return fmt.Errorf("login: %w", err)
+				}
+				return relay.RunDevice(ctx, opts)
+			}
+			return err
 		},
 	}
 	f := cmd.Flags()
