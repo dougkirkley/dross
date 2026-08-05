@@ -69,14 +69,93 @@ func WorkspaceContext(workdir string) string {
 			headline = firstSentence(string(body))
 		}
 	}
-	if len(found) == 0 {
+	var lines []string
+	if len(found) > 0 {
+		line := "Read " + strings.Join(found, ", ")
+		if headline != "" {
+			line += " — " + headline
+		}
+		lines = append(lines, line)
+	}
+	if shape := workspaceShape(workdir); shape != "" {
+		lines = append(lines, shape)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// toolchain is a marker file and what it implies about working here.
+//
+// Only commands worth standing behind. A wrong test command is worse than none:
+// somebody reads it, runs it, and is told the project is broken when what is
+// broken is the guess. Where a language has no single convention, the language
+// is named and nothing more is claimed.
+type toolchain struct {
+	marker, name, test string
+}
+
+var toolchains = []toolchain{
+	{"go.mod", "Go", "go test ./..."},
+	{"Cargo.toml", "Rust", "cargo test"},
+	{"package.json", "Node", "npm test"},
+	{"pyproject.toml", "Python", "pytest"},
+	{"setup.py", "Python", "pytest"},
+	{"Gemfile", "Ruby", ""},
+	{"pubspec.yaml", "Dart", ""},
+	{"pom.xml", "Java", ""},
+	{"build.gradle", "Java", ""},
+}
+
+// workspaceShape says what kind of project this is and how it is tested.
+//
+// Read from marker files rather than guessed from the prose: a README says what
+// a project is for, and a go.mod says what running it costs.
+func workspaceShape(workdir string) string {
+	var names, tests []string
+	seen := map[string]bool{}
+	for _, t := range toolchains {
+		if _, err := os.Stat(filepath.Join(workdir, t.marker)); err != nil {
+			continue
+		}
+		if !seen[t.name] {
+			seen[t.name] = true
+			names = append(names, t.name)
+		}
+		if t.test != "" {
+			tests = append(tests, t.test)
+		}
+	}
+	if len(names) == 0 {
 		return ""
 	}
-	line := "Read " + strings.Join(found, ", ")
-	if headline != "" {
-		line += " — " + headline
+	// A Makefile is the project saying how it wants to be built, which beats
+	// any convention inferred from a marker file — but only for the targets it
+	// actually declares.
+	if target, ok := makeTarget(workdir, "test"); ok {
+		tests = []string{target}
 	}
-	return line
+	shape := strings.Join(names, ", ")
+	if len(tests) > 0 {
+		shape += " · " + strings.Join(tests, ", ")
+	}
+	return shape
+}
+
+// makeTarget reports whether a Makefile declares a target, and the command to
+// run it.
+func makeTarget(workdir, target string) (string, bool) {
+	body, err := os.ReadFile(filepath.Join(workdir, "Makefile"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		// A rule, not a variable or a recipe line: "test:" at the start of a
+		// line, where "test = ..." and an indented "\ttest:" are neither.
+		if name, _, found := strings.Cut(line, ":"); found &&
+			strings.TrimSpace(name) == target && name == strings.TrimLeft(name, " \t") {
+			return "make " + target, true
+		}
+	}
+	return "", false
 }
 
 // firstSentence is what a document says it is about, from the top of it.

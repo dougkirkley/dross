@@ -171,3 +171,71 @@ func TestPromptRulesOutHTMLAndTables(t *testing.T) {
 		t.Error("nothing steers away from tables")
 	}
 }
+
+// A README says what a project is for; a go.mod says what working on it costs.
+func TestWorkspaceContextSaysWhatKindOfProject(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "README.md", "# X\n\nA thing.")
+	write(t, dir, "go.mod", "module example.com/x\n")
+
+	got := WorkspaceContext(dir)
+	if !strings.Contains(got, "Go · go test ./...") {
+		t.Errorf("no shape: %q", got)
+	}
+	if !strings.Contains(got, "A thing.") {
+		t.Errorf("lost the headline: %q", got)
+	}
+}
+
+// A Makefile is the project saying how it wants to be built, which beats a
+// convention inferred from a marker file.
+func TestAMakefileTargetWins(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module example.com/x\n")
+	write(t, dir, "Makefile", "build:\n\tgo build ./...\ntest:\n\tgo test -race ./...\n")
+
+	got := WorkspaceContext(dir)
+	if !strings.Contains(got, "make test") {
+		t.Errorf("ignored the Makefile: %q", got)
+	}
+	if strings.Contains(got, "go test ./...") {
+		t.Errorf("offered both: %q", got)
+	}
+}
+
+// Only a real rule. A variable assignment and an indented recipe line are not
+// targets, and claiming "make test" where none exists sends somebody to an
+// error that is this line's fault.
+func TestMakefileLookalikesAreNotTargets(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module example.com/x\n")
+	write(t, dir, "Makefile", "test = ./scripts/test.sh\nbuild:\n\t@echo test: no\n")
+
+	if got := WorkspaceContext(dir); strings.Contains(got, "make test") {
+		t.Errorf("read a variable or a recipe line as a target: %q", got)
+	}
+}
+
+// A wrong test command is worse than none: somebody runs it and is told the
+// project is broken when what is broken is the guess.
+func TestALanguageWithNoOneConventionClaimsNoCommand(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "pubspec.yaml", "name: app\n")
+
+	got := WorkspaceContext(dir)
+	if got != "Dart" {
+		t.Errorf("got %q, want the language named and nothing claimed", got)
+	}
+}
+
+// Two toolchains in one repository is ordinary, and each is worth naming once.
+func TestSeveralToolchains(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module example.com/x\n")
+	write(t, dir, "package.json", "{}")
+
+	got := WorkspaceContext(dir)
+	if !strings.Contains(got, "Go, Node") {
+		t.Errorf("got %q", got)
+	}
+}
