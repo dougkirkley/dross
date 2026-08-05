@@ -204,8 +204,62 @@ func TestRemotePromptQueuesWhileRunning(t *testing.T) {
 	next, _ := m.Update(remotePromptMsg{"ses_x", "and then deploy"})
 	m = next.(Model)
 
-	if len(m.queue) != 1 || m.queue[0] != "and then deploy" {
+	if len(m.queue) != 1 || m.queue[0].text != "and then deploy" {
 		t.Errorf("queue = %v; the remote prompt should have been queued", m.queue)
+	}
+	// Waiting must not launder the prompt into a local one. If it does, the run
+	// that eventually starts gates its permission prompts on this terminal and
+	// the phone that sent it waits on a question it will never be shown.
+	if !m.queue[0].remote {
+		t.Error("queued remote prompt lost its origin; it would restart as a local one")
+	}
+}
+
+// Draining the queue has to start the prompt on the origin it arrived on.
+//
+// This is the whole point of recording the origin: the run that starts here is
+// the phone's run, so its permission prompts belong on the phone. Restarting it
+// as a local one puts "Allow this bash?" on this terminal while the phone shows
+// a tool call that never returns.
+func TestQueuedRemotePromptStartsRemote(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	router := NewAskRouter()
+	m.SetAskRouter(router)
+	m.remoteAsk = func(string) (string, error) { return "", nil }
+	m.running = true
+
+	next, _ := m.Update(remotePromptMsg{"ses_x", "and then deploy"})
+	m = next.(Model)
+	next, _ = m.Update(doneMsg{}) // the in-flight run ends; the queue drains
+	m = next.(Model)
+
+	if !m.remoteOrigin {
+		t.Error("drained remote prompt started as a local run")
+	}
+	router.mu.Lock()
+	remote := router.remote
+	router.mu.Unlock()
+	if !remote {
+		t.Error("asks route locally; the phone would never see the question")
+	}
+}
+
+// A run cancelled while parked on a question takes the question with it —
+// otherwise Stop leaves a form on screen that answers nothing.
+func TestCancelClearsTheParkedQuestion(t *testing.T) {
+	m := New("dross", "m", "openai", noRun(t))
+	m.width, m.height = 100, 30
+	m.layout()
+	m.running = true
+	m.pendingAsk = &askState{freeText: true, reply: make(chan string, 1)}
+
+	next, _ := m.Update(doneMsg{err: context.Canceled})
+	m = next.(Model)
+
+	if m.pendingAsk != nil {
+		t.Error("question still on screen after the run it belonged to was cancelled")
 	}
 }
 

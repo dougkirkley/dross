@@ -217,6 +217,20 @@ func (m *Model) noteCopied() tea.Cmd {
 // selections (a set, for multi-select), the highlighted cursor per question, the
 // active tab (0..len = Submit), and the reply channel the agent goroutine blocks
 // on. freeText is the single no-options case.
+// queued is a message waiting for the current run to finish, with the origin it
+// arrived on.
+//
+// The origin has to travel with the text. A prompt sent from a phone while a
+// run is in flight waits here, and starting it later as though it had been
+// typed at this keyboard gates its permission prompts on this terminal — the
+// phone that sent it sees a run that emits a tool call and then nothing, with
+// no question to answer and a Stop button that has nothing to cancel, because
+// the question is parked on a screen the sender may not be near.
+type queued struct {
+	text   string
+	remote bool
+}
+
 type askState struct {
 	questions []agent.AskQuestion
 	sel       [][]bool // sel[q][opt] chosen
@@ -428,7 +442,7 @@ type Model struct {
 	phraseSeq int      // advances each run so consecutive runs pick different phrases
 	tick      int
 
-	queue      []string           // messages typed while a run is in flight; drained on done
+	queue      []queued           // messages sent while a run is in flight; drained on done
 	scrolledUp bool               // user scrolled up: stop auto-following the bottom
 	runCancel  context.CancelFunc // cancels the active run (first ctrl+c interrupts)
 
@@ -1720,12 +1734,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.history = append(m.history, m.input.Value()) // recall with up/down
 				m.histIdx = len(m.history)
-				m.queue = append(m.queue, m.input.Value())
+				m.queue = append(m.queue, queued{text: m.input.Value()})
 				m.input.Reset()
 				return m, nil
 			}
 			if msg.String() == "up" && m.input.Value() == "" && len(m.queue) > 0 {
-				m.input.SetValue(m.queue[len(m.queue)-1])
+				m.input.SetValue(m.queue[len(m.queue)-1].text)
 				m.input.CursorEnd()
 				m.queue = m.queue[:len(m.queue)-1]
 				return m, nil
@@ -1913,6 +1927,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.askRouter != nil {
 			m.askRouter.SetRun(nil)
 		}
+		// A run cancelled while parked on a question leaves the form on screen
+		// with nothing behind it: the asker has already given up on the answer,
+		// so submitting it would do nothing. Take it down with the run.
+		m.pendingAsk = nil
 		m.streamStart, m.streamBuf = -1, "" // clear any partial stream state
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
@@ -1938,9 +1956,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.queue) > 0 {
 			next := m.queue[0]
 			m.queue = m.queue[1:]
-			m.remoteOrigin = false
-			m.routeAsks(false)
-			cmds = append(cmds, m.startPrompt(youLabel, "you", next))
+			m.remoteOrigin = next.remote
+			m.routeAsks(next.remote)
+			label, origin := youLabel, "you"
+			if next.remote {
+				label, origin = remoteLabel, "phone"
+			}
+			cmds = append(cmds, m.startPrompt(label, origin, next.text))
 		}
 	case tea.MouseMsg:
 		overBody := !m.modelPickerOpen && !m.pickerOpen &&
@@ -2001,7 +2023,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// prompt typed during a run is. The agent behind both is one shared
 		// conversation, so a second concurrent run would race it.
 		if m.running {
-			m.queue = append(m.queue, msg.text)
+			m.queue = append(m.queue, queued{text: msg.text, remote: true})
 			cmds = append(cmds, m.pump())
 			break
 		}
@@ -2606,7 +2628,7 @@ func (m Model) queueStrip() string {
 	}
 	var b strings.Builder
 	for _, q := range m.queue {
-		b.WriteString("\n" + metaStyle.Render("  ⏱ "+truncate(oneLine(q), 64)))
+		b.WriteString("\n" + metaStyle.Render("  ⏱ "+truncate(oneLine(q.text), 64)))
 	}
 	b.WriteString("\n  " + metaStyle.Render("↑ edit queued · enter to queue"))
 	return b.String()
