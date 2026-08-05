@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -439,7 +440,7 @@ func newTUICmd() *cobra.Command {
 						if st.prov == nil {
 							return fmt.Errorf("no provider — use /model to set one up first")
 						}
-						return relay.RunDevice(ctx, relay.DeviceOptions{
+						opts := relay.DeviceOptions{
 							Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
 							Lead: st.prov, LeadModel: st.model, Worker: worker, WorkerModel: res.Worker.Model,
 							Log: hooks.Log,
@@ -450,7 +451,20 @@ func newTUICmd() *cobra.Command {
 							// its own: one machine, one agent, one conversation.
 							Prompt:    hooks.Prompt,
 							Interrupt: hooks.Interrupt,
-						})
+						}
+						err := relay.RunDevice(ctx, opts)
+						// A stored session lasts twelve hours, so a TUI left
+						// open overnight meets a 401 on its next link. The
+						// token loaded above is not empty, just spent, so the
+						// branch that signs in never ran.
+						if errors.Is(err, relay.ErrUnauthorized) {
+							hooks.Log("this login has expired — opening browser to sign in…")
+							if opts.Token, err = relay.Login(ctx, server); err != nil {
+								return err
+							}
+							return relay.RunDevice(ctx, opts)
+						}
+						return err
 					})
 			}
 			// Mouse capture is OFF by default so the terminal's own text
