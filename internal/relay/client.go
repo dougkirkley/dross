@@ -242,8 +242,28 @@ func (d *device) send(ctx context.Context, f Frame) error {
 func (d *device) startSession(ctx context.Context, id string) {
 	_ = d.send(ctx, Frame{Type: "session", Session: &SessionInfo{
 		ID: id, Model: d.opts.LeadModel, Provider: d.opts.Lead.Name(),
-		Workspace: d.opts.Repo, Status: "idle",
+		Workspace: d.opts.Repo, Status: "idle", Title: linkTitle(d.opts),
 	}})
+}
+
+// linkTitle names a session after the machine that just linked it.
+//
+// A link advertised no title at all, so until the first prompt arrived to
+// supply one the session was listed as "New session" — and with every link now
+// getting its own session, a list of those says nothing about which machine any
+// of them is. The workspace comes too, since one machine linked from two
+// checkouts is the case where the hostname alone stops being an answer.
+//
+// Empty for a session pod. Its name is the session id, which is no kind of
+// title, and the server already holds the one the user's prompt gave it.
+func linkTitle(opts DeviceOptions) string {
+	if strings.HasPrefix(opts.Name, "ses_") {
+		return ""
+	}
+	if opts.Repo != "" {
+		return opts.Name + " · " + opts.Repo
+	}
+	return opts.Name
 }
 
 // run executes a prompt in a session locally and streams its events back.

@@ -7,14 +7,14 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
-import '../widgets/rename_dialog.dart';
-import '../widgets/swipe_actions.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
 import 'chat_screen.dart';
 import 'session_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/row_actions.dart';
+import '../widgets/session_actions.dart';
 
 /// Session list attached to `dross serve`. The same server sessions back both
 /// the Chat and Code tabs; `chat` only changes the header and which renderer a
@@ -172,22 +172,9 @@ class _SessionsScreenState extends State<SessionsScreen> {
     );
   }
 
-  Widget _sessionCard(BuildContext context, Session sess) => SwipeActions(
+  Widget _sessionCard(BuildContext context, Session sess) => RowActions(
         key: ValueKey(sess.id),
-        actions: [
-          SwipeAction(
-            icon: Icons.drive_file_rename_outline,
-            label: 'Rename',
-            onTap: () => showRenameDialog(context, sess),
-          ),
-          SwipeAction(
-            icon: Icons.delete_outline,
-            label: 'Delete',
-            color: T.danger,
-            iconColor: T.bg,
-            onTap: () => context.read<AppState>().deleteSession(sess),
-          ),
-        ],
+        actions: sessionActions(context, sess),
         child: _openTap(
           context,
           sess,
@@ -214,7 +201,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
                                   width: 8,
                                   height: 8,
                                   decoration: const BoxDecoration(
-                                      color: T.accentHi, shape: BoxShape.circle),
+                                      color: T.accentHi,
+                                      shape: BoxShape.circle),
                                 ),
                                 const SizedBox(width: 8),
                               ],
@@ -322,8 +310,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
       ),
     ]);
   }
-
-
 
   Widget _card({required Widget child, bool running = false}) => Container(
         width: double.infinity,

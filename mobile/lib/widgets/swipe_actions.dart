@@ -10,6 +10,7 @@ class SwipeAction {
     required this.onTap,
     this.color = T.surfaceAlt,
     this.iconColor = T.text,
+    this.destructive = false,
   });
 
   final IconData icon;
@@ -20,6 +21,14 @@ class SwipeAction {
   final VoidCallback onTap;
   final Color color;
   final Color iconColor;
+
+  /// Whether this destroys something.
+  ///
+  /// It changes nothing about the swipe, where reaching the action already
+  /// takes two deliberate movements and the button is small and red. It matters
+  /// to the menu built from these same actions, where the identical action is
+  /// one click away from the pointer that opened it.
+  final bool destructive;
 }
 
 /// Swipe a card aside to reveal what can be done to it.

@@ -153,7 +153,14 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 	s.mu.Lock()
 	s.picked = true
 	s.Model, s.Provider = info.Model, info.Provider
-	s.title, s.repo, s.last = info.Title, info.Workspace, info.Last
+	// An absent title means "unchanged", not "clear it". A device announces
+	// itself again on every reconnect, and that frame carries no title once a
+	// run has moved on from the one it started with — so taking it literally
+	// wiped the name off a session every time the link dropped.
+	if info.Title != "" {
+		s.title = info.Title
+	}
+	s.repo, s.last = info.Workspace, info.Last
 	s.status, s.cost = info.Status, info.Cost
 	s.device, s.connected = device, true
 	s.updated = time.Now()

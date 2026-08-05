@@ -9,6 +9,8 @@ import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/admin_screen.dart';
 import '../util/nav.dart';
+import 'row_actions.dart';
+import 'session_actions.dart';
 
 /// The left navigation drawer: a Chat tab and a Code tab (both `dross serve`
 /// sessions, differing only in presentation), plus recent sessions. Mirrors the
@@ -63,36 +65,51 @@ class AppDrawer extends StatelessWidget {
                         // icon marking which kind it is.
                         final view = s.viewOf(sess.id);
                         final isChat = view == AppMode.chat;
-                        return InkWell(
-                          onTap: () {
-                            final st = context.read<AppState>();
-                            st.attach(sess);
-                            _closeDrawer(context);
-                            openConversation(
-                                context,
-                                isChat
-                                    ? const ChatScreen()
-                                    : const SessionScreen());
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 12),
-                            child: Row(
-                              children: [
-                                Icon(
+                        // Rename and delete are reachable from here too. This
+                        // is the only session list a desktop window shows
+                        // without navigating away from the conversation, so
+                        // leaving it action-less meant going to the list screen
+                        // to rename the thing already open beside it.
+                        return RowActions(
+                          key: ValueKey(sess.id),
+                          actions: sessionActions(context, sess),
+                          child: Material(
+                            color: T.bg,
+                            child: InkWell(
+                              onTap: () {
+                                final st = context.read<AppState>();
+                                st.attach(sess);
+                                _closeDrawer(context);
+                                openConversation(
+                                    context,
                                     isChat
-                                        ? Icons.chat_bubble_outline
-                                        : Icons.code,
-                                    size: 16,
-                                    color: T.textDim),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(sess.displayTitle,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: T.body),
+                                        ? const ChatScreen()
+                                        : const SessionScreen());
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                        isChat
+                                            ? Icons.chat_bubble_outline
+                                            : Icons.code,
+                                        size: 16,
+                                        color: T.textDim),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(sess.displayTitle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: T.body),
+                                    ),
+                                    // Room for the menu button, so a long title
+                                    // does not run underneath it.
+                                    const SizedBox(width: 24),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         );
@@ -118,7 +135,8 @@ class AppDrawer extends StatelessWidget {
               Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const SettingsScreen()));
             }),
-            _navItem(context, Icons.logout, 'Sign out', active: false, onTap: () {
+            _navItem(context, Icons.logout, 'Sign out', active: false,
+                onTap: () {
               _closeDrawer(context);
               context.read<AppState>().signOut();
             }),
@@ -151,7 +169,6 @@ class AppDrawer extends StatelessWidget {
       Navigator.pop(context);
     }
   }
-
 
   Widget _navItem(BuildContext context, IconData icon, String label,
           {required bool active, required VoidCallback onTap}) =>

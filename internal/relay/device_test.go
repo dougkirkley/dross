@@ -264,3 +264,20 @@ func TestReconnectKeepsTheSameSession(t *testing.T) {
 		t.Errorf("reconnected as %q after %q; the watcher is left on a dead session", ids[1], ids[0])
 	}
 }
+
+// A freshly linked session is named after the machine that linked it.
+//
+// Without a title the list shows "New session", and now that every link is its
+// own session a column of those says nothing about which is which.
+func TestLinkAdvertisesATitle(t *testing.T) {
+	if got := linkTitle(DeviceOptions{Name: "laptop", Repo: "dross"}); got != "laptop · dross" {
+		t.Errorf("linkTitle = %q; want the machine and the workspace", got)
+	}
+	if got := linkTitle(DeviceOptions{Name: "laptop"}); got != "laptop" {
+		t.Errorf("linkTitle = %q; want the machine alone when there is no repo", got)
+	}
+	// A pod's name is a session id. The server already holds its real title.
+	if got := linkTitle(DeviceOptions{Name: "ses_abc", Repo: "dross"}); got != "" {
+		t.Errorf("linkTitle = %q for a pod; want nothing", got)
+	}
+}

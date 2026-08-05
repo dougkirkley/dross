@@ -5,12 +5,12 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/readable.dart';
-import '../widgets/rename_dialog.dart';
-import '../widgets/swipe_actions.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart' show relTimeLong;
 import 'chat_screen.dart';
+import '../widgets/row_actions.dart';
+import '../widgets/session_actions.dart';
 
 /// The Chat tab list: a flat "Chats" page of `dross serve` sessions, styled like
 /// the Claude app's Chats page (title + rows only, no Devices/Sessions chrome).
@@ -110,22 +110,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
   // from the list rather than having to open it first — and it means the
   // confirmation is a tap on a small red target rather than a sheet thrown up
   // to ask about something the gesture already said.
-  Widget _row(BuildContext context, Session sess) => SwipeActions(
+  //
+  // A pointer gets the same two actions from a menu on the row instead; see
+  // RowActions for why the gesture is not offered to it.
+  Widget _row(BuildContext context, Session sess) => RowActions(
         key: ValueKey(sess.id),
-        actions: [
-          SwipeAction(
-            icon: Icons.drive_file_rename_outline,
-            label: 'Rename',
-            onTap: () => showRenameDialog(context, sess),
-          ),
-          SwipeAction(
-            icon: Icons.delete_outline,
-            label: 'Delete',
-            color: T.danger,
-            iconColor: T.bg,
-            onTap: () => context.read<AppState>().deleteSession(sess),
-          ),
-        ],
+        actions: sessionActions(context, sess),
         // Opaque, so the row travelling left covers the buttons rather than
         // showing them through it. The list rows have no card of their own.
         child: Material(

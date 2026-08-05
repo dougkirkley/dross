@@ -193,3 +193,31 @@ func TestActiveRunIsNotTimedOut(t *testing.T) {
 		t.Error("a run that emitted output was judged silent")
 	}
 }
+
+// A reconnect must not take the name off a session.
+//
+// A device announces itself again on every dial, and that frame carries no
+// title once a run has moved past the one it started with. Assigning it
+// literally renamed the session back to nothing every time the link dropped —
+// which, with the relay reconnecting on every server deploy, is often.
+func TestReconnectDoesNotBlankTheTitle(t *testing.T) {
+	m := NewManager(nil, nil, "m", t.TempDir())
+
+	named := relaySession("ses_x")
+	named.Title = "fix the parser"
+	m.upsertDeviceSession("laptop", named)
+
+	// The reconnect: same session, no title on the frame.
+	m.upsertDeviceSession("laptop", relaySession("ses_x"))
+
+	s, ok := m.getAny("ses_x")
+	if !ok {
+		t.Fatal("session went missing")
+	}
+	s.mu.Lock()
+	got := s.title
+	s.mu.Unlock()
+	if got != "fix the parser" {
+		t.Errorf("title = %q after a reconnect; want it kept", got)
+	}
+}
