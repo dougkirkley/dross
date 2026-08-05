@@ -115,3 +115,19 @@ func WorkBranch(session string) string {
 	}
 	return "dross/" + name
 }
+
+// The two lines a session says while it sets itself up.
+//
+// git's own words, with the traffic between them left out. Somebody watching a
+// session start is reading a terminal, near enough, and "Cloning into 'dross'"
+// tells them what is happening and where it is going in the space that
+// "cloning…" spent saying less. The counts and the transfer rates are the part
+// that would be noise here: nobody is going to act on them, and they arrive
+// too fast to read.
+func cloningInto(fullName string) string {
+	return "Cloning into '" + forge.RepoDirName(fullName) + "'..."
+}
+
+func switchedTo(branch string) string {
+	return "Switched to a new branch '" + branch + "'"
+}

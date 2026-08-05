@@ -143,6 +143,11 @@ List<Object> buildTimeline(List<Event> events) {
       // stands on its own rather than folding into a summary line. Distinct
       // from "ask", which is the agent's own note that it asked something.
       case 'ask-request':
+      // The session narrating itself — cloning a repository, a model loading.
+      // Not a tool call, and folding it into one put it under a collapsed
+      // "Used a tool", which is exactly where nobody looks for the answer to
+      // "is this doing anything?".
+      case 'meta':
         flush();
         out.add(e);
       case 'done':

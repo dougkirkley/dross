@@ -196,3 +196,16 @@ func TestCloneDir(t *testing.T) {
 		}
 	}
 }
+
+// The name git itself would pick, since it is the name git is quoted as using.
+func TestRepoDirName(t *testing.T) {
+	for _, c := range []struct{ full, want string }{
+		{"doug/dross", "dross"},
+		{"doug/dross.git", "dross"},
+		{"group/sub/project", "project"},
+	} {
+		if got := RepoDirName(c.full); got != c.want {
+			t.Errorf("RepoDirName(%q) = %q, want %q", c.full, got, c.want)
+		}
+	}
+}

@@ -42,6 +42,9 @@ type persisted struct {
 	// "cloning" for ever because the moment that would have finished it had
 	// already gone by.
 	Setup string `json:"setup,omitempty"`
+	// SetupDoing is the present-tense half, so a restart mid-clone comes back
+	// still saying what it is waiting on rather than saying nothing.
+	SetupDoing string `json:"setup_doing,omitempty"`
 }
 
 // snapshotForDisk copies the fields worth keeping, under the session lock.
@@ -55,7 +58,7 @@ func (s *Session) snapshotForDisk() persisted {
 		Title: s.title, Last: s.last, Updated: s.updated,
 		Cost: s.cost, Seq: s.seq,
 		Events: append([]Event(nil), s.events...),
-		Device: s.device, Setup: s.setup,
+		Device: s.device, Setup: s.setup, SetupDoing: s.setupDoing,
 	}
 }
 
@@ -139,7 +142,7 @@ func (m *Manager) Restore() (int, error) {
 		s := &Session{
 			ID: p.ID, Model: p.Model, Provider: p.Provider,
 			WorkerModel: p.WorkerModel, Style: p.Style, Chat: p.Chat,
-			owner: p.Owner, workdir: p.Workdir, repo: p.Repo, setup: p.Setup,
+			owner: p.Owner, workdir: p.Workdir, repo: p.Repo, setup: p.Setup, setupDoing: p.SetupDoing,
 			title: p.Title, last: p.Last, updated: p.Updated,
 			status: "idle", cost: p.Cost, seq: p.Seq, events: p.Events,
 			device: p.Device,

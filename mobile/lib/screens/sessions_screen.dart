@@ -284,7 +284,12 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget _statusLine(Session sess) {
     final Color color;
     final String label;
-    if (sess.inPod && !sess.connected && sess.last.isNotEmpty) {
+    if (sess.setup.isNotEmpty) {
+      // Ahead of everything else: a session cloning a repository is not idle,
+      // and it is not restarting either. It is the one thing about the session
+      // worth knowing until it is done.
+      (color, label) = (T.accentHi, 'cloning');
+    } else if (sess.inPod && !sess.connected && sess.last.isNotEmpty) {
       // Had a workload and does not now: it is being brought back, either
       // restarted or replaced to move it onto a new version.
       //

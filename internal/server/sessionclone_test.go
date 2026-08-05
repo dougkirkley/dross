@@ -327,12 +327,14 @@ func TestCreateSessionSaysItIsCloning(t *testing.T) {
 		}
 	}
 	joined := strings.Join(said, " | ")
-	if !strings.Contains(joined, "cloning doug/dross") {
+	// git's own words, so somebody watching a session start is reading
+	// something they already know how to read.
+	if !strings.Contains(joined, "Cloning into 'dross'...") {
 		t.Errorf("the session never said it was cloning: %q", joined)
 	}
 	// In this process the clone is done by the time the create returns, so the
 	// finish is reported here rather than waiting on an agent to attach.
-	if !strings.Contains(joined, "cloned doug/dross") {
+	if !strings.Contains(joined, "Switched to a new branch 'dross/") {
 		t.Errorf("the session never said it had finished: %q", joined)
 	}
 }

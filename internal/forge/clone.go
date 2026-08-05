@@ -198,6 +198,12 @@ func Branch(ctx context.Context, dir, name string) error {
 // root already exists and may already hold something. The session runs in here,
 // so the nesting is not something anybody has to walk into.
 func CloneDir(workspace, fullName string) string {
+	return filepath.Join(workspace, RepoDirName(fullName))
+}
+
+// RepoDirName is the directory a repository clones into — the name git itself
+// would pick, and the one it quotes in "Cloning into '<name>'".
+func RepoDirName(fullName string) string {
 	name := fullName
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {
 		name = name[i+1:]
@@ -219,5 +225,5 @@ func CloneDir(workspace, fullName string) string {
 	if name == "" {
 		name = "repo"
 	}
-	return filepath.Join(workspace, name)
+	return name
 }

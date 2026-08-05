@@ -120,8 +120,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		if clone != nil {
 			// The pod clones on its way up, which is dead air from here. Say so
 			// now and let the agent attaching be what says it finished.
-			sess.beginSetup("cloning "+clone.FullName+"…",
-				"cloned "+clone.FullName+", working on "+WorkBranch(name))
+			sess.beginSetup(cloningInto(clone.FullName), switchedTo(WorkBranch(name)))
 		}
 	} else if clone != nil {
 		// No pod, so no startup for the clone to happen in: this process owns
@@ -140,8 +139,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		dir := forge.CloneDir(sess.workdir, clone.FullName)
 		branch := WorkBranch(strings.TrimPrefix(sess.ID, "ses_"))
-		sess.beginSetup("cloning "+clone.FullName+"…",
-			"cloned "+clone.FullName+", working on "+branch)
+		sess.beginSetup(cloningInto(clone.FullName), switchedTo(branch))
 		if err := cloneRepo(r.Context(), dir, clone.Credentialed, clone.Branch); err != nil {
 			s.mgr.remove(sess.ID, sess.owner)
 			http.Error(w, "could not clone "+clone.FullName+": "+err.Error(), http.StatusBadGateway)

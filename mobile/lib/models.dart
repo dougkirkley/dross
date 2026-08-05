@@ -24,6 +24,11 @@ class Session {
   /// backend, so this decides which model list the picker asks for.
   final bool chat;
 
+  /// What the session is doing before it can work — cloning a repository — and
+  /// empty once it can. Shown where the session is otherwise saying "waiting",
+  /// because that is the moment somebody wants to know what it is waiting on.
+  final String setup;
+
   Session({
     required this.id,
     required this.model,
@@ -40,6 +45,7 @@ class Session {
     this.device = '',
     this.connected = false,
     this.chat = false,
+    this.setup = '',
   });
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -58,6 +64,7 @@ class Session {
         device: j['device'] as String? ?? '',
         connected: j['connected'] as bool? ?? false,
         chat: j['chat'] as bool? ?? false,
+        setup: j['setup'] as String? ?? '',
       );
 
   /// The display name for the session card: the title, or the model as a

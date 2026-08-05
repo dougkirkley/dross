@@ -56,8 +56,13 @@ type Session struct {
 	// so the only moment the server can honestly report a finished setup is when
 	// the agent turns up.
 	setup string
-	repo  string // owner/repo (or dir name) label for the session card
-	title string // first prompt, truncated — the session's display name
+	// setupDoing is the same thing in the present tense, carried on every
+	// snapshot rather than only into the transcript. A line in the log is where
+	// somebody looks once they already suspect something; what a session is
+	// waiting on belongs on the card that is otherwise saying "waiting".
+	setupDoing string
+	repo       string // owner/repo (or dir name) label for the session card
+	title      string // first prompt, truncated — the session's display name
 	// titleAuto marks a name the server invented (the workload's, given at
 	// creation) rather than one that means something. The first prompt replaces
 	// it, because "add retry to the uploader" says more than "eager-island";
@@ -93,6 +98,7 @@ func (s *Session) snapshot() sessionView {
 		ID: s.ID, Model: s.Model, Provider: s.Provider,
 		WorkerModel: s.WorkerModel, Style: s.Style,
 		Title: s.title, Workspace: s.repo, Last: s.last, Updated: s.updated,
+		Setup:  s.setupDoing,
 		Status: s.status, Cost: s.cost, Events: len(s.events),
 		Device: s.device, Connected: s.connected, Chat: s.Chat,
 	}
@@ -117,6 +123,10 @@ type sessionView struct {
 	// right question of /api/models: chat can answer on its own backend, with
 	// its own models.
 	Chat bool `json:"chat,omitempty"`
+	// Setup is what the session is doing before it can work — cloning a
+	// repository — and empty once it can. Present tense: it describes the state
+	// the client is looking at.
+	Setup string `json:"setup,omitempty"`
 }
 
 // emit appends an event and fans it out to live subscribers.
@@ -334,7 +344,7 @@ func (s *Session) setTitle(t string) { s.setTitleAuto(t, false) }
 func (s *Session) beginSetup(doing, done string) {
 	s.emit("meta", doing)
 	s.mu.Lock()
-	s.setup = done
+	s.setup, s.setupDoing = done, doing
 	s.mu.Unlock()
 	// Written out now rather than at the next event. The window this covers is
 	// a server restart, and a restart is exactly what loses anything that has
@@ -348,7 +358,7 @@ func (s *Session) beginSetup(doing, done string) {
 func (s *Session) finishSetup() bool {
 	s.mu.Lock()
 	done := s.setup
-	s.setup = ""
+	s.setup, s.setupDoing = "", ""
 	s.mu.Unlock()
 	if done == "" {
 		return false

@@ -95,7 +95,11 @@ class _SessionScreenState extends State<SessionScreen> {
         // Same signal at the top of the window the session owns, so a run
         // is visible without going back to the list to see its card.
         if (sess?.isRunning ?? false) const RunningBar(),
-        if (_starting(sess)) _StartingPanel(resuming: isResuming(s.events)),
+        if (_starting(sess))
+          _StartingPanel(
+            resuming: isResuming(s.events),
+            setup: sess?.setup ?? '',
+          ),
         Expanded(
           child: Builder(builder: (_) {
             final timeline = buildTimeline(s.events);
@@ -322,9 +326,10 @@ class _SessionScreenState extends State<SessionScreen> {
         break;
       case 'meta':
         // The session saying what it is doing before it can do anything —
-        // cloning a repository, waiting on a model to load. Marked as its own
-        // kind of line so it does not read as something the model said.
-        content = _mono('⋯ ${e.data}', T.textFaint);
+        // cloning a repository, waiting on a model to load. Undecorated: this
+        // is git's own output, near enough, and a bullet in front of it would
+        // only make it look like something else.
+        content = _mono(e.data, T.textFaint);
         break;
       case 'error':
         content = _mono('✗ ${e.data}', T.danger);
@@ -611,8 +616,13 @@ class _SessionScreenState extends State<SessionScreen> {
 bool isResuming(List<Event> events) => events.any((e) => e.baseKind != 'meta');
 
 class _StartingPanel extends StatelessWidget {
-  const _StartingPanel({required this.resuming});
+  const _StartingPanel({required this.resuming, this.setup = ''});
   final bool resuming;
+
+  /// What the session is waiting on, when it knows. It replaces the generic
+  /// line rather than joining it: "waiting for its workspace to come up" is
+  /// what you say when you cannot say anything better.
+  final String setup;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -633,10 +643,12 @@ class _StartingPanel extends StatelessWidget {
                 style: T.body),
             const SizedBox(height: 4),
             Text(
-              resuming
-                  ? 'Its workspace is being brought back. Files are kept; a '
-                      'reply that was in progress is not.'
-                  : 'Waiting for its workspace to come up.',
+              setup.isNotEmpty
+                  ? setup
+                  : resuming
+                      ? 'Its workspace is being brought back. Files are kept; a '
+                          'reply that was in progress is not.'
+                      : 'Waiting for its workspace to come up.',
               style: T.metaFaint,
             ),
           ],
