@@ -370,3 +370,49 @@ func TestWorkloadIsNotRewrittenWhenUnchanged(t *testing.T) {
 		t.Error("workload was rewritten with nothing to change")
 	}
 }
+
+// The repository is named on the pod and the URL that clones it is not: one
+// says what the session is for, the other is the user's access token.
+func TestSessionPodCarriesTheRepository(t *testing.T) {
+	s := newSession()
+	s.Spec.Repo = "doug/dross"
+	s.Spec.RepoBranch = "main"
+
+	pod := podTemplateFor(s).Spec.Containers[0]
+
+	args := strings.Join(pod.Args, " ")
+	if !strings.Contains(args, "--repo doug/dross") || !strings.Contains(args, "--repo-branch main") {
+		t.Errorf("args did not name the repository: %s", args)
+	}
+	if strings.Contains(args, "--clone-url") {
+		t.Error("the clone URL was put on the command line, where the token is readable")
+	}
+	var clone *corev1.EnvVar
+	for i, e := range pod.Env {
+		if e.Name == "DROSS_CLONE_URL" {
+			clone = &pod.Env[i]
+		}
+	}
+	if clone == nil {
+		t.Fatal("no DROSS_CLONE_URL for a session with a repository")
+	}
+	if clone.Value != "" || clone.ValueFrom == nil || clone.ValueFrom.SecretKeyRef == nil {
+		t.Error("the clone URL must come from a Secret, not a literal value")
+	}
+	if got := clone.ValueFrom.SecretKeyRef.Key; got != "clone-url" {
+		t.Errorf("key ref = %q; want clone-url", got)
+	}
+}
+
+// A session with no repository is every session created before this existed.
+func TestSessionPodWithoutARepositoryIsUnchanged(t *testing.T) {
+	pod := podTemplateFor(newSession()).Spec.Containers[0]
+	for _, e := range pod.Env {
+		if e.Name == "DROSS_CLONE_URL" {
+			t.Error("a session with no repository was given a clone URL")
+		}
+	}
+	if strings.Contains(strings.Join(pod.Args, " "), "--repo") {
+		t.Error("a session with no repository was told to clone one")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/internal/forge"
 	"github.com/dougkirkley/dross/internal/relay"
 	"github.com/dougkirkley/dross/pkg/provider"
 )
@@ -24,6 +25,7 @@ func newRCCmd() *cobra.Command {
 		server, token, name, workdir      string
 		provName, model, baseURL, apiKey  string
 		workerProv, workerModel, workerBU string
+		repo, repoBranch, cloneURL        string
 	)
 	cmd := &cobra.Command{
 		Use:   "rc",
@@ -90,8 +92,35 @@ func newRCCmd() *cobra.Command {
 				}
 			}
 
+			// The repository this session starts on, cloned before the device
+			// attaches so the workspace holds the code by the time a prompt can
+			// reach it. The session then runs inside the clone rather than
+			// beside it, which is what "a session on this repository" means and
+			// saves every prompt beginning with a cd.
+			label := repoLabel(workdir)
+			if repo != "" && cloneURL != "" {
+				dir := forge.CloneDir(abs, repo)
+				// Already there on a restart: the pod comes back onto the same
+				// volume after a node reboot or an image change, and a second
+				// clone fails on a directory that is not empty — which would
+				// strand a working session on an error about its own success.
+				if _, statErr := os.Stat(dir); statErr == nil {
+					fmt.Fprintf(out, "%s is already cloned\n", repo)
+				} else {
+					fmt.Fprintf(out, "cloning %s…\n", repo)
+					if err := forge.Clone(ctx, dir, cloneURL, repoBranch); err != nil {
+						// Fatal. A session whose point is this repository is not
+						// worth attaching without it, and failing here puts the
+						// reason on the pod where somebody can read it instead
+						// of leaving an empty workspace to explain itself.
+						return fmt.Errorf("clone %s: %w", repo, err)
+					}
+				}
+				abs, label = dir, repo
+			}
+
 			opts := relay.DeviceOptions{
-				Server: server, Token: token, Name: name, Workdir: abs, Repo: repoLabel(workdir),
+				Server: server, Token: token, Name: name, Workdir: abs, Repo: label,
 				Lead: lead, LeadModel: res.Lead.Model, Worker: worker, WorkerModel: res.Worker.Model,
 				Policy: config.PolicyOptions(res.File),
 				Log:    func(s string) { fmt.Fprintln(out, s) },
@@ -128,5 +157,13 @@ func newRCCmd() *cobra.Command {
 	f.StringVar(&workerProv, "worker-provider", "openai", "worker backend")
 	f.StringVar(&workerModel, "worker-model", "", "worker model id (enables delegation)")
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")
+	f.StringVar(&repo, "repo", "", "repository to start this session on (owner/name)")
+	f.StringVar(&repoBranch, "repo-branch", "", "branch to check out (default: the repository's own)")
+	// Deliberately not documented as something to type. It holds an access
+	// token, and an argument is visible to every process on the machine; the
+	// pod is given it through DROSS_CLONE_URL from a Secret, which is what this
+	// flag exists to receive.
+	f.StringVar(&cloneURL, "clone-url", "", "")
+	_ = f.MarkHidden("clone-url")
 	return cmd
 }

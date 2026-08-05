@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/dougkirkley/dross/internal/auth"
+	"github.com/dougkirkley/dross/internal/forge"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -74,6 +75,26 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The repository this session is to start on, resolved before anything is
+	// created: a session whose whole point is the code in it is not worth
+	// having half-made, and this is the step that can fail for reasons the user
+	// can act on — not connected, no longer granted, renamed.
+	//
+	// A chat session has no workspace to put one in, so asking for both is a
+	// contradiction rather than a request to be honoured half way.
+	var clone *CloneSpec
+	if req.Repo != "" {
+		if req.Chat {
+			http.Error(w, "a chat session has no workspace to clone into", http.StatusBadRequest)
+			return
+		}
+		c, err := s.forgeClone(r.Context(), auth.Identity(r), req)
+		if err != nil {
+			http.Error(w, err.Error(), forgeStatus(err))
+			return
+		}
+		clone = c
+	}
 	sess := s.mgr.create(req, auth.Identity(r))
 	// In pod mode the agent runs in its own workload, which attaches back over
 	// the relay as a device named for the session. Provision it before replying,
@@ -83,7 +104,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// giving one a pod bought nothing and made every chat prompt wait on a
 	// relay that had no agent behind it.
 	if s.mgr.pods != nil && !req.Chat {
-		name, err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model)
+		name, err := s.mgr.pods.Create(r.Context(), sess.ID, sess.owner, sess.Model, clone)
 		if err != nil {
 			s.mgr.remove(sess.ID, sess.owner) // don't leave a session with no worker
 			http.Error(w, "could not start session: "+err.Error(), http.StatusInternalServerError)
@@ -96,6 +117,27 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// what the session is for.
 		sess.setTitleAuto(name, true)
 		sess.markDevice(sess.ID)
+	} else if clone != nil {
+		// No pod, so no startup for the clone to happen in: this process owns
+		// the workspace and has to fill it. Inline, which makes creating a
+		// session as slow as cloning it — acceptable where this shape runs (one
+		// machine, one person) and not something to hide behind a session that
+		// claims to be ready before its code is there.
+		//
+		// A session with no workspace has nowhere to put one. Refusing beats
+		// cloning into a relative path, which is this process's own working
+		// directory — a repository dropped into whatever dross was started in.
+		if sess.workdir == "" {
+			s.mgr.remove(sess.ID, sess.owner)
+			http.Error(w, "this server has no workspace to clone into", http.StatusBadRequest)
+			return
+		}
+		if err := cloneRepo(r.Context(), forge.CloneDir(sess.workdir, clone.FullName),
+			clone.Credentialed, clone.Branch); err != nil {
+			s.mgr.remove(sess.ID, sess.owner)
+			http.Error(w, "could not clone "+clone.FullName+": "+err.Error(), http.StatusBadGateway)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }

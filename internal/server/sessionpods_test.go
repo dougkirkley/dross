@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	dross "github.com/dougkirkley/dross/api/v1alpha1"
@@ -44,7 +45,7 @@ func TestDeleteFindsTheSessionByLabel(t *testing.T) {
 	p := podSessions(t)
 	ctx := context.Background()
 
-	name, err := p.Create(ctx, "ses_abc", "doug@example.com", "m")
+	name, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestCreateNamesTheSessionAfterItsPod(t *testing.T) {
 	p := podSessions(t)
 	ctx := context.Background()
 
-	friendly, err := p.Create(ctx, "ses_abc", "doug@example.com", "m")
+	friendly, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestDeleteFindsAPreLabelWorkload(t *testing.T) {
 func TestSetBusyMarksAndClears(t *testing.T) {
 	p := podSessions(t)
 	ctx := context.Background()
-	if _, err := p.Create(ctx, "ses_abc", "doug@example.com", "m"); err != nil {
+	if _, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,7 +192,7 @@ func TestNamesDoNotCollide(t *testing.T) {
 
 	seen := map[string]bool{}
 	for i := 0; i < 12; i++ {
-		name, err := p.Create(ctx, fmt.Sprintf("ses_%d", i), "doug@example.com", "m")
+		name, err := p.Create(ctx, fmt.Sprintf("ses_%d", i), "doug@example.com", "m", nil)
 		if err != nil {
 			t.Fatalf("create %d: %v", i, err)
 		}
@@ -207,5 +208,72 @@ func TestNamesDoNotCollide(t *testing.T) {
 	}
 	if len(list.Items) != 12 {
 		t.Errorf("created %d workloads for 12 sessions; some shared one", len(list.Items))
+	}
+}
+
+// The credentialed URL is the user's private source code to whoever reads it,
+// and a Session resource is readable by anything with get on the namespace.
+func TestCreateKeepsTheCloneCredentialOutOfTheSpec(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	if _, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", &CloneSpec{
+		FullName:     "doug/dross",
+		URL:          "https://github.com/doug/dross.git",
+		Credentialed: "https://x-access-token:gho_secret@github.com/doug/dross.git",
+		Branch:       "main",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("sessions: %d", len(list.Items))
+	}
+	s := list.Items[0]
+	if s.Spec.Repo != "doug/dross" || s.Spec.RepoBranch != "main" {
+		t.Errorf("spec repo %q branch %q, want the repository named", s.Spec.Repo, s.Spec.RepoBranch)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", s.Spec), "gho_secret") {
+		t.Errorf("the token is in the Session spec: %+v", s.Spec)
+	}
+
+	var sec corev1.Secret
+	if err := p.c.Get(ctx, client.ObjectKey{Namespace: "dross", Name: s.Spec.TokenSecret}, &sec); err != nil {
+		t.Fatal(err)
+	}
+	// StringData, not Data: the fake client keeps a Secret exactly as it was
+	// written rather than encoding it the way the API server would.
+	if got := sec.StringData["clone-url"]; got != "https://x-access-token:gho_secret@github.com/doug/dross.git" {
+		t.Errorf("clone-url in the Secret is %q", got)
+	}
+}
+
+// A session with no repository is every session created before this existed.
+func TestCreateWithoutARepositoryCarriesNoCloneURL(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	if _, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Items[0].Spec.Repo != "" {
+		t.Errorf("spec names a repository: %q", list.Items[0].Spec.Repo)
+	}
+	var sec corev1.Secret
+	if err := p.c.Get(ctx, client.ObjectKey{
+		Namespace: "dross", Name: list.Items[0].Spec.TokenSecret,
+	}, &sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sec.StringData["clone-url"]; ok {
+		t.Error("a session with no repository was given a clone URL")
 	}
 }

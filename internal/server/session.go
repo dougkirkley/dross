@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -572,6 +573,16 @@ type CreateReq struct {
 	WorkerModel string `json:"worker_model"`
 	Style       string `json:"style"`
 	Chat        bool   `json:"chat"` // chat session: web/context only, no file or shell tools
+
+	// Forge and Repo are the git host and the "owner/name" on it to start this
+	// session on. The clone URL is deliberately not here: the server looks the
+	// repository up on the host instead, because building a URL with the user's
+	// token in it for an address a client supplied would let a client name any
+	// address it liked and be sent the token.
+	Forge string `json:"forge,omitempty"`
+	Repo  string `json:"repo,omitempty"`
+	// Branch overrides the repository's default.
+	Branch string `json:"branch,omitempty"`
 }
 
 func (m *Manager) create(req CreateReq, owner string) *Session {
@@ -613,9 +624,12 @@ func (m *Manager) create(req CreateReq, owner string) *Session {
 		owner:       owner,
 		mgr:         m,
 		workdir:     workdir,
-		repo:        m.repo,
-		updated:     time.Now(),
-		status:      "idle",
+		// The repository the session was started on, where there is one: it is
+		// what the session is about, and a truer label than the directory the
+		// server happens to run in.
+		repo:    cmp.Or(req.Repo, m.repo),
+		updated: time.Now(),
+		status:  "idle",
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s

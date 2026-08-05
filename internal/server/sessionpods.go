@@ -94,7 +94,9 @@ const sessionIDLabel = dross.SessionIDLabel
 //
 // Returns the friendly half of the workload's name, so the session can be
 // called the same thing in the UI as the pod running it.
-func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string) (string, error) {
+// clone is optional: nil starts the session on an empty workspace, which is
+// every session that predates the git-host integration.
+func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string, clone *CloneSpec) (string, error) {
 	// A few hundred name pairs is enough to be readable and nowhere near enough
 	// to assume uniqueness, so a taken name is drawn again. Swallowing the
 	// conflict instead — which is what this did — left two sessions pointing at
@@ -111,6 +113,13 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 		return "", fmt.Errorf("mint session credential: %w", err)
 	}
 	data := map[string]string{"token": tok}
+	if clone != nil {
+		// The credentialed URL is a credential, so it goes here and not in the
+		// spec: a Session resource is readable by anything with get on the
+		// namespace, and a URL with an access token in it is the user's private
+		// source code to whoever reads it.
+		data["clone-url"] = clone.Credentialed
+	}
 	if p.APIKey != "" {
 		// Alongside the relay credential rather than in the spec: both are
 		// secrets the pod resolves at start, and one Secret per session keeps
@@ -148,6 +157,13 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 			MemoryLimit:  p.MemoryLimit,
 			ConfigMap:    p.ConfigMap,
 		},
+	}
+	if clone != nil {
+		// The plain half of the same thing. It is in the spec deliberately:
+		// which repository a session is working on is what somebody looking at
+		// the namespace most wants to know, and none of it is secret.
+		s.Spec.Repo = clone.FullName
+		s.Spec.RepoBranch = clone.Branch
 	}
 	if err := p.c.Create(ctx, s); err != nil {
 		return "", fmt.Errorf("session resource: %w", err)

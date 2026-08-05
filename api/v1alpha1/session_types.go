@@ -75,6 +75,13 @@ type SessionSpec struct {
 	// Model overrides the server default for this session.
 	Model string `json:"model,omitempty"`
 
+	// Repo is the "owner/name" this session was started on, and RepoBranch what
+	// it checks out. Both are here for the same reason the API key is not: they
+	// say what a session is for, and neither is a secret. The URL that can
+	// actually clone it carries the user's token and travels in TokenSecret.
+	Repo       string `json:"repo,omitempty"`
+	RepoBranch string `json:"repoBranch,omitempty"`
+
 	// Storage is the size of the session's workspace volume (e.g. "5Gi").
 	Storage string `json:"storage,omitempty"`
 

@@ -41,6 +41,16 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	if s.Spec.BaseURL != "" {
 		args = append(args, "--base-url", s.Spec.BaseURL)
 	}
+	// The repository, by name. The URL that clones it is a credential and
+	// arrives in the environment from the Secret; this is the half that says
+	// which repository the pod is meant to end up with, and it is worth having
+	// on the pod for the same reason the provider is.
+	if s.Spec.Repo != "" {
+		args = append(args, "--repo", s.Spec.Repo)
+	}
+	if s.Spec.RepoBranch != "" {
+		args = append(args, "--repo-branch", s.Spec.RepoBranch)
+	}
 
 	// From a Secret rather than arguments, so credentials do not show up in the
 	// pod spec or in `kubectl get pod -o yaml`.
@@ -56,6 +66,12 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 		}}
 	}
 	env := []corev1.EnvVar{fromSecret("DROSS_TOKEN", "token")}
+	// The clone URL with the user's token in it. From the Secret like every
+	// other credential, and optional there, so a session with no repository —
+	// which is every session created before this existed — starts unchanged.
+	if s.Spec.Repo != "" {
+		env = append(env, fromSecret("DROSS_CLONE_URL", "clone-url"))
+	}
 	// The provider's own variable, which the CLI already reads when no key is
 	// given on the command line. Named by the server, which knows the
 	// conventions; empty for a provider that has none, such as bedrock.
