@@ -37,7 +37,7 @@ func TestOptionalSecretKeysDoNotWedgeThePod(t *testing.T) {
 	}
 	// The forge secrets are the reason this test exists: they arrived after the
 	// deployment did, so a Secret without them must still start.
-	for _, name := range []string{"GITHUB_CLIENT_SECRET", "GITLAB_CLIENT_SECRET"} {
+	for _, name := range []string{"DROSS_GITHUB_SECRET", "DROSS_GITLAB_SECRET"} {
 		if !seen[name] {
 			t.Errorf("%s is not passed to the server", name)
 		}

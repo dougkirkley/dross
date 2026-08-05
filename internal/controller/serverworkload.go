@@ -111,8 +111,14 @@ func authEnv(d *dross.Dross) []corev1.EnvVar {
 		// OAuth application offers no repositories, and a missing key would
 		// otherwise wedge the pod in CreateContainerConfigError rather than
 		// leaving one feature switched off.
-		{Name: "GITHUB_CLIENT_SECRET", ValueFrom: ref("github-client-secret", true)},
-		{Name: "GITLAB_CLIENT_SECRET", ValueFrom: ref("gitlab-client-secret", true)},
+		// DROSS_-prefixed, matching every other variable this operator sets, so
+		// that what dross put in a pod's environment is tellable from what the
+		// image or the platform did. The config names which variable to read,
+		// so the library's own default (GITHUB_CLIENT_SECRET, the conventional
+		// name for anyone running dross outside Kubernetes) stays available to
+		// deployments that would rather use it.
+		{Name: "DROSS_GITHUB_SECRET", ValueFrom: ref("github-client-secret", true)},
+		{Name: "DROSS_GITLAB_SECRET", ValueFrom: ref("gitlab-client-secret", true)},
 	}
 }
 
