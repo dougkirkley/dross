@@ -48,8 +48,18 @@ class ProseText extends StatelessWidget {
         a: proseFor(context)
             .copyWith(color: T.accent, decoration: TextDecoration.underline),
         listBullet: proseFor(context),
+        // One style serves inline code and the text inside a fenced block, so
+        // it carries no background of its own: inside a block it painted a
+        // second, ragged rectangle over the block's own, line by line. The
+        // monospace face is what marks inline code, and the container is what
+        // marks a block.
+        //
+        // And not an accent colour. A page of code set in bright cyan on a
+        // tinted ground is the loudest thing on screen, which is the wrong
+        // order — the prose is what is being said, the code is what it refers
+        // to.
         code: T.mono.copyWith(
-            color: T.accentHi, backgroundColor: T.surfaceAlt, fontSize: 14),
+            color: T.text, backgroundColor: Colors.transparent, fontSize: 14),
         codeblockPadding: const EdgeInsets.all(12),
         codeblockDecoration: BoxDecoration(
           color: T.bg,
@@ -63,8 +73,11 @@ class ProseText extends StatelessWidget {
         ),
         h1: T.proseBold.copyWith(fontSize: 22, color: T.text),
         h2: T.proseBold.copyWith(fontSize: 19, color: T.text),
-        h3: T.proseBold.copyWith(fontSize: 17, color: T.accentHi),
-        h4: T.proseBold.copyWith(fontSize: 15, color: T.accentHi),
+        // Headings differ by size and weight, as they do in a book. Colouring
+        // them made every section title compete with the answer under it, and
+        // a numbered list of them lit the whole page up.
+        h3: T.proseBold.copyWith(fontSize: 17, color: T.text),
+        h4: T.proseBold.copyWith(fontSize: 15, color: T.text),
       ),
     );
   }
