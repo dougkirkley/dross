@@ -204,8 +204,9 @@ class DrossClient {
   /// A URL rather than a request: the authorization code has to reach the
   /// server and not this app, so the whole exchange happens in a browser that
   /// the server redirects. What comes back here is the answer to [forges].
-  Uri connectUrl(String host, {String next = '/'}) =>
-      _uri('api/forges/$host/connect?next=${Uri.encodeQueryComponent(next)}');
+  Uri connectUrl(String host, {String next = '/', bool app = false}) =>
+      _uri('api/forges/$host/connect?next=${Uri.encodeQueryComponent(next)}'
+          '${app ? '&mode=app' : ''}');
 
   // --- accounts ---------------------------------------------------------
 

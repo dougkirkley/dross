@@ -498,3 +498,39 @@ func TestForgeCallbackWithNoStateAndNoInstallIsRefused(t *testing.T) {
 		t.Fatalf("callback: %d, want it refused", w.Code)
 	}
 }
+
+// A native client's flow ends on a scheme it registers, so the browser it
+// opened closes itself and the app carries on where it was. A web client's ends
+// on the page it came from, with the outcome in the query.
+func TestForgeCallbackEndsWhereTheClientCanCatchIt(t *testing.T) {
+	srv, _ := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", token: forge.Token{Access: "gho"}})
+
+	for _, c := range []struct{ name, connect, want string }{
+		{"native", "/api/forges/github/connect?mode=app", "dross://forge?host=github&forge=github"},
+		{"web", "/api/forges/github/connect?next=/repos", "/repos?forge=github"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cookie, state := connect(t, srv, c.connect, "doug@example.com")
+			w := callback(t, srv, "/api/forges/github/callback?code=abc&state="+state,
+				"doug@example.com", cookie)
+			if got := w.Header().Get("Location"); got != c.want {
+				t.Errorf("ended at %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// A decline has to reach the same place a success does, or a native client sits
+// waiting on a browser that never comes back.
+func TestForgeDeclineReachesANativeClient(t *testing.T) {
+	srv, _ := forgeServer(t)
+	forge.Register(&fakeForge{name: "github"})
+
+	cookie, state := connect(t, srv, "/api/forges/github/connect?mode=app", "doug@example.com")
+	w := callback(t, srv, "/api/forges/github/callback?error=access_denied&state="+state,
+		"doug@example.com", cookie)
+	if got := w.Header().Get("Location"); got != "dross://forge?host=github&forge_error=access_denied" {
+		t.Errorf("declined flow ended at %q", got)
+	}
+}

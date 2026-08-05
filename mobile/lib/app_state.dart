@@ -68,6 +68,24 @@ class AppState extends ChangeNotifier {
   List<Session> sessions = [];
   bool loadingSessions = false;
 
+  /// A host whose connect flow has just come back, waiting for the repository
+  /// picker to be reopened on it.
+  ///
+  /// Connecting leaves the app — the host authenticates the person, not the
+  /// app — so what would otherwise be one uninterrupted action becomes "the
+  /// app you were in, restarted". This carries the thread across that gap: the
+  /// callback puts the outcome in the URL and startup reads it, so somebody who
+  /// set out to pick a repository is put back in front of the list rather than
+  /// on the landing screen having to find their way there again.
+  String pendingForge = '';
+
+  /// Consumes it, so a rebuild does not reopen the picker behind itself.
+  String takePendingForge() {
+    final h = pendingForge;
+    pendingForge = '';
+    return h;
+  }
+
   /// Whether the signed-in account may administer accounts. Answered by the
   /// server on every load; the app only uses it to decide whether to offer the
   /// screen, never as the permission itself — the API refuses a non-admin
@@ -118,6 +136,7 @@ class AppState extends ChangeNotifier {
   // --- load / server config -------------------------------------------
 
   Future<void> load() async {
+    _readForgeOutcome();
     final p = await SharedPreferences.getInstance();
     baseUrl = p.getString('baseUrl') ?? '';
     // The web build is served by `dross serve`; default to its own origin.
@@ -130,6 +149,28 @@ class AppState extends ChangeNotifier {
       await refreshSessions();
       await refreshWhoami();
     }
+  }
+
+  /// Picks up whatever a connect flow left in the URL on its way back.
+  ///
+  /// Web only: it is the one client where the flow returns by loading the app
+  /// again rather than by closing a browser the app opened.
+  void _readForgeOutcome() {
+    if (!kIsWeb) return;
+    final q = Uri.base.queryParameters;
+    final host = q['forge'] ?? '';
+    final failed = q['forge_error'] ?? '';
+    if (host.isEmpty && failed.isEmpty) return;
+    if (host.isNotEmpty) {
+      pendingForge = host;
+      // Repositories are picked on the code tab, which is not the one the app
+      // lands on.
+      mode = AppMode.code;
+    }
+    if (failed.isNotEmpty) error = 'Connecting failed: $failed';
+    // Read once. Left in place, a refresh — or a PWA restored from the
+    // background — would act on it a second time.
+    clearQuery();
   }
 
   /// Sets (or updates) the server URL — the app's only setting.

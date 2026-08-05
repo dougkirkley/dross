@@ -41,6 +41,11 @@ class _SessionsScreenState extends State<SessionsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final s = context.read<AppState>();
       if (s.remoteConfigured) s.refreshSessions();
+      // Just back from connecting a git account. Somebody who left the app to
+      // do that was part-way through starting a session on a repository, so
+      // they are put back in front of the list rather than on the screen they
+      // happen to have landed on.
+      if (!widget.chat && s.takePendingForge().isNotEmpty) _create(context);
     });
   }
 

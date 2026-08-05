@@ -104,6 +104,19 @@ class _RepoSheetState extends State<_RepoSheet> {
     }
   }
 
+  /// Connects the host being shown, then shows what it can see.
+  ///
+  /// On a native client the flow ends on a scheme this app captures, so it
+  /// returns here with the sheet still open and the list simply fills in. On
+  /// web the page is left behind mid-flow and the app is reloaded into this
+  /// same sheet by [AppState.pendingForge] — either way the next thing in front
+  /// of the person is the repositories they came for.
+  Future<void> _connect() async {
+    final connected = await context.read<AppState>().connectForge(_host);
+    if (!mounted || !connected) return;
+    await _load();
+  }
+
   ForgeHost? get _current {
     for (final h in _hosts ?? const <ForgeHost>[]) {
       if (h.name == _host) return h;
@@ -212,13 +225,11 @@ class _RepoSheetState extends State<_RepoSheet> {
           child: PillButton(
             label: 'Connect ${host.label}',
             icon: Icons.link,
-            onTap: () => context.read<AppState>().connectForge(host.name),
+            onTap: _connect,
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-            'This opens the host in a browser. Come back when it is done and '
-            'pull down to refresh.',
+        const Text('This opens the host in a browser to sign in.',
             style: T.metaFaint),
       ];
     }
@@ -239,7 +250,7 @@ class _RepoSheetState extends State<_RepoSheet> {
           child: PillButton(
             label: 'Connect ${host.label}',
             icon: Icons.link,
-            onTap: () => context.read<AppState>().connectForge(host.name),
+            onTap: _connect,
           ),
         ),
       ];

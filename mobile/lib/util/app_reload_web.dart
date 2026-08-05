@@ -16,10 +16,18 @@ external _Navigator get _navigator;
 @JS('caches')
 external JSAny? get _caches;
 
+@JS('history')
+external _History get _history;
+
 extension type _Location(JSObject _) implements JSObject {
   external void reload();
   external void assign(String url);
   external set href(String v);
+  external String get pathname;
+}
+
+extension type _History(JSObject _) implements JSObject {
+  external void replaceState(JSAny? state, String title, String url);
 }
 
 extension type _Navigator(JSObject _) implements JSObject {
@@ -78,5 +86,18 @@ Future<void> navigateTo(String url) async {
     // Fall back to href: a navigation that fails silently means the user is
     // left signed in, which is worse than any cosmetic difference.
     _location.href = url;
+  }
+}
+
+/// Drops the query string without reloading.
+///
+/// The connect flow comes back with its outcome in the URL. Once that has been
+/// read it is stale, and leaving it there means a refresh — or a PWA restored
+/// from the background — acts on it a second time.
+Future<void> clearQuery() async {
+  try {
+    _history.replaceState(null, '', _location.pathname);
+  } catch (_) {
+    // Not fatal: the worst of it is a stale parameter in the address bar.
   }
 }

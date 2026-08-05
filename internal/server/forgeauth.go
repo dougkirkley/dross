@@ -50,6 +50,29 @@ type forgeFlow struct {
 	Redirect string `json:"r"`
 	Next     string `json:"n"`
 	Expires  int64  `json:"e"`
+	// App marks a flow a native client started. It ends on a custom scheme the
+	// app captures rather than on a page, so the browser closes itself and the
+	// app carries on where it was — which is the repository picker the person
+	// opened this from.
+	App bool `json:"a,omitempty"`
+}
+
+// forgeAppCallback is the custom-scheme URL a native client captures to learn
+// that a connect flow finished. The same scheme the sign-in flow uses, so there
+// is one thing to register per platform.
+const forgeAppCallback = "dross://forge"
+
+// done is where to send the browser now the flow is over.
+//
+// A native client gets the custom scheme, which closes the in-app browser and
+// hands control back. Everything else gets the local page it came from, with
+// the outcome in the query so the app can act on it rather than guess.
+func (f forgeFlow) done(key, value string) string {
+	if f.App {
+		return forgeAppCallback + "?host=" + url.QueryEscape(f.Host) +
+			"&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+	}
+	return withParam(f.Next, key, value)
 }
 
 // handleForges reports the hosts this server can offer and which of them the
@@ -101,6 +124,10 @@ func (s *Server) handleForgeConnect(w http.ResponseWriter, r *http.Request) {
 		Redirect: redirect,
 		Next:     localPath(r.URL.Query().Get("next")),
 		Expires:  time.Now().Add(10 * time.Minute).Unix(),
+		// A native client says so, because the two end differently: it needs
+		// the browser it opened to close, where a web client is the page the
+		// redirect lands on.
+		App: r.URL.Query().Get("mode") == "app",
 	}
 	blob, err := json.Marshal(flow)
 	if err != nil {
@@ -176,7 +203,7 @@ func (s *Server) handleForgeCallback(w http.ResponseWriter, r *http.Request) {
 	// as ?error=access_denied and belongs in front of the person who made it,
 	// which means the app rather than a plain-text page.
 	if e := r.URL.Query().Get("error"); e != "" {
-		http.Redirect(w, r, withParam(flow.Next, "forge_error", e), http.StatusFound)
+		http.Redirect(w, r, flow.done("forge_error", e), http.StatusFound)
 		return
 	}
 	code := r.URL.Query().Get("code")
@@ -186,14 +213,14 @@ func (s *Server) handleForgeCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := f.Exchange(r.Context(), code, flow.Redirect)
 	if err != nil {
-		http.Redirect(w, r, withParam(flow.Next, "forge_error", err.Error()), http.StatusFound)
+		http.Redirect(w, r, flow.done("forge_error", err.Error()), http.StatusFound)
 		return
 	}
 	if err := s.forges.Save(owner, f.Name(), tok); err != nil {
-		http.Redirect(w, r, withParam(flow.Next, "forge_error", "could not store the credential"), http.StatusFound)
+		http.Redirect(w, r, flow.done("forge_error", "could not store the credential"), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, withParam(flow.Next, "forge", f.Name()), http.StatusFound)
+	http.Redirect(w, r, flow.done("forge", f.Name()), http.StatusFound)
 }
 
 // installArrival reports whether this callback is the host telling us somebody

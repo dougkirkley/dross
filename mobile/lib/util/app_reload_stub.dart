@@ -4,3 +4,6 @@ Future<void> reloadApp() async {}
 
 /// Native has no document to navigate; callers hit the endpoint over HTTP.
 Future<void> navigateTo(String url) async {}
+
+/// Native has no address bar to clean up.
+Future<void> clearQuery() async {}
