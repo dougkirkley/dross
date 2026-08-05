@@ -149,3 +149,25 @@ func TestWorkspaceContextWithoutAHeadline(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Asked to install the project it was standing in, a model answered with a
+// three-column table comparing ways it could be installed. "Do it" has one
+// answer and it is not a list of options.
+func TestPromptSaysToActOnTheProject(t *testing.T) {
+	p := systemPrompt(Config{Workdir: t.TempDir(), Repo: "doug/dross"}, false, false, nil)
+	if !strings.Contains(p, `is not an answer to "do it"`) {
+		t.Error("nothing tells it to act on the project it is in")
+	}
+}
+
+// The same answer's table cells held the literal characters "<br>", because
+// nothing downstream renders HTML — and a table on a phone is three words wide.
+func TestPromptRulesOutHTMLAndTables(t *testing.T) {
+	p := systemPrompt(Config{Workdir: t.TempDir()}, false, false, nil)
+	if !strings.Contains(p, "no HTML") {
+		t.Error("nothing rules out HTML")
+	}
+	if !strings.Contains(p, "tables") {
+		t.Error("nothing steers away from tables")
+	}
+}

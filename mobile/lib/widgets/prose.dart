@@ -28,10 +28,18 @@ class ProseText extends StatelessWidget {
     return s;
   }
 
+  /// Turns a `<br>` into the break it was meant to be.
+  ///
+  /// Nothing renders HTML here, so one arrives as those four characters in the
+  /// middle of a sentence. A space rather than a newline: they turn up most
+  /// often inside table cells, where a real line break would end the row and
+  /// take the rest of the table with it.
+  static final _br = RegExp(r'<br\s*/?>', caseSensitive: false);
+
   @override
   Widget build(BuildContext context) {
     return MarkdownBody(
-      data: _hoistMarker(text),
+      data: _hoistMarker(text).replaceAll(_br, ' '),
       // The chat wraps content in a SelectionArea, which handles selection.
       selectable: false,
       onTapLink: (label, href, title) async {

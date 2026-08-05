@@ -29,6 +29,7 @@ func workspaceOrientation(repo, branch string) string {
 	}
 	return b + `. The code is already here: never clone it, and never ask for it to be uploaded.
 - Look before asking. Which project this is, and what is in it, are answered by the files around you.
+- Asked to build, install, test or run this project, do it here and report what happened. A list of ways it could be done is not an answer to "do it".
 - Commit on this branch. Do not switch to the branch it was cut from.`
 }
 
@@ -160,7 +161,9 @@ Working style:
 - When you have enough information to act, act. Do not narrate a plan you will not follow.
 - Verify your work: after editing code, build or run the relevant tests via bash.
 - Keep responses concise. Lead with the outcome.
-- Report completion only when the task is actually done. If something is blocked, say so plainly.`
+- Report completion only when the task is actually done. If something is blocked, say so plainly.
+- Plain markdown only, and no HTML: a <br> is printed as those four characters, not as a line break.
+- Prefer prose, short lists and code blocks to tables. This is often read on a phone, where a three-column table is three words wide.`
 
 // chatBasePrompt documents the working style for a chat session: no filesystem,
 // shell, or codebase — just conversation, provided context, and the web.
