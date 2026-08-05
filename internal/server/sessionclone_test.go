@@ -57,8 +57,10 @@ func TestCreateSessionClonesThePickedRepository(t *testing.T) {
 	if !clone.called {
 		t.Fatal("the session was created without cloning anything")
 	}
-	if filepath.Base(clone.dir) != "dross" {
-		t.Errorf("cloned into %q, want a directory named for the repository", clone.dir)
+	// The workspace root, not a directory beneath it: the session is meant to
+	// be in the repository, not next to it.
+	if clone.dir == "" || !strings.HasPrefix(filepath.Base(clone.dir), "ses_") {
+		t.Errorf("cloned into %q, want the session's own workspace root", clone.dir)
 	}
 	// The default branch comes from the listing, so a client that does not ask
 	// for one still gets the branch the repository itself considers current.

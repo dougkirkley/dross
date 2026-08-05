@@ -99,16 +99,14 @@ func newRCCmd() *cobra.Command {
 			// saves every prompt beginning with a cd.
 			label := repoLabel(workdir)
 			if repo != "" && cloneURL != "" {
-				dir := forge.CloneDir(abs, repo)
 				// Already there on a restart: the pod comes back onto the same
-				// volume after a node reboot or an image change, and a second
-				// clone fails on a directory that is not empty — which would
-				// strand a working session on an error about its own success.
-				if _, statErr := os.Stat(dir); statErr == nil {
+				// volume after a node reboot or an image change, and cloning
+				// over a checkout would throw away whatever work is in it.
+				if _, statErr := os.Stat(filepath.Join(abs, ".git")); statErr == nil {
 					fmt.Fprintf(out, "%s is already cloned\n", repo)
 				} else {
 					fmt.Fprintf(out, "cloning %s…\n", repo)
-					if err := forge.Clone(ctx, dir, cloneURL, repoBranch); err != nil {
+					if err := forge.Clone(ctx, abs, cloneURL, repoBranch); err != nil {
 						// Fatal. A session whose point is this repository is not
 						// worth attaching without it, and failing here puts the
 						// reason on the pod where somebody can read it instead
@@ -116,7 +114,7 @@ func newRCCmd() *cobra.Command {
 						return fmt.Errorf("clone %s: %w", repo, err)
 					}
 				}
-				abs, label = dir, repo
+				label = repo
 			}
 
 			opts := relay.DeviceOptions{

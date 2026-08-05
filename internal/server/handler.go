@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/dougkirkley/dross/internal/auth"
-	"github.com/dougkirkley/dross/internal/forge"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -132,7 +131,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this server has no workspace to clone into", http.StatusBadRequest)
 			return
 		}
-		if err := cloneRepo(r.Context(), forge.CloneDir(sess.workdir, clone.FullName),
+		if err := cloneRepo(r.Context(), sess.workdir,
 			clone.Credentialed, clone.Branch); err != nil {
 			s.mgr.remove(sess.ID, sess.owner)
 			http.Error(w, "could not clone "+clone.FullName+": "+err.Error(), http.StatusBadGateway)
