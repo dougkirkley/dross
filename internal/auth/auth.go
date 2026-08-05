@@ -127,6 +127,10 @@ func New(ctx context.Context, cfg Config) (*Authenticator, error) {
 	return a, nil
 }
 
+// InsecureCookies reports whether cookies are issued without the Secure flag,
+// so anything else setting one for this deployment agrees with the session.
+func (a *Authenticator) InsecureCookies() bool { return a.insecure }
+
 // IsServiceIdentity reports whether email is the machine credential's identity,
 // so callers can refuse it where a human is required.
 func (a *Authenticator) IsServiceIdentity(email string) bool {

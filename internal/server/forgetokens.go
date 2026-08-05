@@ -34,6 +34,11 @@ import (
 type ForgeTokens struct {
 	dir string
 	key []byte
+	// state signs the cookie that carries a pending authorization through the
+	// host and back. Its own key: that cookie is handed to a browser where the
+	// tokens never are, and one key doing both jobs would mean an oracle for
+	// the other on any day the signing turns out to be the weaker half.
+	state []byte
 
 	mu sync.Mutex
 }
@@ -55,7 +60,8 @@ func NewForgeTokens(dir string, secret []byte) (*ForgeTokens, error) {
 	// and using one key for two algorithms is the kind of reuse that is fine
 	// until the day it is not.
 	sum := sha256.Sum256(append([]byte("dross/forge-tokens\x00"), secret...))
-	return &ForgeTokens{dir: p, key: sum[:]}, nil
+	st := sha256.Sum256(append([]byte("dross/forge-state\x00"), secret...))
+	return &ForgeTokens{dir: p, key: sum[:], state: st[:]}, nil
 }
 
 // Save records a user's token for one host, replacing any it already had.

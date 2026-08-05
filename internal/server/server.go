@@ -38,16 +38,28 @@ type Server struct {
 
 	// The host this server is actually reached at, from --public-url. The only
 	// host in a request that is not supplied by whoever sent it, which is what
-	// makes it the one worth comparing an Origin against.
+	// makes it the one worth comparing an Origin against. publicURL keeps the
+	// scheme too, which an OAuth redirect URI needs and an origin check does
+	// not.
 	publicHost string
+	publicURL  string
+
+	// Each user's git-host credentials. Nil without a cookie secret to encrypt
+	// them with, which the forge endpoints report rather than discovering at
+	// the end of a redirect.
+	forges *ForgeTokens
 }
 
 // SetPublicURL records the origin dross is served from.
 func (s *Server) SetPublicURL(raw string) {
-	if u, err := url.Parse(strings.TrimRight(raw, "/")); err == nil {
-		s.publicHost = u.Host
+	raw = strings.TrimRight(raw, "/")
+	if u, err := url.Parse(raw); err == nil {
+		s.publicHost, s.publicURL = u.Host, raw
 	}
 }
+
+// SetForges wires the store the git-host endpoints keep credentials in.
+func (s *Server) SetForges(f *ForgeTokens) { s.forges = f }
 
 // SetKratosUI wires the browser-facing half of Kratos: the flows dross draws
 // and the API it proxies. Sessions are verified by the authenticator, which is
@@ -117,6 +129,16 @@ func (s *Server) apiMux() *http.ServeMux {
 		mux.Handle("POST /api/admin/users/{email}/role", s.adminOnly(http.HandlerFunc(s.handleAdminRole)))
 		mux.Handle("DELETE /api/admin/users/{email}", s.adminOnly(http.HandlerFunc(s.handleAdminRemove)))
 	}
+
+	// Git hosts. Registered whatever the server is configured with: a client
+	// that asks gets an honest empty list rather than a 404 it has to read as
+	// "this build is too old to know", and the connect endpoints say why they
+	// cannot run when there is no store behind them.
+	mux.HandleFunc("GET /api/forges", s.handleForges)
+	mux.HandleFunc("GET /api/forges/{host}/connect", s.handleForgeConnect)
+	mux.HandleFunc("GET /api/forges/{host}/callback", s.handleForgeCallback)
+	mux.HandleFunc("GET /api/forges/{host}/repos", s.handleForgeRepos)
+	mux.HandleFunc("DELETE /api/forges/{host}", s.handleForgeDisconnect)
 
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/artifacts", s.handleArtifactPublish)

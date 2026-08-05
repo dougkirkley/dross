@@ -222,6 +222,22 @@ func newServeCmd() *cobra.Command {
 			srv := server.New(sessionStore, mgr, authr, arts)
 			srv.SetPublicURL(publicURL)
 
+			// Where a user's git-host credentials live. Encrypted under the
+			// cookie secret, so without one there is nothing to encrypt them
+			// with and the store is nil — connecting an account is then
+			// refused up front rather than at the end of a redirect. Worth
+			// saying out loud when hosts are configured, because the symptom
+			// otherwise is a button that never sticks.
+			forgeTokens, err := server.NewForgeTokens(filepath.Dir(sp), cookieSecret)
+			if err != nil {
+				return fmt.Errorf("forge credentials: %w", err)
+			}
+			srv.SetForges(forgeTokens)
+			if forgeTokens == nil && len(forge.Names()) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(),
+					"repositories: --auth-cookie-secret is unset, so git accounts cannot be connected")
+			}
+
 			// Accounts: the registry decides who is let in, the notifier tells
 			// them. Both are interfaces to the server, so a bigger store or a
 			// different mail provider is a substitution here and nothing else.
