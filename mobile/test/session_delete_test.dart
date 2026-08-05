@@ -3,6 +3,7 @@ import 'package:dross/app_state.dart';
 import 'package:dross/models.dart';
 
 void main() {
+  _queueArrow();
   _outOfOrder();
   Session sess(String id) => Session(
       id: id, model: 'm', provider: 'p', status: 'idle', cost: 0, events: 0);
@@ -64,5 +65,21 @@ void _outOfOrder() {
     final stale = visibleSessions([sess('a'), sess('b')], deleted);
     expect(stale.map((x) => x.id), ['a', 'b'],
         reason: 'the tombstone alone cannot catch an out-of-order answer');
+  });
+}
+
+// The arrow beside a queued message moves it to the front. Everything at the
+// front is already there, so the control has to say so rather than absorb the
+// tap — which is what "it does nothing" looked like with one queued message.
+void _queueArrow() {
+  test('the front of the queue cannot be moved further forward', () {
+    final s = AppState();
+    s.queue.addAll(['first']);
+    expect(s.canPromote(0), isFalse);
+
+    s.queue.add('second');
+    expect(s.canPromote(1), isTrue);
+    expect(s.canPromote(0), isFalse);
+    expect(s.canPromote(2), isFalse, reason: 'past the end');
   });
 }

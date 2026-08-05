@@ -246,10 +246,15 @@ class _SessionScreenState extends State<SessionScreen> {
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.arrow_upward,
-                        size: 18, color: T.accent),
-                    tooltip: 'Run next',
-                    onPressed: () => context.read<AppState>().promoteRemote(i),
+                    icon: Icon(Icons.arrow_upward,
+                        size: 18, color: s.canPromote(i) ? T.accent : T.border),
+                    tooltip: s.canPromote(i) ? 'Run next' : 'Already next',
+                    // Null rather than a handler that returns immediately: the
+                    // front of the queue is already next, and a live-looking
+                    // arrow that swallows the tap is what reads as broken.
+                    onPressed: s.canPromote(i)
+                        ? () => context.read<AppState>().promoteRemote(i)
+                        : null,
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,

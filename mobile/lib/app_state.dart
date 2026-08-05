@@ -745,12 +745,22 @@ class AppState extends ChangeNotifier {
   /// session is idle it starts immediately; otherwise it runs when the current
   /// turn finishes. Does not interrupt the running turn (use Stop for that).
   Future<void> promoteRemote(int i) async {
-    if (i <= 0 || i >= queue.length) return; // already front or out of range
-    final t = queue.removeAt(i);
-    queue.insert(0, t);
-    notifyListeners();
+    if (i < 0 || i >= queue.length) return;
+    // Something already at the front has nothing to be moved in front of, but
+    // it can still be the thing that goes next: returning here meant the one
+    // case with a single queued message did nothing whatsoever.
+    if (i > 0) {
+      queue.insert(0, queue.removeAt(i));
+      notifyListeners();
+    }
     await _drainQueue(); // no-op while running; sends immediately when idle
   }
+
+  /// Whether moving the item at [i] up the queue would change anything.
+  ///
+  /// The front of the queue is already next. A control that cannot act should
+  /// say so rather than absorb the tap and look broken.
+  bool canPromote(int i) => i > 0 && i < queue.length;
 
   String removeQueued(int i) {
     if (i < 0 || i >= queue.length) return '';
