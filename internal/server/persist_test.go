@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dougkirkley/dross/internal/storage"
@@ -83,5 +84,41 @@ func TestEmptySessionIsPersisted(t *testing.T) {
 	}
 	if _, ok := m2.get(s.ID, "doug@example.com"); !ok {
 		t.Error("empty session lost")
+	}
+}
+
+// A pod clones on its way up and the server reports it finished when the agent
+// attaches. If the server restarts inside that window the session used to say
+// "cloning" for ever: the moment that would have finished it had gone by, and
+// what it was waiting to say had only ever been in memory.
+func TestSetupSurvivesARestart(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	m.SetStore(storage.NewSessionStore(dir))
+	s := m.create(CreateReq{}, "doug@example.com")
+	s.markDevice(s.ID)
+	s.beginSetup("cloning doug/dross…", "cloned doug/dross")
+	m.flush()
+
+	// A fresh process over the same directory.
+	restored := NewManager(&fakeProvider{}, nil, "m", t.TempDir())
+	restored.SetStore(storage.NewSessionStore(dir))
+	if _, err := restored.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	back, ok := restored.get(s.ID, "doug@example.com")
+	if !ok {
+		t.Fatal("the session did not come back")
+	}
+
+	restored.setDeviceConnected(back.ID, true)
+	var said []string
+	for _, e := range back.history(0) {
+		if e.Kind == "meta" {
+			said = append(said, e.Data)
+		}
+	}
+	if !strings.Contains(strings.Join(said, " | "), "cloned doug/dross") {
+		t.Errorf("the restored session never reported its setup: %v", said)
 	}
 }

@@ -336,6 +336,12 @@ func (s *Session) beginSetup(doing, done string) {
 	s.mu.Lock()
 	s.setup = done
 	s.mu.Unlock()
+	// Written out now rather than at the next event. The window this covers is
+	// a server restart, and a restart is exactly what loses anything that has
+	// only been remembered.
+	if s.mgr != nil {
+		s.mgr.markDirty(s.ID)
+	}
 }
 
 // finishSetup reports the setup as done, once. Returns whether there was one.
@@ -348,6 +354,9 @@ func (s *Session) finishSetup() bool {
 		return false
 	}
 	s.emit("meta", done)
+	if s.mgr != nil {
+		s.mgr.markDirty(s.ID)
+	}
 	return true
 }
 

@@ -36,6 +36,12 @@ type persisted struct {
 	Seq         int       `json:"seq"`
 	Events      []Event   `json:"events,omitempty"`
 	Device      string    `json:"device,omitempty"`
+	// Setup is what a session is still waiting to be able to report — a clone
+	// that a pod is doing on its way up. In memory only, it was lost whenever
+	// the server restarted inside that window, and the transcript then said
+	// "cloning" for ever because the moment that would have finished it had
+	// already gone by.
+	Setup string `json:"setup,omitempty"`
 }
 
 // snapshotForDisk copies the fields worth keeping, under the session lock.
@@ -49,7 +55,7 @@ func (s *Session) snapshotForDisk() persisted {
 		Title: s.title, Last: s.last, Updated: s.updated,
 		Cost: s.cost, Seq: s.seq,
 		Events: append([]Event(nil), s.events...),
-		Device: s.device,
+		Device: s.device, Setup: s.setup,
 	}
 }
 
@@ -133,7 +139,7 @@ func (m *Manager) Restore() (int, error) {
 		s := &Session{
 			ID: p.ID, Model: p.Model, Provider: p.Provider,
 			WorkerModel: p.WorkerModel, Style: p.Style, Chat: p.Chat,
-			owner: p.Owner, workdir: p.Workdir, repo: p.Repo,
+			owner: p.Owner, workdir: p.Workdir, repo: p.Repo, setup: p.Setup,
 			title: p.Title, last: p.Last, updated: p.Updated,
 			status: "idle", cost: p.Cost, seq: p.Seq, events: p.Events,
 			device: p.Device,
