@@ -1910,6 +1910,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		m.running = false
 		m.runCancel = nil
+		if m.askRouter != nil {
+			m.askRouter.SetRun(nil)
+		}
 		m.streamStart, m.streamBuf = -1, "" // clear any partial stream state
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
@@ -3593,6 +3596,11 @@ func (m *Model) layout() {
 func (m *Model) beginRun(prompt string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel = cancel
+	// A question asked during this run dies with it, so ctrl+c reaches a run
+	// parked on one.
+	if m.askRouter != nil {
+		m.askRouter.SetRun(ctx)
+	}
 	return m.startRun(ctx, prompt)
 }
 
