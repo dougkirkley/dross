@@ -50,12 +50,16 @@ List<Offset> _spline(List<Offset> pts, {int per = 14}) {
     for (var s = 0; s < per; s++) {
       final t = s / per, t2 = t * t, t3 = t2 * t;
       out.add(Offset(
-        0.5 * (2 * p1.dx + (-p0.dx + p2.dx) * t +
-            (2 * p0.dx - 5 * p1.dx + 4 * p2.dx - p3.dx) * t2 +
-            (-p0.dx + 3 * p1.dx - 3 * p2.dx + p3.dx) * t3),
-        0.5 * (2 * p1.dy + (-p0.dy + p2.dy) * t +
-            (2 * p0.dy - 5 * p1.dy + 4 * p2.dy - p3.dy) * t2 +
-            (-p0.dy + 3 * p1.dy - 3 * p2.dy + p3.dy) * t3),
+        0.5 *
+            (2 * p1.dx +
+                (-p0.dx + p2.dx) * t +
+                (2 * p0.dx - 5 * p1.dx + 4 * p2.dx - p3.dx) * t2 +
+                (-p0.dx + 3 * p1.dx - 3 * p2.dx + p3.dx) * t3),
+        0.5 *
+            (2 * p1.dy +
+                (-p0.dy + p2.dy) * t +
+                (2 * p0.dy - 5 * p1.dy + 4 * p2.dy - p3.dy) * t2 +
+                (-p0.dy + 3 * p1.dy - 3 * p2.dy + p3.dy) * t3),
       ));
     }
   }
@@ -149,8 +153,7 @@ class _DrossPainter extends CustomPainter {
 /// Draws the Dross mark: a violet blob with a bold outline, two tapered tentacle
 /// arms, one big glossy eye under a heavy lid, and a small one-sided smirk.
 /// [curl] 0..1 flexes both tentacles up and inward. [close] 0..1 shuts the eye.
-void paintDross(Canvas canvas, Size size,
-    {double curl = 0, double close = 0}) {
+void paintDross(Canvas canvas, Size size, {double curl = 0, double close = 0}) {
   const dark = Color(0xFF140A24);
   const eyeWhite = Color(0xFFF4F1FC);
   final w = size.width, h = size.height;
@@ -244,8 +247,8 @@ void paintDross(Canvas canvas, Size size,
   canvas.drawPath(
     Path()
       ..moveTo(eyeC.dx - eyeR * 1.2, lidY)
-      ..quadraticBezierTo(
-          eyeC.dx, lidY - eyeR * 0.52, eyeC.dx + eyeR * 1.2, lidY - eyeR * 0.16),
+      ..quadraticBezierTo(eyeC.dx, lidY - eyeR * 0.52, eyeC.dx + eyeR * 1.2,
+          lidY - eyeR * 0.16),
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = w * 0.036
@@ -379,7 +382,6 @@ class _OrbPainter extends CustomPainter {
     paintDross(canvas, size, curl: curl, close: blink * 0.95);
     canvas.restore();
   }
-
 
   @override
   bool shouldRepaint(covariant _OrbPainter old) =>

@@ -182,10 +182,11 @@ class AppState extends ChangeNotifier {
       // any installed app can claim it, so without a state to check, a hostile
       // caller could hand us a session token of its choosing and we would adopt
       // its account.
-      final state = base64Url.encode(
-          List<int>.generate(24, (_) => _rng.nextInt(256)));
+      final state =
+          base64Url.encode(List<int>.generate(24, (_) => _rng.nextInt(256)));
       final result = await FlutterWebAuth2.authenticate(
-        url: '$baseUrl/auth/login?mode=app&state=${Uri.encodeQueryComponent(state)}',
+        url:
+            '$baseUrl/auth/login?mode=app&state=${Uri.encodeQueryComponent(state)}',
         callbackUrlScheme: 'dross',
       );
       final params = Uri.parse(result).queryParameters;
@@ -419,8 +420,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> _saveRead() async {
     final p = await SharedPreferences.getInstance();
-    await p.setStringList(_readKey,
-        [for (final e in _read.entries) '${e.key}=${e.value.toIso8601String()}']);
+    await p.setStringList(_readKey, [
+      for (final e in _read.entries) '${e.key}=${e.value.toIso8601String()}'
+    ]);
   }
 
   /// Whether a session has produced something since it was last opened.

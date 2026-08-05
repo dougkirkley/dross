@@ -153,7 +153,8 @@ class _SheetState extends State<_Sheet> {
               const Text('Custom', style: T.metaFaint),
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 decoration: BoxDecoration(
                   color: T.bg,
                   borderRadius: BorderRadius.circular(12),

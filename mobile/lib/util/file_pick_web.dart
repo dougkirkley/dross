@@ -21,8 +21,7 @@ Future<PickedFile?> pickFileImpl() async {
   reader.readAsArrayBuffer(f);
   await reader.onLoadEnd.first;
   final result = reader.result;
-  final bytes = result is ByteBuffer
-      ? result.asUint8List()
-      : (result as Uint8List);
+  final bytes =
+      result is ByteBuffer ? result.asUint8List() : (result as Uint8List);
   return PickedFile(name: f.name, bytes: bytes);
 }

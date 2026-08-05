@@ -53,34 +53,39 @@ class _SignInScreenState extends State<SignInScreen> {
                 ConstrainedBox(
                   constraints: BoxConstraints(minHeight: box.maxHeight),
                   child: Center(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(36, 0, 36, 40),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const DrossLogo(size: 140),
-                const SizedBox(height: 34),
-                const Text('Sign in to continue',
-                    style: TextStyle(color: T.text, fontSize: 22, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                Text(context.read<AppState>().baseUrl,
-                    style: T.metaFaint, textAlign: TextAlign.center),
-                const SizedBox(height: 32),
-                if (_busy)
-                  const DrossSpinner(size: 30)
-                else
-                  PillButton(
-                    label: 'Sign in with Google',
-                    leading: const GoogleMark(size: 20),
-                    onTap: _signIn,
-                  ),
-                if (_error != null) ...[
-                  const SizedBox(height: 16),
-                  Text(_error!, style: const TextStyle(color: T.danger), textAlign: TextAlign.center),
-                ],
-              ],
-            ),
-          ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(36, 0, 36, 40),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const DrossLogo(size: 140),
+                          const SizedBox(height: 34),
+                          const Text('Sign in to continue',
+                              style: TextStyle(
+                                  color: T.text,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 12),
+                          Text(context.read<AppState>().baseUrl,
+                              style: T.metaFaint, textAlign: TextAlign.center),
+                          const SizedBox(height: 32),
+                          if (_busy)
+                            const DrossSpinner(size: 30)
+                          else
+                            PillButton(
+                              label: 'Sign in with Google',
+                              leading: const GoogleMark(size: 20),
+                              onTap: _signIn,
+                            ),
+                          if (_error != null) ...[
+                            const SizedBox(height: 16),
+                            Text(_error!,
+                                style: const TextStyle(color: T.danger),
+                                textAlign: TextAlign.center),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],

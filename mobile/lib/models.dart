@@ -75,7 +75,8 @@ class Session {
 
 class Event {
   final int seq;
-  final String kind; // prompt | text | tool | tool-result | worker:* | shell:* | done | error | checkpoint
+  final String
+      kind; // prompt | text | tool | tool-result | worker:* | shell:* | done | error | checkpoint
   final String data;
   final DateTime? time;
 
@@ -182,7 +183,8 @@ class PublishResult {
   final String url;
   final String mime;
   final String filename;
-  PublishResult({required this.url, required this.mime, required this.filename});
+  PublishResult(
+      {required this.url, required this.mime, required this.filename});
   factory PublishResult.fromJson(Map<String, dynamic> j) => PublishResult(
         url: j['url'] as String,
         mime: j['mime'] as String? ?? '',
@@ -253,7 +255,8 @@ class Source {
   final String snippet;
   final String site;
 
-  Source({required this.url, this.title = '', this.snippet = '', this.site = ''});
+  Source(
+      {required this.url, this.title = '', this.snippet = '', this.site = ''});
 
   /// What to show when a page had no title: the site, then the bare URL.
   String get label => title.isNotEmpty ? title : (site.isNotEmpty ? site : url);
@@ -312,8 +315,7 @@ class ModelChoices {
     return s.endsWith(':latest') ? s.substring(0, s.length - 7) : s;
   }
 
-  bool isLoaded(String model) =>
-      loaded.any((m) => _same(m) == _same(model));
+  bool isLoaded(String model) => loaded.any((m) => _same(m) == _same(model));
 
   /// Whether choosing [model] would unload something somebody else may be
   /// using. True only when the backend has said what it holds, that model is

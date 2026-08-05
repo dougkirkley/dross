@@ -40,7 +40,8 @@ class Home extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final configured = context.select<AppState, bool>((s) => s.remoteConfigured);
+    final configured =
+        context.select<AppState, bool>((s) => s.remoteConfigured);
     if (!configured) return const ServerSetupScreen();
     final authed = context.select<AppState, bool>((s) => s.authed);
     if (!authed) return const SignInScreen();

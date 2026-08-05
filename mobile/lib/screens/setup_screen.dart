@@ -68,13 +68,15 @@ class _SetupScreenState extends State<SetupScreen> {
                 const SizedBox(height: 26),
                 if (_error != null) ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 11),
                     decoration: BoxDecoration(
                       color: const Color(0xFF2A1119),
                       border: Border.all(color: const Color(0xFF6B2338)),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Text(_error!, style: T.metaFaint.copyWith(color: T.danger)),
+                    child: Text(_error!,
+                        style: T.metaFaint.copyWith(color: T.danger)),
                   ),
                   const SizedBox(height: 16),
                 ],

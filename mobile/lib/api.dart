@@ -31,7 +31,8 @@ class DrossClient {
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+        if (token != null && token!.isNotEmpty)
+          'Authorization': 'Bearer $token',
       };
 
   void _check(http.Response r) {
@@ -46,18 +47,24 @@ class DrossClient {
     final r = await _http.get(_uri('api/sessions'), headers: _headers);
     _check(r);
     final list = (jsonDecode(r.body)['sessions'] as List? ?? []);
-    return list.map((e) => Session.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => Session.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<Session> createSession(
-      {String? model, String? workerModel, String? style, bool chat = false}) async {
+      {String? model,
+      String? workerModel,
+      String? style,
+      bool chat = false}) async {
     final body = jsonEncode({
       if (model != null) 'model': model,
       if (workerModel != null) 'worker_model': workerModel,
       if (style != null) 'style': style,
       if (chat) 'chat': true,
     });
-    final r = await _http.post(_uri('api/sessions'), headers: _headers, body: body);
+    final r =
+        await _http.post(_uri('api/sessions'), headers: _headers, body: body);
     _check(r);
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
@@ -75,7 +82,8 @@ class DrossClient {
     if (token != null && token!.isNotEmpty) {
       req.headers['Authorization'] = 'Bearer $token';
     }
-    req.files.add(http.MultipartFile.fromBytes('asset', bytes, filename: filename));
+    req.files
+        .add(http.MultipartFile.fromBytes('asset', bytes, filename: filename));
     final resp = await http.Response.fromStream(await _http.send(req));
     _check(resp);
     final body = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -127,7 +135,8 @@ class DrossClient {
   }
 
   Future<void> interrupt(String id) async {
-    final r = await _http.post(_uri('api/sessions/$id/interrupt'), headers: _headers);
+    final r =
+        await _http.post(_uri('api/sessions/$id/interrupt'), headers: _headers);
     _check(r);
   }
 
@@ -144,7 +153,8 @@ class DrossClient {
   }
 
   Future<List<Event>> events(String id, {int after = 0}) async {
-    final r = await _http.get(_uri('api/sessions/$id/events?after=$after'), headers: _headers);
+    final r = await _http.get(_uri('api/sessions/$id/events?after=$after'),
+        headers: _headers);
     _check(r);
     final list = (jsonDecode(r.body)['events'] as List? ?? []);
     return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
@@ -180,13 +190,16 @@ class DrossClient {
     final r = await _http.get(_uri('api/admin/users'), headers: _headers);
     _check(r);
     final list = (jsonDecode(r.body)['users'] as List? ?? []);
-    return list.map((e) => Account.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => Account.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   /// Remove an account entirely. Signing in again makes them a new pending
   /// stranger, which is what separates this from denying them.
   Future<void> removeAccount(String email) async {
-    final r = await _http.delete(_uri('api/admin/users/$email'), headers: _headers);
+    final r =
+        await _http.delete(_uri('api/admin/users/$email'), headers: _headers);
     _check(r);
   }
 
@@ -220,13 +233,15 @@ class DrossClient {
   /// The returned stream ends when the connection closes; callers reconnect
   /// with the last seq seen.
   Stream<Event> streamEvents(String id, {int after = 0}) async* {
-    final req = http.Request('GET', _uri('api/sessions/$id/stream?after=$after'));
+    final req =
+        http.Request('GET', _uri('api/sessions/$id/stream?after=$after'));
     req.headers.addAll({..._headers, 'Accept': 'text/event-stream'});
     final resp = await _http.send(req);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException(resp.statusCode, '');
     }
-    final lines = resp.stream.transform(utf8.decoder).transform(const LineSplitter());
+    final lines =
+        resp.stream.transform(utf8.decoder).transform(const LineSplitter());
     await for (final line in lines) {
       if (!line.startsWith('data:')) continue;
       final payload = line.substring('data:'.length).trim();

@@ -52,7 +52,15 @@ class Activity {
       final k = s.edit != null ? 'edit' : _verbKey(s.label);
       counts[k] = (counts[k] ?? 0) + 1;
     }
-    const order = ['edit', 'bash', 'read', 'search', 'delegate', 'publish', 'tool'];
+    const order = [
+      'edit',
+      'bash',
+      'read',
+      'search',
+      'delegate',
+      'publish',
+      'tool'
+    ];
     final phrases = <String>[];
     for (final k in order) {
       final n = counts[k];
@@ -252,9 +260,7 @@ ActStep? _toolStep(String data) {
     case 'read':
       final path = _argPath(arg);
       return ActStep(
-          icon: Icons.description_outlined,
-          label: 'Read $path',
-          detail: path);
+          icon: Icons.description_outlined, label: 'Read $path', detail: path);
     case 'bash':
       final cmd = _argField(arg, 'command');
       return ActStep(
@@ -486,8 +492,9 @@ class EditDiffView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // New file: show its contents plainly (line-numbered), not a diff.
-    final lines =
-        (edit.isNew ? edit.content : edit.diff).replaceAll('\r', '').split('\n');
+    final lines = (edit.isNew ? edit.content : edit.diff)
+        .replaceAll('\r', '')
+        .split('\n');
     return Scaffold(
       body: SafeArea(
         child: Column(

@@ -34,7 +34,8 @@ class _AdminScreenState extends State<AdminScreen> {
   void _reload() =>
       setState(() => _accounts = context.read<AppState>().accounts());
 
-  Future<void> _act(Account a, String what, Future<String?> Function() run) async {
+  Future<void> _act(
+      Account a, String what, Future<String?> Function() run) async {
     setState(() => _deciding.add(a.email));
     String? err;
     try {
@@ -73,14 +74,16 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
     );
     if (ok != true) return;
-    await _act(a, 'removed', () => context.read<AppState>().removeAccount(a.email));
+    await _act(
+        a, 'removed', () => context.read<AppState>().removeAccount(a.email));
   }
 
   Future<void> _decide(Account a, String action) async {
     setState(() => _deciding.add(a.email));
     String? note;
     try {
-      final mailError = await context.read<AppState>().decideAccount(a.email, action);
+      final mailError =
+          await context.read<AppState>().decideAccount(a.email, action);
       note = mailError == null
           ? '${a.email} is ${action == 'approve' ? 'approved' : 'denied'}'
           // The decision landed; only the telling failed. Say which half, or
@@ -92,8 +95,8 @@ class _AdminScreenState extends State<AdminScreen> {
       if (mounted) setState(() => _deciding.remove(a.email));
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(note), backgroundColor: T.surface));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(note), backgroundColor: T.surface));
     _reload();
   }
 
@@ -138,7 +141,8 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: SizedBox(
                     width: 22,
                     height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: T.accent)));
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: T.accent)));
           }
           if (snap.hasError) {
             return _message('Could not load accounts.\n${snap.error}');
@@ -177,7 +181,9 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _message(String s, {bool pad = false}) => Padding(
         padding: EdgeInsets.symmetric(horizontal: 20, vertical: pad ? 8 : 40),
-        child: Text(s, style: T.metaFaint, textAlign: pad ? TextAlign.start : TextAlign.center),
+        child: Text(s,
+            style: T.metaFaint,
+            textAlign: pad ? TextAlign.start : TextAlign.center),
       );
 
   Widget _row(Account a) {
@@ -295,16 +301,18 @@ class _AdminScreenState extends State<AdminScreen> {
               // somebody might need to read character by character.
               SelectionArea(
                 child: Text(a.email,
-                    style: T.body.copyWith(
-                        fontWeight: FontWeight.w600, fontSize: 17)),
+                    style: T.body
+                        .copyWith(fontWeight: FontWeight.w600, fontSize: 17)),
               ),
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 8, children: [
-                _tag(a.status, a.pending
-                    ? T.accentHi
-                    : a.approved
-                        ? T.accent
-                        : T.danger),
+                _tag(
+                    a.status,
+                    a.pending
+                        ? T.accentHi
+                        : a.approved
+                            ? T.accent
+                            : T.danger),
                 if (a.isAdmin) _tag('admin', T.accent),
               ]),
               const SizedBox(height: 16),
@@ -316,12 +324,10 @@ class _AdminScreenState extends State<AdminScreen> {
               const SizedBox(height: 18),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 if (a.pending) ...[
-                  _button('Approve',
-                      primary: true,
-                      onTap: () {
-                        Navigator.pop(sheet);
-                        _decide(a, 'approve');
-                      }),
+                  _button('Approve', primary: true, onTap: () {
+                    Navigator.pop(sheet);
+                    _decide(a, 'approve');
+                  }),
                   _button('Deny', onTap: () {
                     Navigator.pop(sheet);
                     _decide(a, 'deny');
@@ -332,19 +338,24 @@ class _AdminScreenState extends State<AdminScreen> {
                     _decide(a, 'deny');
                   })
                 else
-                  _button('Approve',
-                      primary: true,
-                      onTap: () {
-                        Navigator.pop(sheet);
-                        _decide(a, 'approve');
-                      }),
+                  _button('Approve', primary: true, onTap: () {
+                    Navigator.pop(sheet);
+                    _decide(a, 'approve');
+                  }),
                 _button(a.isAdmin ? 'Remove admin' : 'Make admin', onTap: () {
                   Navigator.pop(sheet);
                   a.isAdmin
-                      ? _act(a, 'is no longer an admin',
-                          () => context.read<AppState>().setRole(a.email, 'user'))
-                      : _act(a, 'is an admin',
-                          () => context.read<AppState>().setRole(a.email, 'admin'));
+                      ? _act(
+                          a,
+                          'is no longer an admin',
+                          () =>
+                              context.read<AppState>().setRole(a.email, 'user'))
+                      : _act(
+                          a,
+                          'is an admin',
+                          () => context
+                              .read<AppState>()
+                              .setRole(a.email, 'admin'));
                 }),
                 _button('Remove account', danger: true, onTap: () {
                   Navigator.pop(sheet);
@@ -363,10 +374,9 @@ class _AdminScreenState extends State<AdminScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-                width: 108,
-                child: Text(label, style: T.metaFaint)),
-            Expanded(child: Text(value, style: T.body.copyWith(fontSize: 14.5))),
+            SizedBox(width: 108, child: Text(label, style: T.metaFaint)),
+            Expanded(
+                child: Text(value, style: T.body.copyWith(fontSize: 14.5))),
           ],
         ),
       );
@@ -426,7 +436,9 @@ class _AdminScreenState extends State<AdminScreen> {
                 ? null
                 : BoxDecoration(
                     border: Border.all(
-                        color: danger ? T.danger.withValues(alpha: 0.5) : T.border),
+                        color: danger
+                            ? T.danger.withValues(alpha: 0.5)
+                            : T.border),
                     borderRadius: BorderRadius.circular(T.rPill),
                   ),
             child: Text(label,

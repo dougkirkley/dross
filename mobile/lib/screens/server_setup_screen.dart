@@ -54,7 +54,10 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                 const Center(child: DrossLogo(size: 132)),
                 const SizedBox(height: 32),
                 const Text('Connect to your server',
-                    style: TextStyle(color: T.text, fontSize: 22, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        color: T.text,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600),
                     textAlign: TextAlign.center),
                 const SizedBox(height: 10),
                 const Text('Enter the URL of your dross serve instance.',
@@ -82,7 +85,11 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Center(child: PillButton(label: 'Continue', icon: Icons.arrow_forward, onTap: _save)),
+                Center(
+                    child: PillButton(
+                        label: 'Continue',
+                        icon: Icons.arrow_forward,
+                        onTap: _save)),
               ],
             ),
           ),

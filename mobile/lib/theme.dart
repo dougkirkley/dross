@@ -8,7 +8,8 @@ class T {
   // Surfaces (void black with a faint violet cast, no Material elevation).
   static const bg = Color(0xFF07070F); // void
   static const surface = Color(0xFF0E0E1A); // cards, input panel
-  static const surfaceAlt = Color(0xFF191830); // user bubble, chips (violet cast)
+  static const surfaceAlt =
+      Color(0xFF191830); // user bubble, chips (violet cast)
 
   // Conversation surfaces: the message area lifts slightly off the void, the
   // input field sits darker for contrast.
@@ -121,8 +122,8 @@ class T {
       );
 
   /// Everything else in the conversation: prompts, event rows, activity lines.
-  static const termBody = TextStyle(
-      fontFamily: sans, fontSize: 15.5, height: 1.5, color: text);
+  static const termBody =
+      TextStyle(fontFamily: sans, fontSize: 15.5, height: 1.5, color: text);
 
   /// Dim transcript text: timings, counts, the lines between turns.
   ///
@@ -131,8 +132,7 @@ class T {
   /// starts being unreadable.
   static const termMeta =
       TextStyle(fontFamily: sans, fontSize: 13, height: 1.4, color: textDim);
-  static TextStyle get proseBold =>
-      prose.copyWith(fontWeight: FontWeight.w600);
+  static TextStyle get proseBold => prose.copyWith(fontWeight: FontWeight.w600);
   static const title = TextStyle(
       fontFamily: sans,
       fontSize: 21,
@@ -145,8 +145,8 @@ class T {
       fontWeight: FontWeight.w600,
       letterSpacing: -0.1,
       color: text);
-  static const body = TextStyle(
-      fontFamily: sans, fontSize: 16, height: 1.45, color: text);
+  static const body =
+      TextStyle(fontFamily: sans, fontSize: 16, height: 1.45, color: text);
   static const meta =
       TextStyle(fontFamily: sans, fontSize: 13.5, color: textDim);
   static const metaFaint =
@@ -233,13 +233,10 @@ class CircleIconButton extends StatelessWidget {
 /// The near-white pill button pinned bottom-right ("New session" / "New chat").
 class PillButton extends StatelessWidget {
   const PillButton(
-      {super.key,
-      required this.label,
-      this.icon,
-      this.leading,
-      this.onTap});
+      {super.key, required this.label, this.icon, this.leading, this.onTap});
   final String label;
   final IconData? icon;
+
   /// Optional custom leading widget, used where a brand mark (e.g. the Google
   /// "G") should appear instead of a Material icon.
   final Widget? leading;
@@ -273,10 +270,7 @@ class PillButton extends StatelessWidget {
 /// A small outlined chip (permission-mode selector, "Create PR", model picker).
 class OutlineChip extends StatelessWidget {
   const OutlineChip(
-      {super.key,
-      required this.child,
-      this.onTap,
-      this.filled = false});
+      {super.key, required this.child, this.onTap, this.filled = false});
   final Widget child;
   final VoidCallback? onTap;
   final bool filled;

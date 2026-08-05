@@ -46,7 +46,8 @@ int _longestRowRun(String s) {
 
 bool _tokenIsMash(String w) {
   final lw = w.toLowerCase();
-  if (!RegExp(r'^[a-z]+$').hasMatch(lw)) return false; // punctuation: intentional
+  if (!RegExp(r'^[a-z]+$').hasMatch(lw))
+    return false; // punctuation: intentional
   if (lw.length < 4) return false; // "the", "fix", "go" are real often enough
 
   // A long run of one character ("aaaaaaa").

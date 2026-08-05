@@ -37,7 +37,9 @@ class SendOnEnter extends StatelessWidget {
     // override point, so a caller (or a test) can say which behaviour it wants
     // without reaching for a global debug variable.
     final physical = switch (Theme.of(context).platform) {
-      TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.fuchsia =>
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.fuchsia =>
         false,
       _ => true,
     };

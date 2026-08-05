@@ -45,8 +45,8 @@ class _SheetState extends State<_Sheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Container(
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.8),
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
         decoration: modalDecoration(widget.dialog),
         child: ListView(
           padding: const EdgeInsets.all(16),
