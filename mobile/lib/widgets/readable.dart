@@ -32,8 +32,14 @@ class Readable extends StatelessWidget {
 bool isWide(BuildContext context) =>
     MediaQuery.of(context).size.width >= T.wideAt;
 
-// Transcript type, chosen by the width it will be read at. The desktop
-// transcript matches the terminal; the phone one reads like a message thread.
+// Transcript type, chosen by the width it will be read at.
+//
+// Both are reading faces now. The desktop transcript used to be monospaced, to
+// match the TUI rendering the same session in the next window; that flattened
+// every word to the same letter widths and made long prose hard going, which
+// is a worse trade than the resemblance was worth. The two differ only in
+// size, for the distance each is read at. Code and tool output set their own
+// mono style and are untouched.
 TextStyle proseFor(BuildContext c) => isWide(c) ? T.termProse : T.prose;
 TextStyle bodyFor(BuildContext c) => isWide(c) ? T.termBody : T.body;
 TextStyle metaFor(BuildContext c) => isWide(c) ? T.termMeta : T.meta;

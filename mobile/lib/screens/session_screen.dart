@@ -19,9 +19,11 @@ import '../widgets/app_drawer.dart';
 import '../widgets/composer_keys.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
-/// calls, delegation indented, cost). The transcript is set in mono end to end,
-/// because it is the same transcript the TUI renders; the sheets and pickers
-/// around it stay touch UI. The Chat view uses ChatScreen.
+/// calls, delegation indented, cost). Prose is set in a reading face — it used
+/// to be mono end to end, to match the TUI rendering the same session, which
+/// made long output harder to read than it had any need to be. Code, diffs and
+/// tool output keep mono, where alignment matters. The Chat view uses
+/// ChatScreen.
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
   @override

@@ -102,32 +102,35 @@ class T {
         color: text,
       );
 
-  /// Assistant prose at desktop widths, where the browser sits next to the
-  /// terminal rendering the same session. Smaller than the serif: a mono face
-  /// sets wider, so matching its size would shorten the line to a stub.
+  /// Assistant prose at desktop widths.
+  ///
+  /// A reading face, not the terminal's. This was mono, to match the TUI
+  /// rendering the same session in the next window — which is a nice idea
+  /// about two windows and a poor one about the paragraph actually being
+  /// read. A monospaced face gives every letter the same width, so word
+  /// shapes flatten and long prose is markedly harder going; that is why no
+  /// tool sets a chat transcript in one. Code, diffs and tool output keep
+  /// mono, where character alignment is the point.
   static TextStyle get termProse => const TextStyle(
-        fontFamily: monoFamily,
-        fontFamilyFallback: monoFallback,
-        fontSize: 15,
+        fontFamily: serif,
+        fontFamilyFallback: serifFallback,
+        fontSize: 17.5,
         height: 1.6,
+        letterSpacing: 0.1,
         color: text,
       );
 
   /// Everything else in the conversation: prompts, event rows, activity lines.
   static const termBody = TextStyle(
-      fontFamily: monoFamily,
-      fontFamilyFallback: monoFallback,
-      fontSize: 14.5,
-      height: 1.5,
-      color: text);
+      fontFamily: sans, fontSize: 15.5, height: 1.5, color: text);
 
   /// Dim transcript text: timings, counts, the lines between turns.
-  static const termMeta = TextStyle(
-      fontFamily: monoFamily,
-      fontFamilyFallback: monoFallback,
-      fontSize: 12.5,
-      height: 1.4,
-      color: textDim);
+  ///
+  /// textDim rather than the fainter grey: these sit against a near-black
+  /// background at 13px, and one step too far down stops being quiet and
+  /// starts being unreadable.
+  static const termMeta =
+      TextStyle(fontFamily: sans, fontSize: 13, height: 1.4, color: textDim);
   static TextStyle get proseBold =>
       prose.copyWith(fontWeight: FontWeight.w600);
   static const title = TextStyle(
