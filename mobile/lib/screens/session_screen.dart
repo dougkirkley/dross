@@ -95,7 +95,7 @@ class _SessionScreenState extends State<SessionScreen> {
         // Same signal at the top of the window the session owns, so a run
         // is visible without going back to the list to see its card.
         if (sess?.isRunning ?? false) const RunningBar(),
-        if (_starting(sess)) _StartingPanel(resuming: s.events.isNotEmpty),
+        if (_starting(sess)) _StartingPanel(resuming: isResuming(s.events)),
         Expanded(
           child: Builder(builder: (_) {
             final timeline = buildTimeline(s.events);
@@ -599,6 +599,17 @@ class _SessionScreenState extends State<SessionScreen> {
 ///
 /// Which of the two is inferred from whether the session has said anything
 /// yet, not reported by the operator doing the replacing.
+/// Whether a workspace coming up is coming back rather than arriving.
+///
+/// Inferred from whether the session has said anything yet, because the
+/// operator replacing a pod does not report which it is doing.
+///
+/// Setup lines do not count. A session started on a repository says it is
+/// cloning before its pod has ever run, and taking that as "has said
+/// something" made every first start read as a restart — telling somebody
+/// their files were being brought back when there were not yet any files.
+bool isResuming(List<Event> events) => events.any((e) => e.baseKind != 'meta');
+
 class _StartingPanel extends StatelessWidget {
   const _StartingPanel({required this.resuming});
   final bool resuming;
