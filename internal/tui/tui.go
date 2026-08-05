@@ -1713,7 +1713,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.running {
 			if msg.String() == "enter" && strings.TrimSpace(m.input.Value()) != "" {
 				// Slash commands run immediately even mid-run; other text queues.
-				if tp := strings.TrimSpace(m.input.Value()); strings.HasPrefix(tp, "/") {
+				if tp := strings.TrimSpace(m.input.Value()); looksLikeSlashCommand(tp) {
 					if handled, cmd := m.handleSlash(tp); handled {
 						return m, cmd
 					}
@@ -1879,11 +1879,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.append(promptMark.Render("! ") + youLabel.Render("bash") + "  " + cmdStr)
 					return m, m.runBang(cmdStr)
 				}
-				if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
+				if looksLikeSlashCommand(strings.TrimSpace(prompt)) {
 					if handled, cmd := m.handleSlash(strings.TrimSpace(prompt)); handled {
 						return m, cmd
 					}
 				}
+				// A path dragged into the terminal arrives shell-escaped;
+				// hand the model something its tools can actually open.
+				prompt = unescapeDropped(prompt)
 				// Keyboard-mash guard: a cat on the keyboard shouldn't cost a model
 				// turn. Warn once and keep the text; pressing enter again sends it.
 				if looksLikeMash(prompt) && m.mashWarn != prompt {
@@ -3817,4 +3820,91 @@ func (m *Model) startPrompt(who lipgloss.Style, label, text string) tea.Cmd {
 	m.shellOrder, m.shells = nil, nil
 	m.bashCmd = ""
 	return tea.Batch(m.beginRun(text), m.sp.Tick, m.pump())
+}
+
+// looksLikeSlashCommand distinguishes a command from a path that merely starts
+// the same way.
+//
+// Every "/"-prefixed input used to be routed to the command handler, which is
+// right for /model and wrong for the thing a terminal pastes when you drag a
+// file into it: an absolute path, reported back as "unknown command:
+// /var/folders/...". A command is a single word — the further slashes in a
+// path are what tell them apart. An unknown one still reports as unknown, so a
+// mistyped /mdoel does not become a prompt.
+func looksLikeSlashCommand(text string) bool {
+	t := strings.TrimSpace(text)
+	if !strings.HasPrefix(t, "/") || t == "/" {
+		return false
+	}
+	first := strings.Fields(t)[0]
+	return !strings.Contains(first[1:], "/")
+}
+
+// unescapeDropped turns what a terminal pastes on drag-and-drop back into
+// plain paths.
+//
+// A drop arrives shell-escaped — spaces as "\ ", a trailing space, sometimes
+// quotes — because the terminal writes it as you would type it. Left alone it
+// reaches the model as a path with stray backslashes that no tool can open.
+//
+// Applied only when every token really is a file that exists, so ordinary
+// prose keeps its punctuation: a sentence about "C:\\Users" or an apostrophe
+// is not silently rewritten.
+func unescapeDropped(text string) string {
+	t := strings.TrimSpace(text)
+	if t == "" || !strings.ContainsAny(t, "\\'\"") {
+		return text
+	}
+	fields, ok := splitDropped(t)
+	if !ok || len(fields) == 0 {
+		return text
+	}
+	for _, f := range fields {
+		if st, err := os.Stat(f); err != nil || st.IsDir() {
+			return text
+		}
+	}
+	return strings.Join(fields, " ")
+}
+
+// splitDropped splits on unescaped spaces, honouring backslash escapes and
+// single or double quotes the way a shell would.
+func splitDropped(s string) ([]string, bool) {
+	var (
+		out   []string
+		cur   strings.Builder
+		quote rune
+		esc   bool
+	)
+	for _, r := range s {
+		switch {
+		case esc:
+			cur.WriteRune(r)
+			esc = false
+		case r == '\\' && quote != '\'':
+			esc = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ':
+			if cur.Len() > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if esc || quote != 0 {
+		return nil, false // unterminated: not something we should rewrite
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out, true
 }

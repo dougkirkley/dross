@@ -59,8 +59,13 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 // --- wire types (OpenAI chat-completions) ---------------------------------
 
 type chatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Role string `json:"role"`
+	// Always sent, never omitted. A message whose content is absent arrives as
+	// null, and ollama refuses the whole request with "invalid message content
+	// type: <nil>" — an empty string is accepted. This bites a turn late: a
+	// reply that is only tool calls, or only a thinking trace, has no text, so
+	// it is stored with none and the *next* request is the one that fails.
+	Content    string     `json:"content"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
