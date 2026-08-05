@@ -118,7 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
             builder: (_, __) => JumpToLatest(
                 follow: _follow, label: running ? 'Writing' : 'Latest'),
           ),
-        Readable(maxWidth: T.composeWidth, child: _inputBar(context, s, running)),
+        Readable(child: _inputBar(context, s, running)),
       ],
     );
     return SelectionArea(

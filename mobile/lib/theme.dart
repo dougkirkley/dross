@@ -54,14 +54,15 @@ class T {
   /// the user's bubbles and the agent's text to opposite edges. Roughly 90
   /// characters of body text, centred, with the phone unaffected because it is
   /// narrower than this anyway.
-  static const readWidth = 760.0;
-
-  /// How wide the composer may grow. Wider than the transcript on purpose:
-  /// reading width exists because long lines of prose are hard to track back,
-  /// which is a constraint on text being read, not on a box being typed into.
-  /// Holding the input to the same column left a desktop window mostly empty
-  /// either side of it for no reason anyone could see.
-  static const composeWidth = 1100.0;
+  /// The column everything on a conversation screen sits in — transcript and
+  /// composer alike.
+  ///
+  /// One number, not two. The composer was briefly given its own, wider cap,
+  /// which made the input visibly disagree with the messages above it: two
+  /// different left edges on the same screen reads as a mistake rather than as
+  /// a decision about line length. Matching edges is worth more here than the
+  /// slightly shorter prose lines a narrower transcript would give.
+  static const readWidth = 1100.0;
 
   /// Above this the conversation takes the desktop treatment: the transcript
   /// laid out like the terminal, with gutter glyphs instead of chat bubbles.

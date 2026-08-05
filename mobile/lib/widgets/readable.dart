@@ -11,9 +11,8 @@ class Readable extends StatelessWidget {
   const Readable({super.key, required this.child, this.maxWidth = T.readWidth});
   final Widget child;
 
-  /// Defaults to reading width. The composer passes something wider: the cap
-  /// exists so prose does not run in unreadably long lines, which is a fact
-  /// about text being read rather than about a box being typed into.
+  /// Overridable, though nothing does: transcript and composer deliberately
+  /// share one column so their edges line up.
   final double maxWidth;
 
   @override
