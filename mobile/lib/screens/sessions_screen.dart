@@ -133,18 +133,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
       children: [
-        const Text('Devices', style: T.meta),
-        const SizedBox(height: 10),
-        _card(
-          child: const Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text('No recently connected devices',
-                  style: TextStyle(color: T.textDim)),
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
+        // No "Devices" section. It was a card that said "No recently connected
+        // devices" and could never say anything else: nothing on the server
+        // reports who is linked, so it was a promise of a feature rather than a
+        // view of one, sitting above the list somebody actually came for.
         Row(children: [
           const Text('Sessions', style: T.meta),
           const Spacer(),
