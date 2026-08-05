@@ -1284,6 +1284,7 @@ func gateSummary(tc provider.ToolCall) string {
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
 // so the run's cost reflects both models.
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
+	tc.Name = a.resolveToolName(tc.Name, tc.Input)
 	if p, ok := a.plugins[tc.Name]; ok {
 		return a.runPlugin(ctx, p, tc.Input)
 	}
@@ -1456,6 +1457,90 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return fmt.Sprintf("no tool named %q. Available tools: %s. Use the exact lowercase name.",
 			tc.Name, strings.Join(names, ", ")), true
 	}
+}
+
+// resolveToolName maps a near-miss onto the tool the model meant.
+//
+// A wrong name costs a whole turn — the call fails, the reply explains the
+// mistake, and the work starts again — for a difference that is usually
+// spelling. "search" is the one seen in the wild, and dross invites it: its
+// own transcript renders a grep as "searched 1 pattern", so the model reads
+// that word and calls it back.
+//
+// Deliberately narrow. Only names with one obvious destination are mapped, and
+// anything already real is left alone, so a plugin or MCP tool can never be
+// shadowed by a guess. Whatever is not resolved still gets the old message
+// listing the real tools.
+func (a *Agent) resolveToolName(name string, input json.RawMessage) string {
+	if a.hasTool(name) {
+		return name
+	}
+	n := strings.ToLower(strings.TrimSpace(name))
+	// Some models qualify the name ("functions.read") or suffix it.
+	if i := strings.LastIndex(n, "."); i >= 0 && i+1 < len(n) {
+		n = n[i+1:]
+	}
+	n = strings.TrimSuffix(strings.TrimSuffix(n, "_tool"), "-tool")
+	n = strings.ReplaceAll(n, "-", "_")
+	if a.hasTool(n) {
+		return n
+	}
+
+	// "search" is genuinely ambiguous between grep and web_search, so it is
+	// decided by what was passed rather than guessed: a query is the web, a
+	// pattern is the workspace.
+	if n == "search" || n == "find" {
+		var probe struct {
+			Query   string `json:"query"`
+			Pattern string `json:"pattern"`
+		}
+		_ = json.Unmarshal(input, &probe)
+		switch {
+		case probe.Query != "" && a.hasTool("web_search"):
+			return "web_search"
+		case probe.Pattern != "" && a.hasTool("grep"):
+			return "grep"
+		}
+		return name // no signal either way; say so rather than pick
+	}
+
+	for alias, real := range map[string]string{
+		"read_file": "read", "readfile": "read", "cat": "read", "open": "read",
+		"write_file": "write", "writefile": "write", "create_file": "write",
+		"edit_file": "edit", "replace": "edit", "str_replace": "edit",
+		"shell": "bash", "run": "bash", "exec": "bash", "run_command": "bash",
+		"terminal": "bash", "command": "bash",
+		"list_files": "glob", "list": "glob", "ls": "glob", "find_files": "glob",
+		"grep_search": "grep", "search_files": "grep", "ripgrep": "grep", "rg": "grep",
+		"websearch": "web_search", "search_web": "web_search",
+		"webfetch": "web_fetch", "fetch": "web_fetch", "http_get": "web_fetch",
+		"ask": "ask_user", "ask_question": "ask_user", "question": "ask_user",
+	} {
+		if n == alias && a.hasTool(real) {
+			return real
+		}
+	}
+	return name
+}
+
+// hasTool reports whether a tool of this exact name is available to the agent,
+// counting plugins, MCP tools and the built-ins the current config enables.
+func (a *Agent) hasTool(name string) bool {
+	if _, ok := a.plugins[name]; ok {
+		return true
+	}
+	if _, ok := a.extraTools[name]; ok {
+		return true
+	}
+	if name == "skill" {
+		return true
+	}
+	for _, d := range a.enabledTools() {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // delegate runs a bounded subtask on the worker model and returns its
