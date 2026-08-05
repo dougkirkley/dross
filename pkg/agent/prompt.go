@@ -44,6 +44,65 @@ var projectFiles = []string{"AGENTS.md", "CLAUDE.md", "README.md"}
 // first few thousand characters of one almost always are.
 const docBudget = 6000
 
+// WorkspaceContext is a one-line account of what a session was given about the
+// workspace it starts in, or "" when it was given nothing.
+//
+// For saying out loud. A session that has quietly read a project's own
+// documents looks identical to one that has not, and the difference is the
+// whole reason for the first prompt going well — so the session says which
+// files it opened and what the project says it is.
+func WorkspaceContext(workdir string) string {
+	var found []string
+	headline := ""
+	for _, name := range projectFiles {
+		body, err := os.ReadFile(filepath.Join(workdir, name))
+		if err != nil || len(strings.TrimSpace(string(body))) == 0 {
+			continue
+		}
+		found = append(found, name)
+		// The README, specifically. AGENTS.md and CLAUDE.md are instructions
+		// for whoever is working — "run the tests before committing" — and
+		// quoting one as the headline describes the house rules rather than the
+		// house.
+		if name == "README.md" {
+			headline = firstSentence(string(body))
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	line := "Read " + strings.Join(found, ", ")
+	if headline != "" {
+		line += " — " + headline
+	}
+	return line
+}
+
+// firstSentence is what a document says it is about, from the top of it.
+//
+// Headings and badge images are skipped: "# Dross" is the name, which the
+// reader already has, and a row of shield URLs is not a description of
+// anything. What is wanted is the first line that reads like prose.
+func firstSentence(doc string) string {
+	for _, line := range strings.Split(doc, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") ||
+			strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "![") ||
+			strings.HasPrefix(line, "<") || strings.HasPrefix(line, "---") {
+			continue
+		}
+		if i := strings.Index(line, ". "); i > 0 {
+			line = line[:i+1]
+		}
+		const most = 160
+		if len(line) > most {
+			line = strings.TrimSpace(line[:most]) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 // projectDocs puts the repository's own introduction in front of the model.
 //
 // Telling a session to read the README is not the same as it having read one:

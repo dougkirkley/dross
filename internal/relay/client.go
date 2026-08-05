@@ -87,8 +87,13 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 	// Once per link, not once per dial: a reconnect has to land back on the
 	// session the phone is already watching.
 	sessionID := advertisedSessionID(opts.Name)
+	// Said once, on the first link rather than on every one. The server
+	// restarting is ordinary and reconnecting is not a new session — a line
+	// about what was read repeated down the transcript every time the deploy
+	// bounced would be worse than not saying it at all.
+	said := false
 	for {
-		err := runDeviceOnce(ctx, opts, sessionID)
+		err := runDeviceOnce(ctx, opts, sessionID, &said)
 		if ctx.Err() != nil {
 			return nil // asked to stop
 		}
@@ -121,7 +126,7 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 // it closely enough to recognise an expired login.
 var ErrUnauthorized = errors.New("server rejected the credential")
 
-func runDeviceOnce(ctx context.Context, opts DeviceOptions, sessionID string) error {
+func runDeviceOnce(ctx context.Context, opts DeviceOptions, sessionID string, said *bool) error {
 	url := strings.TrimRight(opts.Server, "/") + "/api/device/connect"
 	url = strings.Replace(strings.Replace(url, "https://", "wss://", 1), "http://", "ws://", 1)
 	dopts := &websocket.DialOptions{
@@ -160,6 +165,16 @@ func runDeviceOnce(ctx context.Context, opts DeviceOptions, sessionID string) er
 	// machine linked twice has two sessions in the list, and this is what tells
 	// them apart.
 	opts.log(fmt.Sprintf("linked %q to %s as %s", opts.Name, opts.Server, sessionID))
+	// What this session was given about the workspace it starts in. Only this
+	// side can say: the server named the repository and the branch, but the
+	// files are here, and a session that has quietly read a project's own
+	// documents looks identical to one that has not.
+	if said != nil && !*said {
+		if line := agent.WorkspaceContext(opts.Workdir); line != "" {
+			d.publishLocal(ctx, sessionID, "meta", line)
+			*said = true
+		}
+	}
 	if opts.Ready != nil {
 		opts.Ready(
 			func(kind, data string) { d.publishLocal(ctx, sessionID, kind, data) },

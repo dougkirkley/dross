@@ -103,3 +103,49 @@ func write(t *testing.T, dir, name, body string) {
 		t.Fatal(err)
 	}
 }
+
+// A session that has quietly read a project's own documents looks identical to
+// one that has not. Saying so is the difference between trusting the first
+// answer and checking it.
+func TestWorkspaceContextNamesWhatItRead(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "README.md", "# Dross\n\n![badge](https://img.shields.io/x)\n\nA coding agent you can drive from a phone. It runs sessions on a server.")
+	write(t, dir, "AGENTS.md", "Run `go test ./...` before committing.")
+
+	got := WorkspaceContext(dir)
+
+	if !strings.Contains(got, "AGENTS.md") || !strings.Contains(got, "README.md") {
+		t.Errorf("does not name what it read: %q", got)
+	}
+	// The name is already on the screen and a row of badges describes nothing,
+	// so the headline is the first line that reads like prose — and only the
+	// first sentence of it.
+	if !strings.Contains(got, "A coding agent you can drive from a phone.") {
+		t.Errorf("no headline: %q", got)
+	}
+	if strings.Contains(got, "img.shields.io") || strings.Contains(got, "# Dross") {
+		t.Errorf("quoted a badge or a heading: %q", got)
+	}
+	if strings.Contains(got, "It runs sessions") {
+		t.Errorf("took more than the first sentence: %q", got)
+	}
+}
+
+// A workspace with nothing to say says nothing, rather than announcing that it
+// read no files.
+func TestWorkspaceContextIsSilentWithNoDocs(t *testing.T) {
+	if got := WorkspaceContext(t.TempDir()); got != "" {
+		t.Errorf("said %q about a workspace with no documents", got)
+	}
+}
+
+// A README that is all headings and badges still names the files it read.
+func TestWorkspaceContextWithoutAHeadline(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "README.md", "# Title\n\n![badge](https://x)\n")
+
+	got := WorkspaceContext(dir)
+	if got != "Read README.md" {
+		t.Errorf("got %q", got)
+	}
+}
