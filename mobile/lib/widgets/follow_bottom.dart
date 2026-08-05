@@ -67,22 +67,47 @@ class FollowBottom extends ChangeNotifier {
     _toEnd();
   }
 
-  void _toEnd() {
+  /// How many times to chase an end that keeps moving before giving up.
+  ///
+  /// A lazily built list of ragged rows — a line, a paragraph, a code block —
+  /// only knows how tall it is once it has laid them out, so the end it reports
+  /// is an estimate from what is on screen. Going there lays out more rows, the
+  /// estimate grows, and one jump lands well short: on a long transcript the
+  /// button moved you a little and then offered itself again, which reads as a
+  /// button that does not work.
+  ///
+  /// Bounded, because during a running turn the end genuinely is moving and
+  /// chasing it forever is the other failure. follow() runs on every build, so
+  /// a live answer is kept up with there rather than here.
+  static const _chases = 8;
+
+  void _toEnd([int attempt = 0]) {
     if (!controller.hasClients || !_following) return;
     final p = controller.position;
     final gap = p.maxScrollExtent - p.pixels;
     if (gap <= 1) return;
+    // Look again once this frame has been laid out. Cheap when the end did not
+    // move: the check above returns immediately.
+    void again() {
+      if (attempt + 1 >= _chases) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _toEnd(attempt + 1));
+    }
+
     if (gap > _tooFarToAnimate) {
       _driving++;
       controller.jumpTo(p.maxScrollExtent);
       _driving--;
+      again();
       return;
     }
     _driving++;
     controller
         .animateTo(p.maxScrollExtent,
             duration: const Duration(milliseconds: 180), curve: Curves.easeOut)
-        .whenComplete(() => _driving--);
+        .whenComplete(() {
+      _driving--;
+      again();
+    });
   }
 
   @override
