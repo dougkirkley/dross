@@ -10,6 +10,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 // When the UI takes prompts, this device must not build an agent of its own.
@@ -43,14 +48,31 @@ func TestNoPromptHookLeavesTheFallback(t *testing.T) {
 // with the prefix. Adding another produced "ses_ses_…" and advertised a second,
 // empty session beside the real one.
 func TestSessionIDIsNotDoublePrefixed(t *testing.T) {
-	for name, want := range map[string]string{
-		"ses_abc": "ses_abc", // a session pod
-		"laptop":  "ses_laptop",
-		"":        "ses_",
-	} {
-		if got := advertisedSessionID(name); got != want {
-			t.Errorf("name %q -> %q; want %q", name, got, want)
+	// A pod's name IS the session it serves, so it is passed through whole. Any
+	// suffix here would advertise a session nobody is watching.
+	if got := advertisedSessionID("ses_abc"); got != "ses_abc" {
+		t.Errorf("pod name -> %q; want it announced unchanged", got)
+	}
+	for _, name := range []string{"laptop", ""} {
+		got := advertisedSessionID(name)
+		if !strings.HasPrefix(got, "ses_"+name) {
+			t.Errorf("name %q -> %q; want the machine still legible in the id", name, got)
 		}
+		if strings.HasPrefix(got, "ses_ses_") {
+			t.Errorf("name %q -> %q; double prefix", name, got)
+		}
+	}
+}
+
+// Every `dross rc` is a new session.
+//
+// The id was the hostname alone, so a machine had exactly one session for its
+// whole life: each link reattached to it and appended to a transcript that
+// never ended, mixing yesterday's questions into today's.
+func TestEachLinkGetsItsOwnSession(t *testing.T) {
+	a, b := advertisedSessionID("laptop"), advertisedSessionID("laptop")
+	if a == b {
+		t.Errorf("both links advertised %q; the second would resume the first's transcript", a)
 	}
 }
 
@@ -176,5 +198,69 @@ func TestUnauthorizedStopsRetrying(t *testing.T) {
 	}
 	if n := dials.Load(); n != 1 {
 		t.Errorf("dialed %d times; a rejected credential must not be retried", n)
+	}
+}
+
+// stubProvider stands in for a backend: the session frame names the lead
+// provider, and nothing in this test reaches a model.
+type stubProvider struct{}
+
+func (stubProvider) Name() string                                       { return "stub" }
+func (stubProvider) NewSession(provider.SessionConfig) provider.Session { return nil }
+
+// A reconnect keeps the session it already has.
+//
+// The id is minted once per link, not once per dial, so a server restart or a
+// dropped connection comes back to the session the phone is watching rather
+// than stranding it on a dead one and starting another.
+func TestReconnectKeepsTheSameSession(t *testing.T) {
+	var mu sync.Mutex
+	var ids []string
+	done := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		// Read the hello, then the session frame it announces, and hang up —
+		// standing in for a server that keeps going away.
+		ctx := r.Context()
+		var f Frame
+		for i := 0; i < 2; i++ {
+			if wsjson.Read(ctx, c, &f) != nil {
+				break
+			}
+			if f.Type == "session" && f.Session != nil {
+				mu.Lock()
+				ids = append(ids, f.Session.ID)
+				n := len(ids)
+				mu.Unlock()
+				if n == 2 {
+					close(done)
+				}
+			}
+		}
+		c.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go RunDevice(ctx, DeviceOptions{
+		Server: srv.URL, Token: "t", Name: "laptop", Lead: stubProvider{},
+	})
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("device never reconnected")
+	}
+	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if ids[0] != ids[1] {
+		t.Errorf("reconnected as %q after %q; the watcher is left on a dead session", ids[1], ids[0])
 	}
 }

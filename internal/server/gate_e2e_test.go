@@ -72,18 +72,7 @@ func TestGatedCommandFromRemoteIsAnsweredRemotely(t *testing.T) {
 		t.Fatal("device never linked")
 	}
 
-	// The device advertises ses_<name>; wait for the server to mirror it.
-	const sid = "ses_laptop"
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, ok := mgr.getAny(sid); ok {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("session never appeared on the server")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	sid := waitForDeviceSession(t, mgr, "laptop")
 
 	// Phone sends the prompt.
 	post(t, hs.URL+"/api/sessions/"+sid+"/prompt", `{"prompt":"clean the build dir"}`, http.StatusAccepted)
@@ -119,6 +108,30 @@ func TestAnswerWithNoPendingGateIsRejected(t *testing.T) {
 
 	mgr.upsertDeviceSession("laptop", relaySession("ses_laptop"))
 	post(t, hs.URL+"/api/sessions/ses_laptop/answer", `{"answer":"Allow"}`, http.StatusConflict)
+}
+
+// waitForDeviceSession returns the session a linked device announced.
+//
+// The id is not derivable from the device name: each link mints its own, so
+// that a second `dross rc` on one machine is a second session rather than a
+// continuation of the first. Tests ask the server which one appeared.
+func waitForDeviceSession(t *testing.T, mgr *Manager, device string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		mgr.mu.Lock()
+		for id, s := range mgr.sessions {
+			if s.device == device {
+				mgr.mu.Unlock()
+				return id
+			}
+		}
+		mgr.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatalf("device %q never advertised a session", device)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func post(t *testing.T, url, body string, want int) {
@@ -200,13 +213,7 @@ func TestDeniedGateReachesTheRun(t *testing.T) {
 	}()
 
 	<-linked
-	const sid = "ses_box"
-	for i := 0; i < 500; i++ {
-		if _, ok := mgr.getAny(sid); ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	sid := waitForDeviceSession(t, mgr, "box")
 	post(t, hs.URL+"/api/sessions/"+sid+"/prompt", `{"prompt":"wipe it"}`, http.StatusAccepted)
 	askID, _ := waitForAsk(t, hs.URL, sid)
 	post(t, hs.URL+"/api/sessions/"+sid+"/answer",
@@ -263,13 +270,7 @@ func TestFreeTextAskFromRemoteReturnsTheTypedAnswer(t *testing.T) {
 	}()
 
 	<-linked
-	const sid = "ses_desk"
-	for i := 0; i < 500; i++ {
-		if _, ok := mgr.getAny(sid); ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	sid := waitForDeviceSession(t, mgr, "desk")
 	post(t, hs.URL+"/api/sessions/"+sid+"/prompt", `{"prompt":"scaffold it"}`, http.StatusAccepted)
 
 	askID, question := waitForAsk(t, hs.URL, sid)

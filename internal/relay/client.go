@@ -2,6 +2,8 @@ package relay
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"net/http"
@@ -79,8 +81,11 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 		maxWait   = 30 * time.Second
 	)
 	wait := firstWait
+	// Once per link, not once per dial: a reconnect has to land back on the
+	// session the phone is already watching.
+	sessionID := advertisedSessionID(opts.Name)
 	for {
-		err := runDeviceOnce(ctx, opts)
+		err := runDeviceOnce(ctx, opts, sessionID)
 		if ctx.Err() != nil {
 			return nil // asked to stop
 		}
@@ -113,7 +118,7 @@ func RunDevice(ctx context.Context, opts DeviceOptions) error {
 // it closely enough to recognise an expired login.
 var ErrUnauthorized = errors.New("server rejected the credential")
 
-func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
+func runDeviceOnce(ctx context.Context, opts DeviceOptions, sessionID string) error {
 	url := strings.TrimRight(opts.Server, "/") + "/api/device/connect"
 	url = strings.Replace(strings.Replace(url, "https://", "wss://", 1), "http://", "ws://", 1)
 	dopts := &websocket.DialOptions{
@@ -147,9 +152,11 @@ func runDeviceOnce(ctx context.Context, opts DeviceOptions) error {
 	if err := d.send(ctx, Frame{Type: "hello", Device: opts.Name}); err != nil {
 		return err
 	}
-	sessionID := advertisedSessionID(opts.Name)
 	d.startSession(ctx, sessionID)
-	opts.log(fmt.Sprintf("linked %q to %s", opts.Name, opts.Server))
+	// The session id is worth saying now that it is not the device name: a
+	// machine linked twice has two sessions in the list, and this is what tells
+	// them apart.
+	opts.log(fmt.Sprintf("linked %q to %s as %s", opts.Name, opts.Server, sessionID))
 	if opts.Ready != nil {
 		opts.Ready(
 			func(kind, data string) { d.publishLocal(ctx, sessionID, kind, data) },
@@ -380,16 +387,33 @@ func (d *device) deliverAnswer(id, text string) {
 
 // advertisedSessionID is the session a device announces itself as.
 //
-// A laptop links under its hostname and needs the prefix; a session pod is
-// launched with --name set to the session id, which already carries one.
-// Prepending unconditionally gave those pods "ses_ses_…" and advertised a
-// second, empty session beside the real one.
+// A laptop links under its hostname and gets a fresh session each time it
+// links; a session pod is launched with --name set to the session id it exists
+// to serve, and must announce exactly that. Prepending unconditionally gave
+// those pods "ses_ses_…" and advertised a second, empty session beside the real
+// one.
+//
+// The laptop's id used to be the hostname alone, which is stable — so every
+// `dross rc` reattached to the one session that machine had ever had, and its
+// transcript grew without end. Reconnects still have to land back on the
+// session the phone is watching, so this is called once per link, not once per
+// dial: a dropped connection keeps its id, a new process gets a new one.
 func advertisedSessionID(name string) string {
 	if strings.HasPrefix(name, "ses_") {
 		return name
 	}
-	return "ses_" + name
+	var b [5]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Nothing sane to fall back to but the old stable id; a session that
+		// resumes yesterday's transcript beats no session at all.
+		return "ses_" + name
+	}
+	return "ses_" + name + "-" + base32Lower.EncodeToString(b[:])
 }
+
+// base32Lower keeps the suffix case-insensitive and free of the characters that
+// read ambiguously in a terminal.
+var base32Lower = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
 // drainWait bounds how long a shutting-down device waits for its work.
 //
