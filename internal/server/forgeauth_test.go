@@ -461,3 +461,40 @@ func TestForgeNeedsAnIdentity(t *testing.T) {
 		t.Errorf("connect with no identity: %d, want 401", w.Code)
 	}
 }
+
+// Installing from GitHub's own page redirects here with a code this server
+// never asked for and no cookie to check it against. That person has done the
+// right thing and should end up connected, not on an error.
+func TestForgeCallbackFromTheInstallPageStartsTheFlow(t *testing.T) {
+	srv, tokens := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", token: forge.Token{Access: "gho"}})
+
+	w := callback(t, srv,
+		"/api/forges/github/callback?code=abc&installation_id=42&setup_action=install",
+		"doug@example.com", nil)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("callback: %d %s, want a redirect into the flow", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Location"); got != "/api/forges/github/connect" {
+		t.Errorf("sent the browser to %q", got)
+	}
+	// The code that arrived is dropped, not exchanged. Nothing ties it to the
+	// identity holding this session.
+	if _, ok := tokens.Load("doug@example.com", "github"); ok {
+		t.Error("a code with no state behind it was exchanged and stored")
+	}
+}
+
+// A stateless callback that is not an install is still refused, so a code
+// planted by somebody else cannot start a flow on a signed-in user's behalf.
+func TestForgeCallbackWithNoStateAndNoInstallIsRefused(t *testing.T) {
+	srv, _ := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", token: forge.Token{Access: "gho"}})
+
+	w := callback(t, srv, "/api/forges/github/callback?code=abc&state=made-up",
+		"doug@example.com", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("callback: %d, want it refused", w.Code)
+	}
+}

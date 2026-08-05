@@ -127,6 +127,21 @@ func (s *Server) handleForgeCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := r.Cookie(forgeStateCookie)
 	if err != nil {
+		// Nothing of ours to finish. The ordinary way to arrive here is from
+		// the host's own install page rather than from this server: GitHub
+		// sends somebody who has just chosen which repositories to share
+		// straight to the callback, with a code nobody asked for and no cookie
+		// to check it against.
+		//
+		// That is a person who has done the right thing and deserves to end up
+		// connected, so it starts the flow properly instead of refusing. The
+		// code they arrived with is dropped rather than exchanged: nothing ties
+		// it to the identity now holding the session, and attaching somebody
+		// else's account to it is precisely what the state exists to prevent.
+		if installArrival(r) {
+			http.Redirect(w, r, "/api/forges/"+f.Name()+"/connect", http.StatusFound)
+			return
+		}
 		http.Error(w, "missing state", http.StatusBadRequest)
 		return
 	}
@@ -179,6 +194,19 @@ func (s *Server) handleForgeCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, withParam(flow.Next, "forge", f.Name()), http.StatusFound)
+}
+
+// installArrival reports whether this callback is the host telling us somebody
+// just installed the app, rather than an answer to a flow this server started.
+//
+// GitHub marks those with setup_action and installation_id, neither of which
+// appears on a callback we asked for. Testing for them rather than for the
+// absence of a cookie is what keeps the redirect from being a loop: a flow this
+// server started always has a cookie, and one that somehow lost it is a broken
+// browser rather than a person to bounce back and forth.
+func installArrival(r *http.Request) bool {
+	q := r.URL.Query()
+	return q.Get("setup_action") != "" || q.Get("installation_id") != ""
 }
 
 // handleForgeRepos lists the repositories the connected account can see.
