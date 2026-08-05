@@ -230,3 +230,57 @@ func TestRegistryListsWhatIsConfigured(t *testing.T) {
 		t.Error("an unregistered host was returned")
 	}
 }
+
+// A dross nobody registered an OAuth application for offers no hosts, and says
+// nothing about it. Running one locally is the ordinary case.
+func TestRegisterAllSkipsWhatIsNotConfigured(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+	if on := RegisterAll(nil); len(on) != 0 {
+		t.Errorf("registered %v with no credentials anywhere", on)
+	}
+}
+
+// The config names the client id; the secret comes from the environment, so a
+// deployment's ConfigMap never holds one.
+func TestRegisterAllTakesTheSecretFromTheEnvironment(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+	t.Setenv("GITHUB_CLIENT_SECRET", "shh")
+
+	on := RegisterAll(map[string]App{"github": {ClientID: "id"}})
+	if len(on) != 1 || on[0] != "github" {
+		t.Fatalf("registered %v; want github alone", on)
+	}
+	f, ok := Get("github")
+	if !ok {
+		t.Fatal("github was reported as registered but is not there")
+	}
+	if got := f.(*GitHub).ClientSecret; got != "shh" {
+		t.Errorf("client secret = %q; want the one from the environment", got)
+	}
+}
+
+// A client id with no secret anywhere is a half-configured host, and offering
+// it would send someone to an authorize page that refuses them.
+func TestRegisterAllNeedsBothHalves(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+	if on := RegisterAll(map[string]App{"github": {ClientID: "id"}}); len(on) != 0 {
+		t.Errorf("registered %v with no secret", on)
+	}
+}
+
+// Nothing in the config at all still works: the environment alone configures a
+// host, which is the whole of the setup for a deployment that would rather not
+// edit a file.
+func TestEnvironmentAloneConfiguresAHost(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+	t.Setenv("GITHUB_CLIENT_ID", "id")
+	t.Setenv("GITHUB_CLIENT_SECRET", "shh")
+
+	if on := RegisterAll(nil); len(on) != 1 || on[0] != "github" {
+		t.Errorf("registered %v; want github from the environment alone", on)
+	}
+}

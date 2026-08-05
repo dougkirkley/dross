@@ -120,10 +120,37 @@ type File struct {
 	// tools is an allow-list: when set, only these tool ids are enabled (empty =
 	// all). permission is per-tool allow|ask|deny — either a plain string, or,
 	// for command tools, a map of command glob → decision (opencode-style).
+	// Forges are the git hosts a session's code can come from, keyed by host id
+	// ("github"). A session starts by cloning a repository, so without one of
+	// these there is nothing for it to start on.
+	//
+	// The OAuth application is registered by whoever runs this server. dross
+	// ships none: an OAuth client identifies an installation to GitHub, and a
+	// bundled one would have every dross in the world asking for repository
+	// access as the same application.
+	Forges map[string]ForgeApp `json:"forges,omitempty"`
+
 	Tools      []string              `json:"tools,omitempty"`
 	Permission map[string]Permission `json:"permission,omitempty"`
 	Plugins    []PluginTool          `json:"plugins,omitempty"`
 	MCP        []MCPServer           `json:"mcp,omitempty"` // MCP servers whose tools the agent gains
+}
+
+// ForgeApp is one git host's OAuth application.
+//
+// The secret is named, not written. This file is a deployment's description of
+// itself and lives in version control — in a Kubernetes install it is mounted
+// from a ConfigMap, which is readable by anyone who can read the namespace. A
+// client secret in it would be a credential committed to a repository, which is
+// the thing every one of these integrations exists to avoid.
+type ForgeApp struct {
+	ClientID string `json:"client_id,omitempty"`
+	// ClientSecretEnv names the variable holding the secret. Empty defaults to
+	// <HOST>_CLIENT_SECRET — GITHUB_CLIENT_SECRET, GITLAB_CLIENT_SECRET —
+	// so the common case needs nothing said here at all.
+	ClientSecretEnv string `json:"client_secret_env,omitempty"`
+	// BaseURL points at a self-hosted instance; empty is the public host.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // MCPServer configures an MCP server to connect to. Kept agent-free here to

@@ -16,6 +16,7 @@ import (
 	"github.com/dougkirkley/dross/internal/artifact"
 	"github.com/dougkirkley/dross/internal/auth"
 	"github.com/dougkirkley/dross/internal/config"
+	"github.com/dougkirkley/dross/internal/forge"
 	"github.com/dougkirkley/dross/internal/mail"
 	"github.com/dougkirkley/dross/internal/plugins"
 	"github.com/dougkirkley/dross/internal/server"
@@ -133,6 +134,12 @@ func newServeCmd() *cobra.Command {
 			mgr.SetMCP(mergedMCP(res.File, workdir))
 			mgr.SetPolicy(config.PolicyOptions(res.File))
 			mgr.SetRepo(repoLabel(workdir))
+			// Git hosts a session's code can come from. Named here rather than
+			// discovered, and silent when there are none: a dross nobody has
+			// registered an OAuth application for is the ordinary local case.
+			if on := forge.RegisterAll(forgeApps(res.File)); len(on) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "repositories: %s\n", strings.Join(on, ", "))
+			}
 			// The identity provider authenticates; dross authorizes. A first
 			// sign-in registers the account as pending and the admin approves it
 			// on /admin. Accounts already on disk migrate to approved, so the
@@ -458,4 +465,29 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// forgeApps resolves each configured git host's OAuth application, reading the
+// client secret from the environment variable the config names.
+//
+// The indirection is the point: this file's config arrives from a ConfigMap in
+// version control, and a client secret written there would be a credential
+// committed to a repository — the exact thing the integration exists to avoid.
+func forgeApps(f *config.File) map[string]forge.App {
+	if f == nil || len(f.Forges) == 0 {
+		return nil
+	}
+	out := make(map[string]forge.App, len(f.Forges))
+	for host, a := range f.Forges {
+		env := a.ClientSecretEnv
+		if env == "" {
+			env = forge.DefaultSecretEnv(host)
+		}
+		out[host] = forge.App{
+			ClientID:     a.ClientID,
+			ClientSecret: os.Getenv(env),
+			BaseURL:      a.BaseURL,
+		}
+	}
+	return out
 }
