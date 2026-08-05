@@ -91,12 +91,22 @@ class AppDrawer extends StatelessWidget {
                                     horizontal: 20, vertical: 12),
                                 child: Row(
                                   children: [
+                                    // A linked machine gets its own glyph. It
+                                    // is not a code session in a pod — it is
+                                    // somebody's laptop, and the difference
+                                    // decides whether a prompt reaches anything
+                                    // at all when it is closed.
                                     Icon(
                                         isChat
                                             ? Icons.chat_bubble_outline
-                                            : Icons.code,
+                                            : sess.onLinkedMachine
+                                                ? Icons.laptop_mac
+                                                : Icons.code,
                                         size: 16,
-                                        color: T.textDim),
+                                        color: sess.onLinkedMachine &&
+                                                !sess.connected
+                                            ? T.textFaint
+                                            : T.textDim),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(sess.displayTitle,

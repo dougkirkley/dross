@@ -71,6 +71,22 @@ class Session {
   String get displayTitle => title.isNotEmpty ? title : 'New session';
 
   bool get isRunning => status == 'running';
+
+  /// Runs on a machine somebody linked with `dross rc`, rather than in a pod
+  /// the server started.
+  ///
+  /// Both are "device sessions" to the server — the pod attaches over the same
+  /// relay — so `device` alone does not separate them. A pod is named after the
+  /// session it serves, which is what makes the two tellable apart: anything
+  /// else is a laptop.
+  ///
+  /// They are not the same thing to look at. A pod belongs to the server and
+  /// comes back by itself; a laptop is somebody's machine, and when it is gone
+  /// the session waits for that person rather than for Kubernetes.
+  bool get onLinkedMachine => device.isNotEmpty && device != id;
+
+  /// Runs in a session pod the server provisioned.
+  bool get inPod => device.isNotEmpty && device == id;
 }
 
 class Event {

@@ -269,14 +269,19 @@ class _SessionsScreenState extends State<SessionsScreen> {
 
   // Red trailing background revealed while swiping a card to delete.
 
-  // Status label (colored) + workspace. Device sessions show connection state
-  // ("Connected · owner/repo"); pod sessions show run status.
+  // Status label (colored) + workspace. Anything on the far end of the relay —
+  // a linked laptop or a session pod — shows connection state ("Connected ·
+  // owner/repo"); a session that runs in this process shows run status.
   Widget _statusLine(Session sess) {
     final Color color;
     final String label;
-    if (sess.device.isNotEmpty && !sess.connected && sess.last.isNotEmpty) {
+    if (sess.inPod && !sess.connected && sess.last.isNotEmpty) {
       // Had a workload and does not now: it is being brought back, either
       // restarted or replaced to move it onto a new version.
+      //
+      // Only a pod. A laptop that has gone is not being restarted by anyone —
+      // saying so promised a session would come back on its own when what it
+      // was actually waiting for was somebody to open their machine.
       (color, label) = (T.accentHi, 'restarting');
     } else if (sess.status == 'error') {
       // Ahead of the connection state: a linked session that failed is still
@@ -295,8 +300,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
       };
     }
     return Row(children: [
+      // A laptop, or the pod the server started for this session. Both relay,
+      // but only one of them is a machine somebody has to have switched on.
       if (sess.device.isNotEmpty) ...[
-        Icon(Icons.laptop_mac,
+        Icon(sess.onLinkedMachine ? Icons.laptop_mac : Icons.dns_outlined,
             size: 13, color: sess.connected ? T.ok : T.textFaint),
         const SizedBox(width: 5),
       ],
