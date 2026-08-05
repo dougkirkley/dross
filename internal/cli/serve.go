@@ -487,6 +487,7 @@ func forgeApps(f *config.File) map[string]forge.App {
 			ClientID:     a.ClientID,
 			ClientSecret: os.Getenv(env),
 			BaseURL:      a.BaseURL,
+			Slug:         a.Slug,
 		}
 	}
 	return out

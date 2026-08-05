@@ -151,6 +151,11 @@ type ForgeApp struct {
 	ClientSecretEnv string `json:"client_secret_env,omitempty"`
 	// BaseURL points at a self-hosted instance; empty is the public host.
 	BaseURL string `json:"base_url,omitempty"`
+	// Slug is a GitHub App's name in URLs — github.com/apps/<slug>. Without it
+	// a user who has authorized the app but not installed it anywhere gets an
+	// empty repository list and no way to act on it, since authorizing and
+	// installing are two separate steps there.
+	Slug string `json:"slug,omitempty"`
 }
 
 // MCPServer configures an MCP server to connect to. Kept agent-free here to

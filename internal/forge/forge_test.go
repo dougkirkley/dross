@@ -148,14 +148,67 @@ func TestScopesDoNotAskForWriteAccess(t *testing.T) {
 	if strings.Contains(gl.Query().Get("scope"), "write") {
 		t.Errorf("gitlab scope = %q; dross never pushes", gl.Query().Get("scope"))
 	}
+	// GitHub is an App, whose permissions come from the app's own settings and
+	// from whoever installs it. A scope here is ignored, so sending one claims
+	// this request decides something it does not.
+	gh, _ := url.Parse((&GitHub{}).AuthCodeURL("s", "r"))
+	if gh.Query().Has("scope") {
+		t.Errorf("github authorize URL sends scope=%q, which a GitHub App ignores",
+			gh.Query().Get("scope"))
+	}
+}
+
+// Authorizing the app and installing it are two separate steps on GitHub, and
+// doing only the first is easy. That state needs a name, because the answer to
+// it is a link to the install page rather than an error.
+func TestNoInstallationIsItsOwnAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"installations":[]}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHub{Config: Config{BaseURL: srv.URL}, AppSlug: "dross-sh", HTTP: srv.Client()}
+	if _, err := g.Repos(context.Background(), "t"); err != ErrNoInstallation {
+		t.Errorf("Repos with no installation = %v; want ErrNoInstallation", err)
+	}
+	if got := g.InstallURL(); got != srv.URL+"/apps/dross-sh/installations/new" {
+		t.Errorf("InstallURL = %q", got)
+	}
+}
+
+// A fork in a personal account and its upstream in an org can both be granted,
+// putting one repository under two installations. Listing it twice reads as a
+// bug in the picker.
+func TestReposAreNotListedTwice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/user/installations/") {
+			_, _ = w.Write([]byte(`{"repositories":[{"full_name":"doug/dross"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"installations":[{"id":1},{"id":2}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := (&GitHub{Config: Config{BaseURL: srv.URL}, HTTP: srv.Client()}).
+		Repos(context.Background(), "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Errorf("listed %d entries for one repository", len(got))
+	}
 }
 
 // A repository list is handed to clients and cached, so it must not carry the
 // credential that produced it.
 func TestListedReposCarryNoCredential(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/user/repos") {
-			_, _ = w.Write([]byte(`[{"full_name":"doug/dross","clone_url":"https://github.com/doug/dross.git","default_branch":"main","private":true}]`))
+		if strings.Contains(r.URL.Path, "/user/installations/") {
+			_, _ = w.Write([]byte(`{"repositories":[{"full_name":"doug/dross","clone_url":"https://github.com/doug/dross.git","default_branch":"main","private":true}]}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/user/installations") {
+			_, _ = w.Write([]byte(`{"installations":[{"id":42}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`[{"path_with_namespace":"doug/homelab","http_url_to_repo":"https://gitlab.com/doug/homelab.git","default_branch":"main","visibility":"private"}]`))

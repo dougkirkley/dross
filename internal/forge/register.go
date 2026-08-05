@@ -11,6 +11,9 @@ type App struct {
 	ClientID     string
 	ClientSecret string
 	BaseURL      string
+	// Slug is the GitHub App's name in URLs — github.com/apps/<slug>. Only
+	// GitHub needs it, and only to send someone to the install page.
+	Slug string
 }
 
 // RegisterAll configures the hosts it has complete credentials for and returns
@@ -43,7 +46,11 @@ func RegisterAll(apps map[string]App) []string {
 		}
 		switch name {
 		case "github":
-			Register(&GitHub{Config: cfg})
+			slug := a.Slug
+			if slug == "" {
+				slug = os.Getenv(envName(name, "APP_SLUG"))
+			}
+			Register(&GitHub{Config: cfg, AppSlug: slug})
 		case "gitlab":
 			Register(&GitLab{Config: cfg})
 		}

@@ -101,6 +101,18 @@ func authEnv(d *dross.Dross) []corev1.EnvVar {
 		// Optional for the same reason as the mail key: a deployment without one
 		// falls back rather than failing to start.
 		{Name: "EXA_API_KEY", ValueFrom: ref("exa-api-key", true)},
+		// Git host OAuth applications, which is how a session gets a repository
+		// to start on. The client id is ordinary config and lives in the
+		// ConfigMap; only the secret comes from here, because a ConfigMap is
+		// readable by anyone who can read the namespace and is kept in version
+		// control besides.
+		//
+		// Optional, like the two above: a deployment that has registered no
+		// OAuth application offers no repositories, and a missing key would
+		// otherwise wedge the pod in CreateContainerConfigError rather than
+		// leaving one feature switched off.
+		{Name: "GITHUB_CLIENT_SECRET", ValueFrom: ref("github-client-secret", true)},
+		{Name: "GITLAB_CLIENT_SECRET", ValueFrom: ref("gitlab-client-secret", true)},
 	}
 }
 
