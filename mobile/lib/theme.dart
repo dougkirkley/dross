@@ -56,6 +56,13 @@ class T {
   /// narrower than this anyway.
   static const readWidth = 760.0;
 
+  /// How wide the composer may grow. Wider than the transcript on purpose:
+  /// reading width exists because long lines of prose are hard to track back,
+  /// which is a constraint on text being read, not on a box being typed into.
+  /// Holding the input to the same column left a desktop window mostly empty
+  /// either side of it for no reason anyone could see.
+  static const composeWidth = 1100.0;
+
   /// Above this the conversation takes the desktop treatment: the transcript
   /// laid out like the terminal, with gutter glyphs instead of chat bubbles.
   ///

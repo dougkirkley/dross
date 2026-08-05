@@ -133,8 +133,9 @@ class _SessionScreenState extends State<SessionScreen> {
               follow: _follow,
               label: (sess?.isRunning ?? false) ? 'Working' : 'Latest'),
         ),
-        if (s.queue.isNotEmpty) Readable(child: _queueStrip(context, s)),
-        Readable(child: _inputBar(context, s)),
+        if (s.queue.isNotEmpty)
+              Readable(maxWidth: T.composeWidth, child: _queueStrip(context, s)),
+        Readable(maxWidth: T.composeWidth, child: _inputBar(context, s)),
       ],
     );
     return SelectionArea(

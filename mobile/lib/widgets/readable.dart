@@ -8,13 +8,18 @@ import '../theme.dart';
 /// box you type into stay in the same column rather than the input sprawling
 /// under a narrow transcript.
 class Readable extends StatelessWidget {
-  const Readable({super.key, required this.child});
+  const Readable({super.key, required this.child, this.maxWidth = T.readWidth});
   final Widget child;
+
+  /// Defaults to reading width. The composer passes something wider: the cap
+  /// exists so prose does not run in unreadably long lines, which is a fact
+  /// about text being read rather than about a box being typed into.
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context) => Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: T.readWidth),
+          constraints: BoxConstraints(maxWidth: maxWidth),
           child: child,
         ),
       );
