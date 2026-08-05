@@ -102,7 +102,13 @@ class _SessionScreenState extends State<SessionScreen> {
           ),
         Expanded(
           child: Builder(builder: (_) {
-            final timeline = buildTimeline(s.events);
+            // The panel above is already saying what the session is setting
+            // up. Printing the same sentence directly underneath it said it
+            // twice and made one of them look like it was about something
+            // else. Once setup is done the panel goes and the line stays, so
+            // the transcript still holds the record.
+            final timeline =
+                buildTimeline(withoutLiveSetup(s.events, sess?.setup ?? ''));
             final shells = buildShells(s.events);
             final runningShells = shells.where((x) => x.running).length;
             // Trailing items after the conversation: the live spinner (while

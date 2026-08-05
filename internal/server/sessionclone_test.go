@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dougkirkley/dross/internal/forge"
+	"github.com/dougkirkley/dross/internal/relay"
 	"github.com/dougkirkley/dross/internal/storage"
 )
 
@@ -375,7 +376,13 @@ func TestSetupFinishesWhenTheAgentAttaches(t *testing.T) {
 		t.Fatalf("called it finished before the agent attached: %q", meta())
 	}
 
-	srv.mgr.setDeviceConnected(sess.ID, true)
+	// The way a pod actually turns up: it announces the session it is running.
+	// Driving anything else here is how this passed while production never ran
+	// the path at all.
+	attach := func() {
+		srv.mgr.upsertDeviceSession(sess.ID, relay.SessionInfo{ID: sess.ID})
+	}
+	attach()
 	if !strings.Contains(meta(), "cloned doug/dross") {
 		t.Errorf("the agent attaching did not report the setup: %q", meta())
 	}
@@ -383,7 +390,7 @@ func TestSetupFinishesWhenTheAgentAttaches(t *testing.T) {
 	// Once. A pod that reconnects after a drop has not set anything up again.
 	before := meta()
 	srv.mgr.setDeviceConnected(sess.ID, false)
-	srv.mgr.setDeviceConnected(sess.ID, true)
+	attach()
 	if meta() != before {
 		t.Errorf("reconnecting reported the setup again: %q", meta())
 	}

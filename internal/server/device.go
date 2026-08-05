@@ -165,6 +165,12 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 	s.device, s.connected = device, true
 	s.updated = time.Now()
 	s.mu.Unlock()
+	// A device announcing a session is the first moment the server can honestly
+	// say its workspace is ready: a pod clones on its way up, so it is only
+	// talking to us at all because it has finished. Outside the lock — emitting
+	// takes the session's own, and holding both is how the two get taken in
+	// different orders.
+	s.finishSetup()
 }
 
 // deviceEvent appends an event streamed from a device into its mirror session.
@@ -185,25 +191,13 @@ func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 // (e.g. when the device drops).
 func (m *Manager) setDeviceConnected(device string, connected bool) {
 	m.mu.Lock()
-	var attached []*Session
+	defer m.mu.Unlock()
 	for _, s := range m.sessions {
 		if s.device == device {
 			s.mu.Lock()
 			s.connected = connected
 			s.mu.Unlock()
-			attached = append(attached, s)
 		}
-	}
-	m.mu.Unlock()
-	if !connected {
-		return
-	}
-	// The agent turning up is the first moment the server can honestly say the
-	// workspace is ready: a session pod clones before it attaches, so until now
-	// "cloning" was the truth. Outside the lock — emitting takes the session's
-	// own, and holding both is how the two get taken in different orders.
-	for _, s := range attached {
-		s.finishSetup()
 	}
 }
 

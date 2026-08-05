@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dougkirkley/dross/internal/relay"
 	"github.com/dougkirkley/dross/internal/storage"
 )
 
@@ -111,7 +112,7 @@ func TestSetupSurvivesARestart(t *testing.T) {
 		t.Fatal("the session did not come back")
 	}
 
-	restored.setDeviceConnected(back.ID, true)
+	restored.upsertDeviceSession(back.ID, relay.SessionInfo{ID: back.ID})
 	var said []string
 	for _, e := range back.history(0) {
 		if e.Kind == "meta" {

@@ -102,6 +102,19 @@ class Activity {
 
 /// Turns a flat event list into a timeline of Events (prompt/text/done/error/
 /// checkpoint) interleaved with Activity blocks (tool/edit runs).
+/// Drops the setup line a starting panel is currently showing.
+///
+/// The two say the same sentence, and while the panel is up it is the one
+/// saying it: bigger, at the top, and about the state the session is in right
+/// now. [setup] is empty once the session is ready, so the line comes back and
+/// the transcript keeps the whole record.
+List<Event> withoutLiveSetup(List<Event> events, String setup) {
+  if (setup.isEmpty) return events;
+  return events
+      .where((e) => !(e.baseKind == 'meta' && e.data == setup))
+      .toList();
+}
+
 List<Object> buildTimeline(List<Event> events) {
   final out = <Object>[];
   Activity? cur;
