@@ -173,19 +173,10 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 	s.finishSetup()
 }
 
-// workspaceKind is relay.WorkspaceKind, named here so this file does not have
-// to reach across for a string.
-const workspaceKind = relay.WorkspaceKind
-
 // deviceEvent appends an event streamed from a device into its mirror session.
 func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 	s, ok := m.getAny(sessionID)
 	if !ok || s.device != device {
-		return
-	}
-	// What the session read about its workspace is a fact about the session, not
-	// an event in it: true once, however many times the device says it.
-	if kind == workspaceKind && !s.noteWorkspace(data) {
 		return
 	}
 	s.markPicked()

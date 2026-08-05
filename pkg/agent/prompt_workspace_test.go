@@ -104,52 +104,6 @@ func write(t *testing.T, dir, name, body string) {
 	}
 }
 
-// A session that has quietly read a project's own documents looks identical to
-// one that has not. Saying so is the difference between trusting the first
-// answer and checking it.
-func TestWorkspaceContextNamesWhatItRead(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "README.md", "# Dross\n\n![badge](https://img.shields.io/x)\n\nA coding agent you can drive from a phone. It runs sessions on a server.")
-	write(t, dir, "AGENTS.md", "Run `go test ./...` before committing.")
-
-	got := WorkspaceContext(dir)
-
-	if !strings.Contains(got, "AGENTS.md") || !strings.Contains(got, "README.md") {
-		t.Errorf("does not name what it read: %q", got)
-	}
-	// The name is already on the screen and a row of badges describes nothing,
-	// so the headline is the first line that reads like prose — and only the
-	// first sentence of it.
-	if !strings.Contains(got, "A coding agent you can drive from a phone.") {
-		t.Errorf("no headline: %q", got)
-	}
-	if strings.Contains(got, "img.shields.io") || strings.Contains(got, "# Dross") {
-		t.Errorf("quoted a badge or a heading: %q", got)
-	}
-	if strings.Contains(got, "It runs sessions") {
-		t.Errorf("took more than the first sentence: %q", got)
-	}
-}
-
-// A workspace with nothing to say says nothing, rather than announcing that it
-// read no files.
-func TestWorkspaceContextIsSilentWithNoDocs(t *testing.T) {
-	if got := WorkspaceContext(t.TempDir()); got != "" {
-		t.Errorf("said %q about a workspace with no documents", got)
-	}
-}
-
-// A README that is all headings and badges still names the files it read.
-func TestWorkspaceContextWithoutAHeadline(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "README.md", "# Title\n\n![badge](https://x)\n")
-
-	got := WorkspaceContext(dir)
-	if got != "Read README.md" {
-		t.Errorf("got %q", got)
-	}
-}
-
 // Asked to install the project it was standing in, a model answered with a
 // three-column table comparing ways it could be installed. "Do it" has one
 // answer and it is not a list of options.
@@ -169,73 +123,5 @@ func TestPromptRulesOutHTMLAndTables(t *testing.T) {
 	}
 	if !strings.Contains(p, "tables") {
 		t.Error("nothing steers away from tables")
-	}
-}
-
-// A README says what a project is for; a go.mod says what working on it costs.
-func TestWorkspaceContextSaysWhatKindOfProject(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "README.md", "# X\n\nA thing.")
-	write(t, dir, "go.mod", "module example.com/x\n")
-
-	got := WorkspaceContext(dir)
-	if !strings.Contains(got, "Go · go test ./...") {
-		t.Errorf("no shape: %q", got)
-	}
-	if !strings.Contains(got, "A thing.") {
-		t.Errorf("lost the headline: %q", got)
-	}
-}
-
-// A Makefile is the project saying how it wants to be built, which beats a
-// convention inferred from a marker file.
-func TestAMakefileTargetWins(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module example.com/x\n")
-	write(t, dir, "Makefile", "build:\n\tgo build ./...\ntest:\n\tgo test -race ./...\n")
-
-	got := WorkspaceContext(dir)
-	if !strings.Contains(got, "make test") {
-		t.Errorf("ignored the Makefile: %q", got)
-	}
-	if strings.Contains(got, "go test ./...") {
-		t.Errorf("offered both: %q", got)
-	}
-}
-
-// Only a real rule. A variable assignment and an indented recipe line are not
-// targets, and claiming "make test" where none exists sends somebody to an
-// error that is this line's fault.
-func TestMakefileLookalikesAreNotTargets(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module example.com/x\n")
-	write(t, dir, "Makefile", "test = ./scripts/test.sh\nbuild:\n\t@echo test: no\n")
-
-	if got := WorkspaceContext(dir); strings.Contains(got, "make test") {
-		t.Errorf("read a variable or a recipe line as a target: %q", got)
-	}
-}
-
-// A wrong test command is worse than none: somebody runs it and is told the
-// project is broken when what is broken is the guess.
-func TestALanguageWithNoOneConventionClaimsNoCommand(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "pubspec.yaml", "name: app\n")
-
-	got := WorkspaceContext(dir)
-	if got != "Dart" {
-		t.Errorf("got %q, want the language named and nothing claimed", got)
-	}
-}
-
-// Two toolchains in one repository is ordinary, and each is worth naming once.
-func TestSeveralToolchains(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module example.com/x\n")
-	write(t, dir, "package.json", "{}")
-
-	got := WorkspaceContext(dir)
-	if !strings.Contains(got, "Go, Node") {
-		t.Errorf("got %q", got)
 	}
 }

@@ -102,10 +102,6 @@ class Activity {
 
 /// Turns a flat event list into a timeline of Events (prompt/text/done/error/
 /// checkpoint) interleaved with Activity blocks (tool/edit runs).
-/// Whether an event is the session talking about itself rather than doing
-/// something — a clone in progress, a model loading, what it read on the way in.
-bool isNarration(String kind) => kind == 'meta' || kind == 'workspace';
-
 /// Drops the setup line a starting panel is currently showing.
 ///
 /// The two say the same sentence, and while the panel is up it is the one
@@ -115,7 +111,7 @@ bool isNarration(String kind) => kind == 'meta' || kind == 'workspace';
 List<Event> withoutLiveSetup(List<Event> events, String setup) {
   if (setup.isEmpty) return events;
   return events
-      .where((e) => !(isNarration(e.baseKind) && e.data == setup))
+      .where((e) => !(e.baseKind == 'meta' && e.data == setup))
       .toList();
 }
 
@@ -165,10 +161,6 @@ List<Object> buildTimeline(List<Event> events) {
       // "Used a tool", which is exactly where nobody looks for the answer to
       // "is this doing anything?".
       case 'meta':
-      // What the session read about its workspace: the same kind of line, kept
-      // apart on the wire because the server says it once per session where the
-      // others are per-turn.
-      case 'workspace':
         flush();
         out.add(e);
       case 'done':

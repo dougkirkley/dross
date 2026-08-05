@@ -4,16 +4,6 @@
 // WebSocket message.
 package relay
 
-// WorkspaceKind is the event kind carrying what a session read about the
-// workspace it starts in — which of the project's own documents it opened and
-// what the project says it is.
-//
-// A kind of its own rather than a "meta" line, because the server keeps one per
-// session and drops repeats. The device says it whenever it links, and it links
-// again on every server restart and every time its own pod is replaced; the
-// other meta lines are per-turn and must repeat.
-const WorkspaceKind = "workspace"
-
 // SessionInfo mirrors a device session on the server (a subset of the server's
 // sessionView, sent by the device so the phone can list it).
 type SessionInfo struct {
