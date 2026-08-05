@@ -355,7 +355,7 @@ server on your own network, a company gateway, anything OpenAI-compatible.
 The config file is dross's to write; you never edit it by hand.
 
 ```bash
-dross provider add homelab https://ollama.example.com/v1 --local
+dross provider add homelab https://ollama.example.com/v1
 dross provider list
 dross provider remove homelab
 ```
@@ -377,12 +377,14 @@ An id that already exists is merged, not replaced, so pointing a known
 provider somewhere else states only what differs:
 
 ```bash
-dross provider add ollama https://ollama.example.com/v1   # keeps its name, backend, local flag
+dross provider add ollama https://ollama.example.com/v1   # keeps its name and backend
 ```
 
 Other flags: `--name` for display, `--provider` for the backend when it is not
 OpenAI-compatible (`anthropic`, `gemini`, `bedrock`, …), and `--api-key` or
-`--api-key-env` for a hosted one. `--local` marks a server that needs no key.
+`--api-key-env` when the endpoint needs one. There is no "local" flag: a
+provider that names no key does not need one, which is the whole of what local
+meant.
 
 A registered provider works everywhere a built-in does: as `provider` in
 config, in a `worker`/`chat`/`compactor` block, and in the TUI's `/model`

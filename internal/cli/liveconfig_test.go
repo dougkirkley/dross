@@ -17,7 +17,7 @@ func TestLiveConfiguredProvider(t *testing.T) {
 		t.Fatal("no configured providers")
 	}
 	for id, d := range file.Providers {
-		t.Logf("configured: %s -> %s (local=%v)", id, d.BaseURL, d.Local)
+		t.Logf("configured: %s -> %s", id, d.BaseURL)
 	}
 	for _, g := range pickerGroups(file) {
 		if g.Provider == "ollama" {

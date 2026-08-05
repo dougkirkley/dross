@@ -91,13 +91,13 @@ func TestUserProvidersAddAndMerge(t *testing.T) {
 
 	SetUserProviders(map[string]Provider{
 		// A provider dross ships no knowledge of.
-		"homelab": {BaseURL: "https://ollama.example.com/v1", Local: true},
+		"homelab": {BaseURL: "https://ollama.example.com/v1"},
 		// A built-in pointed somewhere else, stating only what differs.
 		"ollama": {BaseURL: "https://ollama.example.com/v1"},
 	})
 
 	got, ok := Get("homelab")
-	if !ok || got.BaseURL != "https://ollama.example.com/v1" || !got.Local {
+	if !ok || got.BaseURL != "https://ollama.example.com/v1" {
 		t.Fatalf("homelab = %+v", got)
 	}
 	if got.Name != "homelab" || got.Impl != "openai" {
@@ -111,7 +111,7 @@ func TestUserProvidersAddAndMerge(t *testing.T) {
 	if o.BaseURL != "https://ollama.example.com/v1" {
 		t.Errorf("configured base URL lost to $OLLAMA_HOST: %q", o.BaseURL)
 	}
-	if o.Name != "Ollama" || !o.Local {
+	if o.Name != "Ollama" {
 		t.Errorf("built-in fields not inherited: %+v", o)
 	}
 
@@ -143,5 +143,39 @@ func TestProviderAPIKey(t *testing.T) {
 	}
 	if got := (Provider{}).APIKey(); got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+// Askable replaces the local flag: whether a provider can be asked for its
+// models is derived from what it needs, not declared.
+func TestAskable(t *testing.T) {
+	t.Cleanup(func() { SetUserProviders(nil) })
+
+	// A server naming no key variable needs none.
+	if p, _ := Get("ollama"); !p.Askable() {
+		t.Error("ollama should be askable without a key")
+	}
+	// A hosted one with its key missing is not worth a request that would come
+	// back unauthorized.
+	t.Setenv("GROQ_API_KEY", "")
+	if p, _ := Get("groq"); p.Askable() {
+		t.Error("groq should not be asked with no key set")
+	}
+	t.Setenv("GROQ_API_KEY", "k")
+	if p, _ := Get("groq"); !p.Askable() {
+		t.Error("groq should be asked once its key is set")
+	}
+	// A native backend has no base URL and lists its models its own way.
+	if p, _ := Get("anthropic"); p.Askable() {
+		t.Error("anthropic should not be asked over a base URL it does not have")
+	}
+	// Registering one by hand is itself the request to ask it.
+	SetUserProviders(map[string]Provider{
+		"acme": {BaseURL: "https://api.acme.example/v1", APIKeyEnv: "ACME_KEY"},
+	})
+	t.Setenv("ACME_KEY", "")
+	p, _ := Get("acme")
+	if !p.UserDefined || !p.Askable() {
+		t.Errorf("a configured provider should be asked: %+v", p)
 	}
 }

@@ -541,12 +541,19 @@ func pickerGroups(file *config.File) []tui.ModelGroup {
 	var groups []tui.ModelGroup
 	for _, id := range catalog.IDs() {
 		c, _ := catalog.Get(id)
-		base, key := c.BaseURL, ""
+		base, key := c.BaseURL, c.APIKey()
 		if envBase, envKey := config.EnvFor(id); envBase != "" {
-			base, key = envBase, envKey
+			base = envBase
+			if envKey != "" {
+				key = envKey
+			}
 		}
 		models := c.Models
-		if c.Local || base != c.BaseURL {
+		// Ask when we can: a provider needing no key, one somebody registered,
+		// one whose key is present, or one an environment variable has pointed
+		// somewhere. Anything else keeps its catalog previews rather than
+		// spending a request that would only come back unauthorized.
+		if c.Askable() || base != c.BaseURL {
 			if live := fetchModelIDs(id, base, key); len(live) > 0 {
 				models = live
 			}

@@ -25,12 +25,36 @@ type Provider struct {
 	Impl      string   // backend: "openai" (OpenAI-compatible) or "anthropic"
 	BaseURL   string   // API base (empty for local defaults / native backends)
 	APIKeyEnv string   // env var holding the API key ("" if none, e.g. local)
-	Local     bool     // runs locally (no key needed)
 	Models    []string // a few well-known model ids (preview; live list wins)
+	// UserDefined marks a provider that came from config rather than the
+	// compiled catalog. Somebody registered it deliberately, which is reason
+	// enough to ask it what it serves.
+	UserDefined bool
 	// Key is a literal API key, set only by a user-defined provider. The
 	// built-in catalog never carries one — it names the environment variable
 	// instead, so the compiled binary holds no credentials.
 	Key string
+}
+
+// Askable reports whether dross can list this provider's models without
+// credentials it does not have.
+//
+// There is no local/hosted distinction, deliberately. "local" was a flag
+// somebody had to set that only restated what was already knowable: a provider
+// names a key variable or it does not, that key is present or it is not, its
+// address is known or it is not. A provider registered by hand is asked
+// regardless, because registering it was the request.
+func (p Provider) Askable() bool {
+	if p.BaseURL == "" {
+		return false // a native backend, which lists its models its own way
+	}
+	if p.UserDefined {
+		return true
+	}
+	if p.APIKeyEnv == "" {
+		return true // nothing to authenticate with, so nothing is missing
+	}
+	return p.APIKey() != ""
 }
 
 // APIKey resolves the provider's key: the literal one if configured, otherwise
@@ -53,7 +77,7 @@ var providers = map[string]Provider{
 	"anthropic": {ID: "anthropic", Name: "Anthropic (API key)", Impl: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY", Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
 	// Claude subscription via the local `claude` CLI — no API key. Distinct from
 	// the API-key "anthropic" provider above.
-	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Local: true, Models: []string{"opus", "sonnet", "haiku"}},
+	"claude-code": {ID: "claude-code", Name: "Claude Code (subscription)", Impl: "claude-code", Models: []string{"opus", "sonnet", "haiku"}},
 	// Claude on Amazon Bedrock (credentials/region from the AWS default chain).
 	// Model ids are region inference-profile ids; edit for your region.
 	// Claude uses the anthropic-over-bedrock path; other ids use the Converse API.
@@ -66,11 +90,12 @@ var providers = map[string]Provider{
 	// Azure OpenAI: endpoint via AZURE_OPENAI_ENDPOINT; model = deployment name.
 	"azure": {ID: "azure", Name: "Azure OpenAI", Impl: "azure", APIKeyEnv: "AZURE_OPENAI_API_KEY", Models: []string{"gpt-4o", "gpt-4o-mini", "o4-mini"}},
 
-	// Local, OpenAI-compatible (no key).
-	"ollama":   {ID: "ollama", Name: "Ollama", Impl: "openai", BaseURL: "http://localhost:11434/v1", Local: true},
-	"lmstudio": {ID: "lmstudio", Name: "LM Studio", Impl: "openai", BaseURL: "http://localhost:1234/v1", Local: true},
-	"llamacpp": {ID: "llamacpp", Name: "llama.cpp", Impl: "openai", BaseURL: "http://localhost:8080/v1", Local: true},
-	"litellm":  {ID: "litellm", Name: "LiteLLM", Impl: "openai", BaseURL: "http://localhost:4000/v1", Local: true},
+	// Servers that need no key. Nothing marks them as local — they simply name
+	// no key variable, which is the whole of what "local" meant.
+	"ollama":   {ID: "ollama", Name: "Ollama", Impl: "openai", BaseURL: "http://localhost:11434/v1"},
+	"lmstudio": {ID: "lmstudio", Name: "LM Studio", Impl: "openai", BaseURL: "http://localhost:1234/v1"},
+	"llamacpp": {ID: "llamacpp", Name: "llama.cpp", Impl: "openai", BaseURL: "http://localhost:8080/v1"},
+	"litellm":  {ID: "litellm", Name: "LiteLLM", Impl: "openai", BaseURL: "http://localhost:4000/v1"},
 
 	// Hosted, OpenAI-compatible.
 	"groq":       {ID: "groq", Name: "Groq", Impl: "openai", BaseURL: "https://api.groq.com/openai/v1", APIKeyEnv: "GROQ_API_KEY", Models: []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}},
@@ -118,6 +143,7 @@ func SetUserProviders(ps map[string]Provider) {
 			continue
 		}
 		p.ID = id
+		p.UserDefined = true
 		if base, ok := providers[id]; ok {
 			if p.Name == "" {
 				p.Name = base.Name
@@ -137,7 +163,6 @@ func SetUserProviders(ps map[string]Provider) {
 			if len(p.Models) == 0 {
 				p.Models = base.Models
 			}
-			p.Local = p.Local || base.Local
 		}
 		if p.Name == "" {
 			p.Name = id

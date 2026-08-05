@@ -65,9 +65,6 @@ type ProviderDef struct {
 	// APIKeyEnv names an environment variable to read the key from, for a
 	// config that is committed somewhere.
 	APIKeyEnv string `json:"api_key_env,omitempty"`
-	// Local marks a server that needs no key, which also makes dross ask it
-	// what models it has rather than rely on the list below.
-	Local bool `json:"local,omitempty"`
 	// Models is optional. Left empty for a local or explicitly-pointed
 	// provider, dross asks the endpoint — a hand-written list of a local
 	// server's models is stale the moment anything is pulled.

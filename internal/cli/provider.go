@@ -51,7 +51,7 @@ func newProviderCmd() *cobra.Command {
 				fmt.Fprintln(out, "configured (editable):")
 				for _, id := range ids {
 					p, _ := catalog.Get(id)
-					fmt.Fprintf(out, "  %-14s %s%s\n", id, p.BaseURL, localNote(p))
+					fmt.Fprintf(out, "  %-14s %s%s\n", id, p.BaseURL, keyNote(p))
 				}
 			}
 			fmt.Fprintln(out, "built-in:")
@@ -64,7 +64,7 @@ func newProviderCmd() *cobra.Command {
 				if where == "" {
 					where = "(native backend)"
 				}
-				fmt.Fprintf(out, "  %-14s %s%s\n", id, where, localNote(p))
+				fmt.Fprintf(out, "  %-14s %s%s\n", id, where, keyNote(p))
 			}
 			return nil
 		},
@@ -72,15 +72,14 @@ func newProviderCmd() *cobra.Command {
 
 	var (
 		name, impl, apiKey, apiKeyEnv string
-		local                         bool
 		models                        []string
 	)
 	add := &cobra.Command{
 		Use:   "add <id> <base-url>",
 		Short: "Add or update a model provider",
 		Long: "Register a model backend so it can be used by name.\n\n" +
-			"  a local server:   dross provider add homelab https://ollama.example.com/v1 --local\n" +
-			"  a hosted one:     dross provider add acme https://api.acme.ai/v1 --api-key-env ACME_KEY\n" +
+			"  no key needed:   dross provider add homelab https://ollama.example.com/v1\n" +
+			"  with a key:      dross provider add acme https://api.acme.ai/v1 --api-key-env ACME_KEY\n" +
 			"  repoint a known:  dross provider add ollama https://ollama.example.com/v1\n\n" +
 			"Models are discovered from the endpoint unless --model is given: a\n" +
 			"hand-written list of a local server's models is stale the moment\n" +
@@ -94,7 +93,7 @@ func newProviderCmd() *cobra.Command {
 			}
 			def := config.ProviderDef{
 				Name: name, Provider: impl, BaseURL: base,
-				APIKey: apiKey, APIKeyEnv: apiKeyEnv, Local: local, Models: models,
+				APIKey: apiKey, APIKeyEnv: apiKeyEnv, Models: models,
 			}
 
 			path := configFilePath(cfgPath)
@@ -128,7 +127,6 @@ func newProviderCmd() *cobra.Command {
 	add.Flags().StringVar(&impl, "provider", "", "backend: openai (default), anthropic, gemini, bedrock, …")
 	add.Flags().StringVar(&apiKey, "api-key", "", "API key, stored in the config file")
 	add.Flags().StringVar(&apiKeyEnv, "api-key-env", "", "environment variable holding the API key")
-	add.Flags().BoolVar(&local, "local", false, "a local server: no key, models discovered")
 	add.Flags().StringArrayVar(&models, "model", nil, "model id (repeatable); omit to discover from the endpoint")
 	cmd.AddCommand(add)
 
@@ -179,21 +177,25 @@ func userProviders(f *config.File) map[string]catalog.Provider {
 	for id, d := range f.Providers {
 		out[id] = catalog.Provider{
 			ID: id, Name: d.Name, Impl: d.Provider, BaseURL: d.BaseURL,
-			APIKeyEnv: d.APIKeyEnv, Key: d.APIKey, Local: d.Local, Models: d.Models,
+			APIKeyEnv: d.APIKeyEnv, Key: d.APIKey, Models: d.Models,
 		}
 	}
 	return out
 }
 
-func localNote(p catalog.Provider) string {
-	if p.Local {
-		return "  (local)"
+// keyNote says how a provider authenticates, or that it does not need to.
+func keyNote(p catalog.Provider) string {
+	if p.Key != "" {
+		return "  (key in config)"
 	}
 	if p.APIKeyEnv != "" {
 		if os.Getenv(p.APIKeyEnv) == "" {
 			return "  ($" + p.APIKeyEnv + " unset)"
 		}
 		return "  ($" + p.APIKeyEnv + ")"
+	}
+	if p.BaseURL != "" {
+		return "  (no key)"
 	}
 	return ""
 }
