@@ -180,7 +180,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
           context,
           sess,
           _card(
-            running: sess.isRunning,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -197,7 +196,16 @@ class _SessionsScreenState extends State<SessionsScreen> {
                               // A dot rather than a count: what matters is that
                               // the session has said something since you last
                               // looked, not how many events that took.
-                              if (context.watch<AppState>().unread(sess)) ...[
+                              // Running takes the spot the unread dot uses:
+                              // one small thing turning, where a bar across
+                              // the top of every card in the list added up to
+                              // more movement than there was news.
+                              if (sess.isRunning) ...[
+                                const DrossSpinner(size: 12),
+                                const SizedBox(width: 8),
+                              ] else if (context
+                                  .watch<AppState>()
+                                  .unread(sess)) ...[
                                 Container(
                                   width: 8,
                                   height: 8,
@@ -324,7 +332,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
     ]);
   }
 
-  Widget _card({required Widget child, bool running = false}) => Container(
+  Widget _card({required Widget child}) => Container(
         width: double.infinity,
         // Clipped, so the bar takes the card's rounded corners instead of
         // squaring them off.
@@ -334,13 +342,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
           borderRadius: BorderRadius.circular(T.rCard),
           border: Border.all(color: T.border),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (running) const RunningBar(),
-            child,
-          ],
-        ),
+        child: child,
       );
 
   Widget _needsConfig(BuildContext context) => Center(
