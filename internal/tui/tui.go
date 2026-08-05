@@ -3601,9 +3601,14 @@ func (m Model) startRun(ctx context.Context, prompt string) tea.Cmd {
 		mode := modeLabels[m.modeIdx]
 		go func() {
 			pub := m.remotePublish
-			if pub != nil {
+			if pub != nil && !m.remoteOrigin {
 				// The prompt first, so the phone sees the request before the
-				// work it produced.
+				// work it produced — but only when it was typed here. A prompt
+				// that arrived over the relay was already recorded by the
+				// server when it relayed it, and publishing it again put the
+				// message in the transcript twice, on every client at once.
+				// relay.Client's own run path has carried this guard from the
+				// start; this path did not.
 				pub("prompt", prompt)
 			}
 			res, err := m.run(ctx, prompt, mode, func(e agent.Event) {

@@ -112,6 +112,31 @@ type AskQuestion struct {
 	MultiSelect bool     `json:"multiSelect"`
 }
 
+// UnmarshalJSON accepts a question written either as an object or as a bare
+// string.
+//
+// The tool's schema asks for objects, and a model may send
+// {"questions":["Which one?"]} anyway — gpt-oss does — which failed the whole
+// call with "cannot unmarshal string into Go struct field .questions". The
+// turn was then lost after two and a half minutes of work, over a difference
+// that carries no ambiguity: a string is the question, and the rest of the
+// fields are optional in any case.
+func (q *AskQuestion) UnmarshalJSON(b []byte) error {
+	var text string
+	if err := json.Unmarshal(b, &text); err == nil {
+		*q = AskQuestion{Question: text}
+		return nil
+	}
+	// A distinct type, or this recurses forever through this same method.
+	type plain AskQuestion
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*q = AskQuestion(p)
+	return nil
+}
+
 // AskRequest is one or more questions posed to the user at once (Claude-style
 // multi-question picker with tabs).
 type AskRequest struct {
