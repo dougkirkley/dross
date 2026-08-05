@@ -235,7 +235,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "write",
-			Description: "Create or overwrite a file in the workspace.",
+			Description: "write: create or overwrite a file in the workspace.",
 			Properties: map[string]any{
 				"path":    strProp("File path relative to the workspace root."),
 				"content": strProp("Full file contents to write."),
@@ -244,7 +244,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "edit",
-			Description: "Replace an exact, unique substring in a file. old_str must match exactly once.",
+			Description: "edit: replace an exact, unique substring in a file. old_str must match exactly once.",
 			Properties: map[string]any{
 				"path":    strProp("File path relative to the workspace root."),
 				"old_str": strProp("Exact substring to replace, including whitespace. Must be unique in the file."),
@@ -254,7 +254,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "bash",
-			Description: "Run a shell command with the workspace as the working directory. Use for building, running tests, searching, and listing files. Set background=true for a long-running command (a dev server, watcher, tail); it returns a shell id immediately instead of blocking, and you read its output later with shell_output.",
+			Description: "bash: run a shell command with the workspace as the working directory. Use it for building, running tests, and anything else a shell does — but prefer grep for searching file contents and glob for listing files, which return cleaner results. Set background=true for a long-running command (a dev server, watcher, tail); it returns a shell id immediately instead of blocking, and you read its output later with shell_output.",
 			Properties: map[string]any{
 				"command":    strProp("The shell command to run."),
 				"background": map[string]any{"type": "boolean", "description": "Run detached and return a shell id instead of waiting. Default false."},
@@ -263,7 +263,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "shell_output",
-			Description: "Read a background shell's status, runtime, and captured output by id (from a background bash call). Set kill=true to stop it.",
+			Description: "shell_output: read a background shell's status, runtime, and captured output by id (from a background bash call). Set kill=true to stop it.",
 			Properties: map[string]any{
 				"id":   strProp("The background shell id (e.g. sh_1)."),
 				"kill": map[string]any{"type": "boolean", "description": "Stop the shell before returning. Default false."},
@@ -272,7 +272,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "monitor",
-			Description: "Wait for a condition by polling a shell command until it exits 0 (or until timeout). Use to wait on async state without burning turns — a server coming up, a file appearing, a build or CI run finishing. Returns as soon as the command first succeeds.",
+			Description: "monitor: wait for a condition by polling a shell command until it exits 0 (or until timeout). Use to wait on async state without burning turns — a server coming up, a file appearing, a build or CI run finishing. Returns as soon as the command first succeeds.",
 			Properties: map[string]any{
 				"command":          strProp("Shell command to poll; success is exit code 0 (e.g. `curl -sf localhost:8080/health`)."),
 				"interval_seconds": map[string]any{"type": "number", "description": "Seconds between checks. Default 5."},
@@ -282,19 +282,19 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "web_search",
-			Description: "Search the web and get a ranked list of results (title, URL, snippet). Use to find current information or the right page, then web_fetch a result to read it.",
+			Description: "web_search: search the web and get a ranked list of results (title, URL, snippet). This is the internet search; to search files in the workspace use grep instead. Use it to find current information or the right page, then web_fetch a result to read it.",
 			Properties:  map[string]any{"query": strProp("The search query.")},
 			Required:    []string{"query"},
 		},
 		{
 			Name:        "web_fetch",
-			Description: "Fetch an http(s) URL and return its text content (HTML is reduced to readable text). Use for documentation, references, or pages the user links, or a result from web_search.",
+			Description: "web_fetch: fetch an http(s) URL and return its text content (HTML is reduced to readable text). Use for documentation, references, or pages the user links, or a result from web_search.",
 			Properties:  map[string]any{"url": strProp("The absolute http(s) URL to fetch.")},
 			Required:    []string{"url"},
 		},
 		{
 			Name:        "grep",
-			Description: "Search file contents in the workspace for a regular expression. Returns matching lines as path:line:text.",
+			Description: "grep: search the contents of files in the workspace for a regular expression. This is the workspace search; to search the web use web_search instead. Returns matching lines as path:line:text.",
 			Properties: map[string]any{
 				"pattern": strProp("Regular expression to search for."),
 				"path":    strProp("Optional file or directory to search (relative to the workspace root; default whole workspace)."),
@@ -303,7 +303,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name:        "glob",
-			Description: "List files in the workspace matching a glob pattern (e.g. **/*.go, cmd/*/main.go).",
+			Description: "glob: list the files in the workspace whose paths match a glob pattern (e.g. **/*.go, cmd/*/main.go). This is how to find files by name; to search their contents use grep.",
 			Properties:  map[string]any{"pattern": strProp("Glob pattern relative to the workspace root.")},
 			Required:    []string{"pattern"},
 		},
@@ -333,7 +333,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 	if hasAsker {
 		defs = append(defs, provider.ToolDef{
 			Name:        "ask_user",
-			Description: "Ask the user 1-4 clarifying questions at once when blocked on decisions only they can make (ambiguous requirements, real choices with no sensible default). Each question gets its own tab; the user picks an option per question, then submits. Returns their answers. Use sparingly — prefer sensible defaults.",
+			Description: "ask_user: ask the user 1-4 clarifying questions at once when blocked on decisions only they can make (ambiguous requirements, real choices with no sensible default). Each question gets its own tab; the user picks an option per question, then submits. Returns their answers. Use sparingly — prefer sensible defaults.",
 			Properties: map[string]any{
 				"questions": map[string]any{
 					"type":        "array",
