@@ -164,6 +164,10 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 		// the namespace most wants to know, and none of it is secret.
 		s.Spec.Repo = clone.FullName
 		s.Spec.RepoBranch = clone.Branch
+		// Named for the session, which is already unique in this namespace and
+		// is what the session is called everywhere else — so the branch in a
+		// pull request says which session made it.
+		s.Spec.WorkBranch = WorkBranch(friendly)
 	}
 	if err := p.c.Create(ctx, s); err != nil {
 		return "", fmt.Errorf("session resource: %w", err)

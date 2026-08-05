@@ -14,22 +14,29 @@ import (
 	"github.com/dougkirkley/dross/internal/storage"
 )
 
-// cloneCall is what the clone was asked to do, captured instead of run.
+// cloneCall is what setting a workspace up was asked to do, captured instead of
+// run.
 type cloneCall struct {
 	dir, url, branch string
 	called           bool
+	// work is the branch the session was cut onto afterwards.
+	work string
 }
 
-// watchClone replaces the real clone for one test.
+// watchClone replaces the real clone and branch for one test.
 func watchClone(t *testing.T, err error) *cloneCall {
 	t.Helper()
 	got := &cloneCall{}
-	real := cloneRepo
+	realClone, realBranch := cloneRepo, branchRepo
 	cloneRepo = func(_ context.Context, dir, url, branch string) error {
 		got.dir, got.url, got.branch, got.called = dir, url, branch, true
 		return err
 	}
-	t.Cleanup(func() { cloneRepo = real })
+	branchRepo = func(_ context.Context, _, name string) error {
+		got.work = name
+		return nil
+	}
+	t.Cleanup(func() { cloneRepo, branchRepo = realClone, realBranch })
 	return got
 }
 
@@ -269,5 +276,113 @@ func TestDeleteRemovesTheWholeSessionDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, id)); !os.IsNotExist(err) {
 		t.Errorf("the session directory survived deletion: %v", err)
+	}
+}
+
+// A session works on a branch of its own. Committing straight onto the branch
+// it was cut from is the one outcome nobody asks for.
+func TestCreateSessionCutsItsOwnBranch(t *testing.T) {
+	srv, tokens := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", repos: []forge.Repo{
+		{FullName: "doug/dross", CloneURL: "https://github.com/doug/dross.git", Branch: "main"},
+	}})
+	_ = tokens.Save("doug@example.com", "github", forge.Token{Access: "gho_abc"})
+	clone := watchClone(t, nil)
+
+	if w := createSession(t, srv, `{"forge":"github","repo":"doug/dross"}`, "doug@example.com"); w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	// Cut from the repository's default, not instead of it.
+	if clone.branch != "main" {
+		t.Errorf("cloned branch %q", clone.branch)
+	}
+	if !strings.HasPrefix(clone.work, "dross/") || clone.work == "dross/" {
+		t.Errorf("working branch %q, want one named for the session", clone.work)
+	}
+}
+
+// The transcript is where somebody looks to find out whether anything is
+// happening. A session that spends its first half minute cloning in silence
+// reads as one that is broken.
+func TestCreateSessionSaysItIsCloning(t *testing.T) {
+	srv, tokens := forgeServer(t)
+	forge.Register(&fakeForge{name: "github", repos: []forge.Repo{
+		{FullName: "doug/dross", CloneURL: "https://github.com/doug/dross.git", Branch: "main"},
+	}})
+	_ = tokens.Save("doug@example.com", "github", forge.Token{Access: "gho_abc"})
+	watchClone(t, nil)
+
+	w := createSession(t, srv, `{"forge":"github","repo":"doug/dross"}`, "doug@example.com")
+	var snap map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &snap)
+	sess, ok := srv.mgr.get(snap["id"].(string), "doug@example.com")
+	if !ok {
+		t.Fatal("the session is gone")
+	}
+
+	var said []string
+	for _, e := range sess.history(0) {
+		if e.Kind == "meta" {
+			said = append(said, e.Data)
+		}
+	}
+	joined := strings.Join(said, " | ")
+	if !strings.Contains(joined, "cloning doug/dross") {
+		t.Errorf("the session never said it was cloning: %q", joined)
+	}
+	// In this process the clone is done by the time the create returns, so the
+	// finish is reported here rather than waiting on an agent to attach.
+	if !strings.Contains(joined, "cloned doug/dross") {
+		t.Errorf("the session never said it had finished: %q", joined)
+	}
+}
+
+func TestWorkBranch(t *testing.T) {
+	for _, c := range []struct{ session, want string }{
+		{"patient-ridge", "dross/patient-ridge"},
+		{"Dusky_Quarry", "dross/dusky-quarry"},
+		// A ref name git will actually accept, whatever it was made from.
+		{"", "dross/session"},
+		{"...", "dross/session"},
+		{"a b/c", "dross/abc"},
+	} {
+		if got := WorkBranch(c.session); got != c.want {
+			t.Errorf("WorkBranch(%q) = %q, want %q", c.session, got, c.want)
+		}
+	}
+}
+
+// A pod clones on its way up, so the only honest moment to call the workspace
+// ready is when the agent turns up. Until then "cloning" is the truth.
+func TestSetupFinishesWhenTheAgentAttaches(t *testing.T) {
+	srv, _ := forgeServer(t)
+	sess := srv.mgr.create(CreateReq{}, "doug@example.com")
+	sess.markDevice(sess.ID)
+	sess.beginSetup("cloning doug/dross…", "cloned doug/dross, working on dross/x")
+
+	meta := func() string {
+		var out []string
+		for _, e := range sess.history(0) {
+			if e.Kind == "meta" {
+				out = append(out, e.Data)
+			}
+		}
+		return strings.Join(out, " | ")
+	}
+	if strings.Contains(meta(), "cloned") {
+		t.Fatalf("called it finished before the agent attached: %q", meta())
+	}
+
+	srv.mgr.setDeviceConnected(sess.ID, true)
+	if !strings.Contains(meta(), "cloned doug/dross") {
+		t.Errorf("the agent attaching did not report the setup: %q", meta())
+	}
+
+	// Once. A pod that reconnects after a drop has not set anything up again.
+	before := meta()
+	srv.mgr.setDeviceConnected(sess.ID, false)
+	srv.mgr.setDeviceConnected(sess.ID, true)
+	if meta() != before {
+		t.Errorf("reconnecting reported the setup again: %q", meta())
 	}
 }

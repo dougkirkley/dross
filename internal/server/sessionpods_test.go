@@ -277,3 +277,25 @@ func TestCreateWithoutARepositoryCarriesNoCloneURL(t *testing.T) {
 		t.Error("a session with no repository was given a clone URL")
 	}
 }
+
+// The branch is named for the session, so a branch, a pull request and a
+// session card all say the same word.
+func TestCreateNamesTheWorkBranchAfterTheSession(t *testing.T) {
+	p := podSessions(t)
+	ctx := context.Background()
+
+	friendly, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", &CloneSpec{
+		FullName: "doug/dross", URL: "https://github.com/doug/dross.git",
+		Credentialed: "https://x:y@github.com/doug/dross.git", Branch: "main",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if got := list.Items[0].Spec.WorkBranch; got != WorkBranch(friendly) {
+		t.Errorf("work branch %q, want one named for %q", got, friendly)
+	}
+}

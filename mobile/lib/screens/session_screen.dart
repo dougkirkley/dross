@@ -320,6 +320,12 @@ class _SessionScreenState extends State<SessionScreen> {
       case 'checkpoint':
         content = _mono('✓ ${e.data}', T.accentHi);
         break;
+      case 'meta':
+        // The session saying what it is doing before it can do anything —
+        // cloning a repository, waiting on a model to load. Marked as its own
+        // kind of line so it does not read as something the model said.
+        content = _mono('⋯ ${e.data}', T.textFaint);
+        break;
       case 'error':
         content = _mono('✗ ${e.data}', T.danger);
         break;

@@ -51,6 +51,9 @@ func podTemplateFor(s *dross.Session) corev1.PodTemplateSpec {
 	if s.Spec.RepoBranch != "" {
 		args = append(args, "--repo-branch", s.Spec.RepoBranch)
 	}
+	if s.Spec.WorkBranch != "" {
+		args = append(args, "--work-branch", s.Spec.WorkBranch)
+	}
 
 	// From a Secret rather than arguments, so credentials do not show up in the
 	// pod spec or in `kubectl get pod -o yaml`.

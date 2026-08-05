@@ -117,6 +117,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// what the session is for.
 		sess.setTitleAuto(name, true)
 		sess.markDevice(sess.ID)
+		if clone != nil {
+			// The pod clones on its way up, which is dead air from here. Say so
+			// now and let the agent attaching be what says it finished.
+			sess.beginSetup("cloning "+clone.FullName+"…",
+				"cloned "+clone.FullName+", working on "+WorkBranch(name))
+		}
 	} else if clone != nil {
 		// No pod, so no startup for the clone to happen in: this process owns
 		// the workspace and has to fill it. Inline, which makes creating a
@@ -133,14 +139,23 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dir := forge.CloneDir(sess.workdir, clone.FullName)
+		branch := WorkBranch(strings.TrimPrefix(sess.ID, "ses_"))
+		sess.beginSetup("cloning "+clone.FullName+"…",
+			"cloned "+clone.FullName+", working on "+branch)
 		if err := cloneRepo(r.Context(), dir, clone.Credentialed, clone.Branch); err != nil {
 			s.mgr.remove(sess.ID, sess.owner)
 			http.Error(w, "could not clone "+clone.FullName+": "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		if err := branchRepo(r.Context(), dir, branch); err != nil {
+			s.mgr.remove(sess.ID, sess.owner)
+			http.Error(w, "could not branch "+clone.FullName+": "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		// The session runs in the repository rather than beside it. Persisted
 		// with everything else, so a restart comes back to the same place.
 		sess.setWorkdir(dir)
+		sess.finishSetup()
 	}
 	writeJSON(w, http.StatusCreated, sess.snapshot())
 }

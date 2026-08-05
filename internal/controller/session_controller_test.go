@@ -416,3 +416,17 @@ func TestSessionPodWithoutARepositoryIsUnchanged(t *testing.T) {
 		t.Error("a session with no repository was told to clone one")
 	}
 }
+
+// The branch a session works on is named by the server and has to reach the pod
+// that makes it.
+func TestSessionPodCarriesTheWorkBranch(t *testing.T) {
+	s := newSession()
+	s.Spec.Repo = "doug/dross"
+	s.Spec.RepoBranch = "main"
+	s.Spec.WorkBranch = "dross/patient-ridge"
+
+	args := strings.Join(podTemplateFor(s).Spec.Containers[0].Args, " ")
+	if !strings.Contains(args, "--work-branch dross/patient-ridge") {
+		t.Errorf("args did not carry the working branch: %s", args)
+	}
+}

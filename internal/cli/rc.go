@@ -26,6 +26,7 @@ func newRCCmd() *cobra.Command {
 		provName, model, baseURL, apiKey  string
 		workerProv, workerModel, workerBU string
 		repo, repoBranch, cloneURL        string
+		workBranch                        string
 	)
 	cmd := &cobra.Command{
 		Use:   "rc",
@@ -114,6 +115,16 @@ func newRCCmd() *cobra.Command {
 						// of leaving an empty workspace to explain itself.
 						return fmt.Errorf("clone %s: %w", repo, err)
 					}
+					// Its own branch, so what this session does stays off the
+					// one it was cut from until somebody decides otherwise.
+					// Inside the fresh-clone branch: on a restart the branch is
+					// already there, with work on it.
+					if workBranch != "" {
+						if err := forge.Branch(ctx, dir, workBranch); err != nil {
+							return fmt.Errorf("branch %s: %w", workBranch, err)
+						}
+						fmt.Fprintf(out, "working on %s\n", workBranch)
+					}
 				}
 				// The session runs in the repository, not beside it. Without
 				// this every prompt starts by working out where the code went.
@@ -160,6 +171,7 @@ func newRCCmd() *cobra.Command {
 	f.StringVar(&workerBU, "worker-base-url", "", "worker provider base URL")
 	f.StringVar(&repo, "repo", "", "repository to start this session on (owner/name)")
 	f.StringVar(&repoBranch, "repo-branch", "", "branch to check out (default: the repository's own)")
+	f.StringVar(&workBranch, "work-branch", "", "branch to create and work on (default: work on the checked-out branch)")
 	// Deliberately not documented as something to type. It holds an access
 	// token, and an argument is visible to every process on the machine; the
 	// pod is given it through DROSS_CLONE_URL from a Secret, which is what this

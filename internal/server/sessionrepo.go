@@ -67,6 +67,10 @@ func (s *Server) forgeClone(ctx context.Context, owner string, req CreateReq) (*
 // was asked for without running git; the real one is covered where it lives.
 var cloneRepo = forge.Clone
 
+// branchRepo cuts a session's working branch. A variable for the same reason as
+// cloneRepo.
+var branchRepo = forge.Branch
+
 // CloneSpec is the repository a session starts on.
 type CloneSpec struct {
 	// FullName is "owner/name", which is what the session is labelled with.
@@ -80,4 +84,34 @@ type CloneSpec struct {
 	Credentialed string
 	// Branch is what to check out, already defaulted to the repository's own.
 	Branch string
+}
+
+// WorkBranch is the branch a session makes and works on.
+//
+// Prefixed, so a repository full of these says at a glance which branches came
+// from dross and which a person made. The name is the session's own, which is
+// unique already and is what the session is called everywhere else — so a
+// branch, a pull request and a session card all say the same word.
+//
+// git refuses plenty of things in a ref name and the session name is generated
+// from a word list, so this is a narrowing rather than a sanitiser: what
+// survives is lowercase, digits and dashes, and a name that survives as nothing
+// falls back to something that is at least a valid ref.
+func WorkBranch(session string) string {
+	name := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + 32
+		case r == '-', r == '_':
+			return '-'
+		}
+		return -1
+	}, session)
+	name = strings.Trim(name, "-.")
+	if name == "" {
+		name = "session"
+	}
+	return "dross/" + name
 }

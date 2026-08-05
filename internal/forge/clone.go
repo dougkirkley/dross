@@ -169,6 +169,29 @@ func Redact(s string) string {
 	return credentialInURL.ReplaceAllString(s, "$1:***@")
 }
 
+// Branch creates a branch and checks it out.
+//
+// A session gets its own, so what it does is somewhere separate until somebody
+// decides otherwise. Committing straight onto the default branch is the one
+// outcome nobody asks for and the easy one to arrive at by accident.
+//
+// Only ever called on a fresh clone. -b rather than -B deliberately: a branch
+// that already exists means this ran twice, and the forceful form would move it
+// and throw away whatever had been committed on it.
+func Branch(ctx context.Context, dir, name string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "-b", name)
+	env, cleanup, err := gitEnv("")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout -b: %w: %s", err, Redact(strings.TrimSpace(string(out))))
+	}
+	return nil
+}
+
 // CloneDir is where a repository goes inside a session's workspace.
 //
 // Named for the repository rather than being the workspace root, because the

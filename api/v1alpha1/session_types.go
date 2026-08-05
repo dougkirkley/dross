@@ -82,6 +82,11 @@ type SessionSpec struct {
 	Repo       string `json:"repo,omitempty"`
 	RepoBranch string `json:"repoBranch,omitempty"`
 
+	// WorkBranch is the branch this session makes and works on, cut from
+	// RepoBranch. Named by the server, which is the side that knows what the
+	// session is called and can keep it unique.
+	WorkBranch string `json:"workBranch,omitempty"`
+
 	// Storage is the size of the session's workspace volume (e.g. "5Gi").
 	Storage string `json:"storage,omitempty"`
 

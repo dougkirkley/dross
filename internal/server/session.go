@@ -51,8 +51,13 @@ type Session struct {
 
 	mu      sync.Mutex
 	workdir string
-	repo    string // owner/repo (or dir name) label for the session card
-	title   string // first prompt, truncated — the session's display name
+	// setup is what to say once the session is ready to work, held until the
+	// thing it describes has actually happened. A pod clones before it attaches,
+	// so the only moment the server can honestly report a finished setup is when
+	// the agent turns up.
+	setup string
+	repo  string // owner/repo (or dir name) label for the session card
+	title string // first prompt, truncated — the session's display name
 	// titleAuto marks a name the server invented (the workload's, given at
 	// creation) rather than one that means something. The first prompt replaces
 	// it, because "add retry to the uploader" says more than "eager-island";
@@ -320,6 +325,32 @@ func (m *Manager) markBusy(sessionID string, busy bool) {
 func (s *Session) setTitle(t string) { s.setTitleAuto(t, false) }
 
 // setTitleAuto renames a session, recording whether the name was invented.
+// beginSetup says what is being done before the session can start, and holds
+// what to say when it is finished.
+//
+// The transcript is where somebody looks to find out whether anything is
+// happening. A session that spends its first half minute cloning and says
+// nothing reads as one that is broken.
+func (s *Session) beginSetup(doing, done string) {
+	s.emit("meta", doing)
+	s.mu.Lock()
+	s.setup = done
+	s.mu.Unlock()
+}
+
+// finishSetup reports the setup as done, once. Returns whether there was one.
+func (s *Session) finishSetup() bool {
+	s.mu.Lock()
+	done := s.setup
+	s.setup = ""
+	s.mu.Unlock()
+	if done == "" {
+		return false
+	}
+	s.emit("meta", done)
+	return true
+}
+
 // setWorkdir moves the session into a directory beneath the one it was given,
 // which is what starting on a repository does: the clone goes in a
 // subdirectory, and the session runs in the clone.

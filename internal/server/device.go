@@ -185,13 +185,25 @@ func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 // (e.g. when the device drops).
 func (m *Manager) setDeviceConnected(device string, connected bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var attached []*Session
 	for _, s := range m.sessions {
 		if s.device == device {
 			s.mu.Lock()
 			s.connected = connected
 			s.mu.Unlock()
+			attached = append(attached, s)
 		}
+	}
+	m.mu.Unlock()
+	if !connected {
+		return
+	}
+	// The agent turning up is the first moment the server can honestly say the
+	// workspace is ready: a session pod clones before it attaches, so until now
+	// "cloning" was the truth. Outside the lock — emitting takes the session's
+	// own, and holding both is how the two get taken in different orders.
+	for _, s := range attached {
+		s.finishSetup()
 	}
 }
 
