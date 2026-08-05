@@ -6,7 +6,14 @@ void main() {
   // flatten and long prose is markedly harder to read. The desktop transcript
   // was set in one to match the TUI; the resemblance was not worth the cost.
   test('transcript prose is never monospaced', () {
-    for (final s in [T.prose, T.termProse, T.body, T.termBody, T.meta, T.termMeta]) {
+    for (final s in [
+      T.prose,
+      T.termProse,
+      T.body,
+      T.termBody,
+      T.meta,
+      T.termMeta
+    ]) {
       expect(s.fontFamily, isNot(T.monoFamily),
           reason: 'transcript text should use a reading face');
     }

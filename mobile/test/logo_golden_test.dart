@@ -42,7 +42,9 @@ void main() {
           color: const Color(0xFF0E0E1A),
           child: Center(
             child: SizedBox(
-                width: 220, height: 220, child: CustomPaint(painter: _FlexPaint())),
+                width: 220,
+                height: 220,
+                child: CustomPaint(painter: _FlexPaint())),
           ),
         ),
       ),

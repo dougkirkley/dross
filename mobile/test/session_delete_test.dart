@@ -3,8 +3,9 @@ import 'package:dross/app_state.dart';
 import 'package:dross/models.dart';
 
 void main() {
-  Session sess(String id) =>
-      Session(id: id, model: 'm', provider: 'p', status: 'idle', cost: 0, events: 0);
+  _outOfOrder();
+  Session sess(String id) => Session(
+      id: id, model: 'm', provider: 'p', status: 'idle', cost: 0, events: 0);
 
   test('a fetch still carrying a deleted session does not resurrect it', () {
     final deleted = {'b'};
@@ -35,5 +36,33 @@ void main() {
     visibleSessions([sess('a')], deleted); // server confirms it is gone
     final visible = visibleSessions([sess('a'), sess('b')], deleted);
     expect(visible.map((x) => x.id), ['a', 'b']);
+  });
+}
+
+// The list polls on a timer, so two fetches are routinely in flight and they do
+// not come back in the order they were sent. A poll sent before a delete and
+// answered after it still carries the deleted session — and by then the
+// tombstone has been cleared by the fetch that came back in between, so there
+// is nothing left to catch it. That is "I deleted it and it did not disappear".
+void _outOfOrder() {
+  test(
+      'a fetch that started before the delete cannot be caught by the tombstone',
+      () {
+    Session sess(String id) => Session(
+        id: id, model: 'm', provider: 'p', status: 'idle', cost: 0, events: 0);
+    final deleted = {'b'};
+
+    // The fetch sent after the delete comes back first: correct, and it clears
+    // the tombstone because the server agrees the session is gone.
+    final fresh = visibleSessions([sess('a')], deleted);
+    expect(fresh.map((x) => x.id), ['a']);
+    expect(deleted, isEmpty);
+
+    // The older one lands afterwards, still carrying 'b'. Nothing about the
+    // list itself can tell it is stale, which is why the ordering is decided by
+    // the sequence number in refreshSessions rather than here.
+    final stale = visibleSessions([sess('a'), sess('b')], deleted);
+    expect(stale.map((x) => x.id), ['a', 'b'],
+        reason: 'the tombstone alone cannot catch an out-of-order answer');
   });
 }

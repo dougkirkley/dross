@@ -84,7 +84,8 @@ void main() {
     expect(p.pixels, p.maxScrollExtent);
   });
 
-  testWidgets('the way back is offered only once you have left', (tester) async {
+  testWidgets('the way back is offered only once you have left',
+      (tester) async {
     final follow = FollowBottom();
     addTearDown(follow.dispose);
 

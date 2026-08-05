@@ -28,6 +28,7 @@ void main() {
 
   // On a narrow window the cap does not apply — a phone fills the screen.
   testWidgets('a narrow window is unaffected', (tester) async {
-    expect(await widthOf(tester, const Readable(child: inner), surface: 400), 400);
+    expect(
+        await widthOf(tester, const Readable(child: inner), surface: 400), 400);
   });
 }

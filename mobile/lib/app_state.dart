@@ -277,19 +277,37 @@ class AppState extends ChangeNotifier {
   /// blink on and off beside the list every three seconds for as long as a
   /// session took to come up — reading as something going wrong, repeatedly,
   /// rather than as a list keeping itself current.
+  /// Which list fetch is the newest to have been started.
+  ///
+  /// The list polls on a timer, so two fetches are routinely in flight at once
+  /// and they do not come back in the order they were sent.
+  int _fetchSeq = 0;
+
   Future<void> refreshSessions({bool quiet = false}) async {
     if (!quiet) {
       loadingSessions = true;
       notifyListeners();
     }
     error = null;
+    final seq = ++_fetchSeq;
     try {
-      sessions = visibleSessions(await _client.listSessions(), _deleting);
+      final fetched = await _client.listSessions();
+      // Newest answer wins. A poll sent before a delete and answered after it
+      // still carries the session that was just deleted, and by then the
+      // tombstone that would have caught it has been cleared by the fetch that
+      // came back in between — so applying it puts the row back on screen and
+      // leaves nothing to remove it again. That is what "I deleted it and it
+      // did not disappear" looks like from here.
+      if (seq != _fetchSeq) return;
+      sessions = visibleSessions(fetched, _deleting);
     } catch (e) {
-      error = e.toString();
+      if (seq == _fetchSeq) error = e.toString();
     } finally {
-      loadingSessions = false;
-      sessionsLoaded = true; // first fetch done; screens can leave the spinner
+      if (seq == _fetchSeq) {
+        loadingSessions = false;
+        sessionsLoaded =
+            true; // first fetch done; screens can leave the spinner
+      }
       notifyListeners();
     }
   }
