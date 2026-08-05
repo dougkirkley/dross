@@ -220,14 +220,27 @@ class AppState extends ChangeNotifier {
 
   // --- sessions -------------------------------------------------------
 
-  /// True while any session is still coming up, so the list can keep looking.
-  bool get anyStarting =>
-      sessions.any((s) => s.device.isNotEmpty && !s.connected);
+  /// True while a session pod is still coming up, so the list can keep looking.
+  ///
+  /// Pods only. A laptop that is closed is also a device that is not connected,
+  /// but it is a settled state rather than a transient one — nothing is on its
+  /// way to fixing it, and treating it as "starting" left the list polling the
+  /// server every three seconds for as long as that machine stayed off.
+  bool get anyStarting => sessions.any((s) => s.inPod && !s.connected);
 
-  Future<void> refreshSessions() async {
-    loadingSessions = true;
+  /// Fetches the session list.
+  ///
+  /// [quiet] suppresses the spinner. A poll that runs on a timer is not
+  /// something anybody asked for, and showing progress for it made the logo
+  /// blink on and off beside the list every three seconds for as long as a
+  /// session took to come up — reading as something going wrong, repeatedly,
+  /// rather than as a list keeping itself current.
+  Future<void> refreshSessions({bool quiet = false}) async {
+    if (!quiet) {
+      loadingSessions = true;
+      notifyListeners();
+    }
     error = null;
-    notifyListeners();
     try {
       sessions = visibleSessions(await _client.listSessions(), _deleting);
     } catch (e) {

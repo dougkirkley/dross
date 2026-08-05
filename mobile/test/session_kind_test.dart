@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dross/app_state.dart';
 import 'package:dross/models.dart';
 
 Session s({required String id, String device = '', bool connected = false}) =>
@@ -34,5 +35,33 @@ void main() {
     final chat = s(id: 'ses_abc');
     expect(chat.onLinkedMachine, isFalse);
     expect(chat.inPod, isFalse);
+  });
+
+  _anyStartingTests();
+}
+
+// What keeps the list polling.
+//
+// A closed laptop is a device that is not connected, same as a pod still
+// coming up — but nothing is on its way to fixing it. Counting it as
+// "starting" left the list asking the server every three seconds for as long
+// as that machine stayed off, blinking a spinner beside it each time.
+void _anyStartingTests() {
+  test('a pod still coming up keeps the list looking', () {
+    final st = AppState();
+    st.sessions = [s(id: 'ses_abc', device: 'ses_abc')];
+    expect(st.anyStarting, isTrue);
+  });
+
+  test('a closed laptop does not', () {
+    final st = AppState();
+    st.sessions = [s(id: 'ses_Mac-1', device: 'Mac')];
+    expect(st.anyStarting, isFalse);
+  });
+
+  test('a connected pod does not', () {
+    final st = AppState();
+    st.sessions = [s(id: 'ses_abc', device: 'ses_abc', connected: true)];
+    expect(st.anyStarting, isFalse);
   });
 }

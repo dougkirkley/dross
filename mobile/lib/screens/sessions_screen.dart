@@ -58,7 +58,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
     final want = s.anyStarting;
     if (want && _poll == null) {
       _poll = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (mounted) context.read<AppState>().refreshSessions();
+        // Quietly: nobody asked for this one, and a spinner that appears every
+        // three seconds for the whole time a session is starting reads as a
+        // fault rather than as the list keeping itself current.
+        if (mounted) context.read<AppState>().refreshSessions(quiet: true);
       });
     } else if (!want && _poll != null) {
       _poll?.cancel();
