@@ -172,6 +172,15 @@ func (p *PodSessions) Create(ctx context.Context, sessionID, owner, model string
 	if err := p.c.Create(ctx, s); err != nil {
 		return "", fmt.Errorf("session resource: %w", err)
 	}
+	// Create fills s with what was actually stored. A structural schema prunes
+	// fields it does not declare, silently and with a 201, so a CRD older than
+	// this binary accepts a session and drops the repository off it — and the
+	// only symptom is a workspace that stays empty while the transcript says it
+	// is cloning. Ask what came back rather than assume it was what went out.
+	if clone != nil && s.Spec.Repo == "" {
+		_ = p.c.Delete(ctx, s)
+		return "", fmt.Errorf("this cluster's Session CRD has no repo field, so %s could not be attached: update the dross CRD", clone.FullName)
+	}
 	return friendly, nil
 }
 

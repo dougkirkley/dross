@@ -299,3 +299,44 @@ func TestCreateNamesTheWorkBranchAfterTheSession(t *testing.T) {
 		t.Errorf("work branch %q, want one named for %q", got, friendly)
 	}
 }
+
+// A structural schema prunes fields it does not declare, silently and with a
+// 201. A CRD older than this binary therefore accepts a session and drops the
+// repository off it, and the only symptom is a workspace that stays empty while
+// the transcript says it is cloning.
+func TestCreateRefusesWhenTheSpecCannotHoldTheRepository(t *testing.T) {
+	p := podSessions(t)
+	p.c = &pruningClient{Client: p.c}
+	ctx := context.Background()
+
+	_, err := p.Create(ctx, "ses_abc", "doug@example.com", "m", &CloneSpec{
+		FullName: "doug/dross", URL: "https://github.com/doug/dross.git",
+		Credentialed: "https://x:y@github.com/doug/dross.git", Branch: "main",
+	})
+	if err == nil {
+		t.Fatal("a session was created with the repository silently dropped")
+	}
+	if !strings.Contains(err.Error(), "CRD") {
+		t.Errorf("error does not say what to fix: %v", err)
+	}
+	// And it does not leave the half-made session behind.
+	var list dross.SessionList
+	if err := p.c.List(ctx, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("%d sessions left behind", len(list.Items))
+	}
+}
+
+// pruningClient is an API server whose CRD predates the repository fields.
+type pruningClient struct {
+	client.Client
+}
+
+func (c *pruningClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if s, ok := obj.(*dross.Session); ok {
+		s.Spec.Repo, s.Spec.RepoBranch, s.Spec.WorkBranch = "", "", ""
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}

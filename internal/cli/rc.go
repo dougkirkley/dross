@@ -99,7 +99,14 @@ func newRCCmd() *cobra.Command {
 			// beside it, which is what "a session on this repository" means and
 			// saves every prompt beginning with a cd.
 			label := repoLabel(workdir)
-			if repo != "" && cloneURL != "" {
+			// Named a repository with no way to reach it. Starting anyway would
+			// give somebody an empty workspace and no reason for it, which is
+			// the failure this whole path exists to avoid.
+			if repo != "" && cloneURL == "" {
+				return fmt.Errorf("--repo %s was given without a clone URL "+
+					"(DROSS_CLONE_URL): nothing to clone from", repo)
+			}
+			if repo != "" {
 				dir := forge.CloneDir(abs, repo)
 				// Already there on a restart: the pod comes back onto the same
 				// volume after a node reboot or an image change, and cloning
