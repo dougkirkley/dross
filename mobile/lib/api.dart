@@ -56,12 +56,21 @@ class DrossClient {
       {String? model,
       String? workerModel,
       String? style,
-      bool chat = false}) async {
+      bool chat = false,
+      String? forge,
+      String? repo,
+      String? branch}) async {
     final body = jsonEncode({
       if (model != null) 'model': model,
       if (workerModel != null) 'worker_model': workerModel,
       if (style != null) 'style': style,
       if (chat) 'chat': true,
+      // The host and the "owner/name" on it, never a URL. The server looks the
+      // repository up on the host, so what the app sends cannot decide where a
+      // credential is sent.
+      if (forge != null) 'forge': forge,
+      if (repo != null) 'repo': repo,
+      if (branch != null && branch.isNotEmpty) 'branch': branch,
     });
     final r =
         await _http.post(_uri('api/sessions'), headers: _headers, body: body);
@@ -159,6 +168,44 @@ class DrossClient {
     final list = (jsonDecode(r.body)['events'] as List? ?? []);
     return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  // --- git hosts --------------------------------------------------------
+
+  /// The hosts this server can start sessions from, and which of them this
+  /// account has connected.
+  Future<List<ForgeHost>> forges() async {
+    final r = await _http.get(_uri('api/forges'), headers: _headers);
+    _check(r);
+    final list = (jsonDecode(r.body)['hosts'] as List? ?? []);
+    return list
+        .map((e) => ForgeHost.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// The repositories one connected host can see.
+  ///
+  /// A 403 here means the credential is gone or has expired past renewing,
+  /// which is the same thing to a person: connect again.
+  Future<RepoList> forgeRepos(String host) async {
+    final r =
+        await _http.get(_uri('api/forges/$host/repos'), headers: _headers);
+    _check(r);
+    return RepoList.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
+  /// Forget this account's credential for one host.
+  Future<void> disconnectForge(String host) async {
+    final r = await _http.delete(_uri('api/forges/$host'), headers: _headers);
+    _check(r);
+  }
+
+  /// Where to send a browser to connect a host.
+  ///
+  /// A URL rather than a request: the authorization code has to reach the
+  /// server and not this app, so the whole exchange happens in a browser that
+  /// the server redirects. What comes back here is the answer to [forges].
+  Uri connectUrl(String host, {String next = '/'}) =>
+      _uri('api/forges/$host/connect?next=${Uri.encodeQueryComponent(next)}');
 
   // --- accounts ---------------------------------------------------------
 

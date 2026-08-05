@@ -347,3 +347,87 @@ class ModelChoices {
         loaded: _strings(j['loaded']),
       );
 }
+
+/// A git host the server can start sessions from, and whether this account has
+/// connected it.
+///
+/// The server answers all three fields together because they are one question:
+/// a picker that knows a host exists but not whether it is connected has
+/// nothing useful to draw.
+class ForgeHost {
+  ForgeHost({
+    required this.name,
+    required this.connected,
+    this.installUrl = '',
+  });
+
+  /// "github" or "gitlab" — the id used in URLs, not a display name.
+  final String name;
+  final bool connected;
+
+  /// Where to install the app so it can see repositories. GitHub only:
+  /// authorizing and installing are two steps there, and doing only the first
+  /// leaves an account that is connected and can see nothing.
+  final String installUrl;
+
+  String get label => name.isEmpty
+      ? name
+      : '${name[0].toUpperCase()}${name.substring(1)}'
+          .replaceAll('Github', 'GitHub')
+          .replaceAll('Gitlab', 'GitLab');
+
+  factory ForgeHost.fromJson(Map<String, dynamic> j) => ForgeHost(
+        name: j['name'] as String? ?? '',
+        connected: j['connected'] as bool? ?? false,
+        installUrl: j['install_url'] as String? ?? '',
+      );
+}
+
+/// One repository a session can start on.
+class Repo {
+  Repo({
+    required this.fullName,
+    this.branch = '',
+    this.private = false,
+    this.updated,
+  });
+
+  /// "owner/name", which is what a person recognises and what the server takes
+  /// back when a session is created. The clone URL is deliberately not here:
+  /// the server resolves it from the host, so the app never chooses the address
+  /// a credential is sent to.
+  final String fullName;
+  final String branch;
+  final bool private;
+  final DateTime? updated;
+
+  String get owner => fullName.contains('/') ? fullName.split('/').first : '';
+  String get name =>
+      fullName.contains('/') ? fullName.split('/').last : fullName;
+
+  factory Repo.fromJson(Map<String, dynamic> j) => Repo(
+        fullName: j['full_name'] as String? ?? '',
+        branch: j['branch'] as String? ?? '',
+        private: j['private'] as bool? ?? false,
+        updated: DateTime.tryParse(j['updated'] as String? ?? ''),
+      );
+}
+
+/// What one host can offer right now: its repositories, or the reason there are
+/// none to show.
+class RepoList {
+  RepoList({required this.repos, this.installUrl = ''});
+
+  final List<Repo> repos;
+
+  /// Set when the account authorized the app but has not installed it on
+  /// anything. An empty list with somewhere to go, rather than an error.
+  final String installUrl;
+
+  factory RepoList.fromJson(Map<String, dynamic> j) => RepoList(
+        repos: ((j['repos'] as List?) ?? [])
+            .map((e) => Repo.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        installUrl: j['install_url'] as String? ?? '',
+      );
+}

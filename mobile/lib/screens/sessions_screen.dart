@@ -14,6 +14,7 @@ import 'chat_screen.dart';
 import 'session_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/row_actions.dart';
+import '../widgets/repo_sheet.dart';
 import '../widgets/session_actions.dart';
 
 /// Session list attached to `dross serve`. The same server sessions back both
@@ -367,8 +368,18 @@ class _SessionsScreenState extends State<SessionsScreen> {
 
   Future<void> _create(BuildContext context) async {
     final state = context.read<AppState>();
+    // What the session starts on. Asked only for code sessions: a chat has no
+    // workspace, so a repository is not a thing it could be given.
+    RepoChoice? on;
+    if (!widget.chat) {
+      on = await showRepoSheet(context);
+      // Dismissed rather than answered. Creating a session anyway would make
+      // backing out of the question the same as choosing an empty workspace.
+      if (on == null || !context.mounted) return;
+    }
     // Use the server's default model; the user can switch it in-session.
-    final Session? s = await state.createSession();
+    final Session? s =
+        await state.createSession(forge: on?.forge, repo: on?.repo);
     if (s != null && context.mounted) {
       state.attach(s); // non-blocking; screen reacts as events load
       state.markView(s.id, widget.chat ? AppMode.chat : AppMode.code);

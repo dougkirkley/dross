@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'models.dart';
@@ -329,10 +330,18 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Session?> createSession(
-      {String? model, String? workerModel, bool chat = false}) async {
+      {String? model,
+      String? workerModel,
+      bool chat = false,
+      String? forge,
+      String? repo}) async {
     try {
       final s = await _client.createSession(
-          model: model, workerModel: workerModel, chat: chat);
+          model: model,
+          workerModel: workerModel,
+          chat: chat,
+          forge: forge,
+          repo: repo);
       await refreshSessions();
       return s;
     } catch (e) {
@@ -340,6 +349,46 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  // --- git hosts --------------------------------------------------------
+
+  /// The hosts this server offers, and which are connected. Empty when the
+  /// server has none configured, which is the ordinary case for a local run
+  /// and the reason the picker asks rather than assuming.
+  Future<List<ForgeHost>> forges() async {
+    try {
+      return await _client.forges();
+    } catch (_) {
+      // An older server answers 404 here. Nothing to offer is the honest
+      // reading, and it is not worth an error banner over a feature the user
+      // has not asked for yet.
+      return const [];
+    }
+  }
+
+  /// The repositories one host can see, or the reason it can see none.
+  Future<RepoList> forgeRepos(String host) => _client.forgeRepos(host);
+
+  Future<void> disconnectForge(String host) async {
+    await _client.disconnectForge(host);
+    notifyListeners();
+  }
+
+  /// Sends a browser off to connect a git host.
+  ///
+  /// It has to be a browser: the host authenticates the person, not the app,
+  /// and the code it hands back is redeemed by the server. On the web client
+  /// this is the same tab — the app is served from the origin the flow returns
+  /// to, so it comes back loaded and connected. Elsewhere it opens outside the
+  /// app, and the caller re-reads [forges] when the user returns.
+  Future<bool> connectForge(String host, {String next = '/'}) {
+    return launchUrl(
+      _client.connectUrl(host, next: next),
+      webOnlyWindowName: '_self',
+      mode:
+          kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
+    );
   }
 
   Future<void> deleteSession(Session s) async {
