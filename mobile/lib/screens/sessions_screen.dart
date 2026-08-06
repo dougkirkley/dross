@@ -201,7 +201,16 @@ class _SessionsScreenState extends State<SessionsScreen> {
                               // the top of every card in the list added up to
                               // more movement than there was news.
                               if (sess.isRunning) ...[
-                                const DrossSpinner(size: 12),
+                                // A plain ring, not the orb: that one bobs,
+                                // glows, blinks and flexes, which at this size
+                                // is an illegible wriggle — and four animations
+                                // per card is the thing this replaced.
+                                const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 1.5, color: T.accentHi),
+                                ),
                                 const SizedBox(width: 8),
                               ] else if (context
                                   .watch<AppState>()
