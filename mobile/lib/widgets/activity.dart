@@ -465,8 +465,14 @@ class _InlineStepState extends State<_InlineStep> {
       children: [
         InkWell(
           onTap: edit != null
-              ? () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => EditDiffView(edit)))
+              // A desktop window already has the room: pushing a whole view
+              // over the conversation to read four lines of go.mod loses the
+              // place you were reading. A phone does not, so it still opens
+              // the page.
+              ? (wide
+                  ? () => setState(() => _tapped = !_open)
+                  : () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => EditDiffView(edit))))
               : (s.hasDetail ? () => setState(() => _tapped = !_open) : null),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
@@ -499,7 +505,12 @@ class _InlineStepState extends State<_InlineStep> {
                 ],
                 const Spacer(),
                 if (edit != null)
-                  const Icon(Icons.chevron_right, size: 16, color: T.textFaint)
+                  Icon(
+                      wide
+                          ? (_open ? Icons.expand_less : Icons.expand_more)
+                          : Icons.chevron_right,
+                      size: 16,
+                      color: T.textFaint)
                 else if (s.hasDetail)
                   Icon(_open ? Icons.expand_less : Icons.expand_more,
                       size: 16, color: T.textFaint),
@@ -511,6 +522,12 @@ class _InlineStepState extends State<_InlineStep> {
         // the way it reads in the terminal. On a phone it keeps the card: a
         // bordered block is what separates it from the conversation when the
         // indent is only a few pixels of a narrow screen.
+        if (_open && edit != null && wide)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(left: 28, bottom: 6),
+            child: EditDiffLines(edit, inline: true),
+          ),
         if (_open && edit == null)
           Container(
             width: double.infinity,
@@ -555,10 +572,6 @@ class EditDiffView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // New file: show its contents plainly (line-numbered), not a diff.
-    final lines = (edit.isNew ? edit.content : edit.diff)
-        .replaceAll('\r', '')
-        .split('\n');
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -590,20 +603,44 @@ class EditDiffView extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
               child: Text(edit.isNew ? 'Contents' : 'Output', style: T.meta),
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ListView.builder(
-                  shrinkWrap: false,
-                  itemCount: lines.length,
-                  itemBuilder: (_, i) => edit.isNew
-                      ? _contentLine(i + 1, lines[i])
-                      : _diffLine(i + 1, lines[i]),
-                ),
-              ),
-            ),
+            Expanded(child: EditDiffLines(edit)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The lines of an edit, without the page around them.
+///
+/// Two callers want the same thing drawn differently: a phone opens a page for
+/// it, where the diff has room; a desktop window has the room already, and
+/// pushing a whole view over the conversation to read four lines of go.mod
+/// loses the place you were reading.
+class EditDiffLines extends StatelessWidget {
+  const EditDiffLines(this.edit, {super.key, this.inline = false});
+
+  final EditInfo edit;
+
+  /// Laid out to its full height so the transcript scrolls it, rather than
+  /// scrolling inside a box inside a scroll.
+  final bool inline;
+
+  @override
+  Widget build(BuildContext context) {
+    // New file: show its contents plainly (line-numbered), not a diff.
+    final lines = (edit.isNew ? edit.content : edit.diff)
+        .replaceAll('\r', '')
+        .split('\n');
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: ListView.builder(
+        shrinkWrap: inline,
+        physics: inline ? const NeverScrollableScrollPhysics() : null,
+        itemCount: lines.length,
+        itemBuilder: (_, i) => edit.isNew
+            ? _contentLine(i + 1, lines[i])
+            : _diffLine(i + 1, lines[i]),
       ),
     );
   }

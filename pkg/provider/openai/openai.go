@@ -382,6 +382,15 @@ func (s *session) parseJSONToolCalls(content string) ([]toolCall, string) {
 
 	var calls []toolCall
 	for i, w := range list {
+		if w.Name == "" && len(w.Args) == 0 {
+			// No name and no arguments field: the model may have written the
+			// arguments object on its own, which is the same mistake one step
+			// further along.
+			if tc, ok := s.callFromArgsOnly(body); ok {
+				return []toolCall{tc}, ""
+			}
+			return nil, content
+		}
 		if !known[w.Name] || len(w.Args) == 0 {
 			return nil, content // not ours; leave the text alone
 		}
@@ -394,6 +403,74 @@ func (s *session) parseJSONToolCalls(content string) ([]toolCall, string) {
 	}
 	// The whole message was the call, so nothing is left to say.
 	return calls, ""
+}
+
+// callFromArgsOnly recovers a call from an arguments object with no name on it.
+//
+// gpt-oss:20b does this: given the bash tool it writes
+// {"background":false,"command":"which kubebuilder"} into the content and stops.
+// The turn ends having announced work it never did, and the raw object is
+// rendered as though it were the answer.
+//
+// The name is inferred from the shape, and only when the shape can mean one
+// thing: every key is a declared property of exactly one offered tool, that
+// tool's required properties are all present, and no other tool matches. A
+// model answering a question *with* JSON does not happen to produce an object
+// whose keys are precisely one tool's parameters — and if two tools could take
+// it, nothing here is willing to guess which.
+func (s *session) callFromArgsOnly(body string) (toolCall, bool) {
+	var args map[string]any
+	if json.Unmarshal([]byte(body), &args) != nil || len(args) == 0 {
+		return toolCall{}, false
+	}
+	var found string
+	for _, t := range s.tools {
+		props, _ := t.Function.Parameters["properties"].(map[string]any)
+		if len(props) == 0 {
+			continue
+		}
+		fits := true
+		for k := range args {
+			if _, ok := props[k]; !ok {
+				fits = false
+				break
+			}
+		}
+		for _, r := range required(t.Function.Parameters) {
+			if _, ok := args[r]; !ok {
+				fits = false
+				break
+			}
+		}
+		if !fits {
+			continue
+		}
+		if found != "" {
+			return toolCall{}, false // ambiguous; guessing is worse than prose
+		}
+		found = t.Function.Name
+	}
+	if found == "" {
+		return toolCall{}, false
+	}
+	var tc toolCall
+	tc.ID = "call_json_args"
+	tc.Type = "function"
+	tc.Function.Name = found
+	tc.Function.Arguments = body
+	return tc, true
+}
+
+// required lists a tool's required property names.
+func required(params map[string]any) []string {
+	raw, _ := params["required"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // XML tool-call syntax emitted by some ollama models (qwen3-coder etc.):
