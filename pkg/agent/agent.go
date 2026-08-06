@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -383,6 +384,17 @@ func WithCheckpointSaver(save func(brief string) error) Option {
 // separate model (typically a stronger one than did the edits) reviews the
 // collected diffs and its findings are emitted as a "review" event and returned
 // in Result.Review. Usage is tracked under the reviewer model.
+// WithSynchronousAftercare makes Run wait for the code review and the handoff
+// brief before returning, as it always used to.
+//
+// For a caller that reads Result.Review or Result.Brief straight off the
+// returned value and then exits, this is simpler than remembering to Wait.
+// Everyone else should leave it off: it puts two model round trips between the
+// finished task and the answer being shown.
+func WithSynchronousAftercare() Option {
+	return func(a *Agent) { a.syncAftercare = true }
+}
+
 func WithReviewer(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.reviewer = &reviewer{prov: p, model: model} }
 }
@@ -447,34 +459,37 @@ type editRec struct {
 type Agent struct {
 	// seedSources are gathered before the turn starts, by a caller that
 	// retrieves rather than waiting to be asked.
-	seedSources  []Source
-	cfg          Config
-	prov         provider.Provider
-	ws           *workspace
-	out          io.Writer
-	hook         func(Event)
-	worker       *worker
-	reviewer     *reviewer
-	compactor    *compactor
-	compactStats CompactStatsFunc
-	maxParallel  int       // max concurrent worker subagents (0 = default 2)
-	edits        []editRec // changes made this run, for the reviewer skill
-	publish      PublishFunc
-	asker        AskFunc
-	permMode     PermMode
-	allowTools   map[string]bool       // if non-empty, only these tools are enabled
-	sessionAllow map[string]bool       // tools whitelisted via "don't ask again this session"
-	permRules    map[string]permRule   // per-tool allow/ask/deny overrides
-	plugins      map[string]PluginSpec // external command tools
-	skills       []SkillSpec           // model-invocable skills (progressive disclosure)
-	extraTools   map[string]extraTool  // host-registered tools (WithTool)
-	mcpConns     []*mcpConn            // live MCP client connections (WithMCPServers)
-	conv         bool                  // keep the session across Run calls
-	sess         provider.Session      // persisted session when conv is set
-	resume       string
-	checkpoint   func(brief string) error
-	autoBrief    bool       // if set, produce a handoff brief at the end of every run
-	emitMu       sync.Mutex // serializes emit across parallel workers
+	seedSources   []Source
+	cfg           Config
+	prov          provider.Provider
+	ws            *workspace
+	out           io.Writer
+	hook          func(Event)
+	worker        *worker
+	reviewer      *reviewer
+	compactor     *compactor
+	compactStats  CompactStatsFunc
+	maxParallel   int            // max concurrent worker subagents (0 = default 2)
+	failures      map[string]int // identical failing calls seen, for the no-progress guard
+	aftercare     sync.WaitGroup // background review/brief still running
+	syncAftercare bool           // run review/brief before Run returns
+	edits         []editRec      // changes made this run, for the reviewer skill
+	publish       PublishFunc
+	asker         AskFunc
+	permMode      PermMode
+	allowTools    map[string]bool       // if non-empty, only these tools are enabled
+	sessionAllow  map[string]bool       // tools whitelisted via "don't ask again this session"
+	permRules     map[string]permRule   // per-tool allow/ask/deny overrides
+	plugins       map[string]PluginSpec // external command tools
+	skills        []SkillSpec           // model-invocable skills (progressive disclosure)
+	extraTools    map[string]extraTool  // host-registered tools (WithTool)
+	mcpConns      []*mcpConn            // live MCP client connections (WithMCPServers)
+	conv          bool                  // keep the session across Run calls
+	sess          provider.Session      // persisted session when conv is set
+	resume        string
+	checkpoint    func(brief string) error
+	autoBrief     bool       // if set, produce a handoff brief at the end of every run
+	emitMu        sync.Mutex // serializes emit across parallel workers
 
 	shellMu  sync.Mutex // guards the background-shell registry
 	shells   []*shell
@@ -506,7 +521,14 @@ func (a *Agent) Name() string { return a.cfg.Name }
 
 // Close releases resources held by the agent (MCP server connections). Safe to
 // call once a run is complete; a no-op when nothing needs cleanup.
-func (a *Agent) Close() { a.closeMCP() }
+//
+// It waits for any background review or handoff brief first. Those still need
+// the agent's providers and its MCP connections, so tearing them down
+// underneath a running one would turn a slow finish into a failed one.
+func (a *Agent) Close() {
+	a.Wait()
+	a.closeMCP()
+}
 
 // Result summarizes a completed run, with usage tracked per model so cost is
 // correct across the lead/worker split.
@@ -517,6 +539,16 @@ type Result struct {
 	ByModel map[string]provider.Usage // per-model usage
 	Brief   string                    // handoff brief, if a checkpoint was set
 	Review  string                    // reviewer findings, if a reviewer was set
+
+	// Where the wall-clock went. ModelTime is time blocked on the provider,
+	// ToolTime is time running tools; what's left is the loop's own overhead.
+	// Split this way because only the last part is ours to make faster.
+	//
+	// ModelTime prefers what the backend says the model itself took, so a
+	// provider that shells out to a CLI is charged for the process it starts
+	// on every turn instead of that cost hiding inside "the model was slow".
+	ModelTime time.Duration
+	ToolTime  time.Duration
 }
 
 func (r *Result) add(model string, u provider.Usage) {
@@ -529,10 +561,28 @@ func (r *Result) add(model string, u provider.Usage) {
 	r.Usage.Add(u)
 }
 
+// addSendTime books one Send against the model, charging the agent for
+// whatever the provider spent that was not the model answering.
+//
+// elapsed is what the loop waited. When the backend reports the model's own
+// latency, that smaller number is the model's share and the difference — a CLI
+// process start, a session reload — stays in the agent's column, which is where
+// it can be argued with.
+func (r *Result) addSendTime(resp *provider.Response, elapsed time.Duration) {
+	if resp != nil && resp.APITime > 0 && resp.APITime < elapsed {
+		r.ModelTime += resp.APITime
+		return
+	}
+	r.ModelTime += elapsed
+}
+
 func (r *Result) merge(o *Result) {
 	for m, u := range o.ByModel {
 		r.add(m, u)
 	}
+	// Deliberately not the timings: a worker runs inside the lead's delegate
+	// tool call, so its time is already in the lead's ToolTime. Adding it again
+	// would break wall ≈ ModelTime + ToolTime + overhead.
 }
 
 // Cost estimates total USD across every model the run used.
@@ -610,10 +660,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	// arrives); the TUI renders a growing block, finalized by the "text" event.
 	in.OnText = func(chunk string) { a.emit("text-delta", chunk) }
 
-	done := false
+	done, nudged, malformed := false, false, 0
 	limit := a.maxTurns()
 	for res.Turns < limit && !done {
+		sendStart := time.Now()
 		resp, err := sess.Send(ctx, in)
+		res.addSendTime(resp, time.Since(sendStart))
 		if err != nil && a.cfg.Chat && isNoToolSupport(err) {
 			// Chat is built search-first: the web results ride in with the
 			// prompt, so the tools are an extra, not a requirement. A model
@@ -633,11 +685,24 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			if a.conv {
 				a.sess = sess
 			}
+			sendStart = time.Now()
 			resp, err = sess.Send(ctx, in)
+			res.addSendTime(resp, time.Since(sendStart))
 		}
 		if err != nil {
+			// The backend threw the model's own tool call back at it. That is
+			// the one failure the model can repair, so it is told, rather than
+			// the run ending on it.
+			if errors.Is(err, provider.ErrMalformedToolCall) && malformed < malformedLimit {
+				malformed++
+				res.Turns++
+				a.emit("error", "the tool call could not be parsed; asking again")
+				in = provider.Input{Text: malformedToolCallNudge, OnText: in.OnText}
+				continue
+			}
 			return res, a.friendlyErr(err)
 		}
+		malformed = 0
 		res.Turns++
 		res.add(a.cfg.Model, resp.Usage)
 		a.emitUsage(res, resp.Usage)
@@ -653,58 +718,92 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		}
 
 		if resp.StopReason != provider.StopToolUse || len(resp.ToolCalls) == 0 {
+			// A turn that produced nothing at all is not the model deciding it
+			// has finished — a model with nothing left to do says so in words.
+			// It is a backend that answered with an empty completion, which
+			// taken at face value ends the task in one turn having done
+			// nothing, and reports success. Ask once more before believing it.
+			if strings.TrimSpace(resp.Text) == "" && !nudged {
+				nudged = true
+				in = provider.Input{Text: emptyTurnNudge, OnText: in.OnText}
+				continue
+			}
 			done = true
 			continue
 		}
+		nudged = false // it is answering again; a later silence is new
 
-		results := make([]provider.ToolResult, 0, len(resp.ToolCalls))
-		for _, tc := range resp.ToolCalls {
-			a.emit("tool", fmt.Sprintf("%s %s", tc.Name, string(tc.Input)))
-			if deny, ok := a.gate(tc); !ok {
-				a.emit("tool-result", deny)
-				results = append(results, provider.ToolResult{ID: tc.ID, Content: deny})
-				continue
-			}
-			content, isErr := a.execTool(ctx, tc, res)
-			if isErr {
-				a.emit("error", content)
-			} else {
-				// Retrieval tools that are not ours - Exa's, over MCP - return
-				// their findings as text, so their citations have to be read
-				// back out of it. Without this, a turn that searched through MCP
-				// would answer with sources and show none, which looks exactly
-				// like a model that did not search at all.
-				recordSourcesFromToolOutput(ctx, tc.Name, content)
-				content = a.maybeCompact(ctx, tc.Name, content, res)
-				// Emit a generous slice so clients can expand the full output
-				// (the feed still shows a one-line preview); cap to bound payload.
-				a.emit("tool-result", truncate(content, 16000))
-			}
-			results = append(results, provider.ToolResult{ID: tc.ID, Content: content, IsError: isErr})
-		}
+		toolStart := time.Now()
+		results := a.execBatch(ctx, resp.ToolCalls, res)
+		res.ToolTime += time.Since(toolStart)
 		in = provider.Input{ToolResults: results}
 	}
 	if !done {
 		return res, fmt.Errorf("agent %q: hit turn limit (%d) — raise it with max_turns in config", a.cfg.Name, limit)
 	}
 
-	// Code-review skill: a separate model reviews the diffs this run produced.
-	a.runReview(ctx, res)
+	a.runAftercare(ctx, sess, res)
+	return res, nil
+}
 
-	// Handoff brief: one extra turn on the same session (full context) asking
-	// for a compact resume summary. Cheap, and what a future run replays.
-	if a.checkpoint != nil && a.autoBrief {
-		if brief := a.makeBrief(ctx, sess, res); brief != "" {
-			if err := a.checkpoint(brief); err != nil {
-				a.emit("error", "checkpoint: "+err.Error())
-			} else {
-				res.Brief = brief
-				a.emit("checkpoint", "saved handoff brief")
+// emptyTurnNudge is sent when a turn came back with neither words nor an
+// action. It states the two acceptable ways to finish, so a model that really
+// is done can still stop.
+const emptyTurnNudge = "That reply was empty. Continue the task: either call a tool to make " +
+	"progress, or say in words what you did and why you are stopping."
+
+// malformedToolCallNudge is sent when the backend refused to parse a tool call.
+// It asks for one clean call and nothing else, because the rejected output was
+// typically a page of reasoning with a broken call somewhere inside it.
+const malformedToolCallNudge = "Your last message could not be parsed as a tool call and was rejected. " +
+	"Send exactly one tool call, on its own, with no reasoning before or after it. " +
+	"To change several things in one file, use edit with an edits array."
+
+// malformedLimit bounds the repair attempts. A model that cannot produce a
+// well-formed call in three tries is not going to on the fourth, and each one
+// costs a full round trip.
+const malformedLimit = 3
+
+// runAftercare does the work that happens once the task is finished: the code
+// review, and the handoff brief.
+//
+// Both are whole model round trips, and the brief is the most expensive request
+// of the run — it replays the entire conversation to ask for a summary of it.
+// Neither is something the person waiting is waiting for: the answer they asked
+// for is already in res. So unless a caller has asked to wait, they run in the
+// background and report through the event stream, and Wait blocks for them only
+// where a caller genuinely needs the fields populated.
+func (a *Agent) runAftercare(ctx context.Context, sess provider.Session, res *Result) {
+	work := func() {
+		a.runReview(ctx, res)
+		if a.checkpoint != nil && a.autoBrief {
+			if brief := a.makeBrief(ctx, sess, res); brief != "" {
+				if err := a.checkpoint(brief); err != nil {
+					a.emit("error", "checkpoint: "+err.Error())
+				} else {
+					res.Brief = brief
+					a.emit("checkpoint", "saved handoff brief")
+				}
 			}
 		}
 	}
-	return res, nil
+	if a.syncAftercare {
+		work()
+		return
+	}
+	a.aftercare.Add(1)
+	go func() {
+		defer a.aftercare.Done()
+		work()
+	}()
 }
+
+// Wait blocks until any background aftercare from previous Runs has finished.
+//
+// A caller that reads Result.Review or Result.Brief must call this first, and a
+// program that is about to exit must call it or the work is simply lost. It is
+// a no-op when there is none outstanding.
+func (a *Agent) Wait() { a.aftercare.Wait() }
 
 // Checkpoint generates a handoff brief for the current persistent conversation
 // and passes it to the WithCheckpoint save fn. It is a no-op without a
@@ -842,6 +941,20 @@ func (a *Agent) maybeCompact(ctx context.Context, tool, content string, res *Res
 	if a.compactor == nil || len(content) < a.compactor.threshold {
 		return content
 	}
+	// Try the free version first. A model call in the middle of the tool loop
+	// is the most expensive thing this agent does per byte, and a failing test
+	// run — the case that trips this constantly — is not a document that needs
+	// summarising. It is a head, a tail, and the lines with the word FAIL in
+	// them, all of which can be picked out here for nothing.
+	if trimmed, ok := elide(content, a.compactor.threshold); ok {
+		if a.compactStats != nil {
+			sum := sha256.Sum256([]byte(content))
+			a.compactStats(CompactRecord{Hash: hex.EncodeToString(sum[:]), Tool: tool,
+				RawBytes: len(content), OutBytes: len(trimmed)})
+		}
+		a.emit("compact", fmt.Sprintf("%s result %d -> %d bytes", tool, len(content), len(trimmed)))
+		return trimmed
+	}
 	sum := sha256.Sum256([]byte(content))
 	hash := hex.EncodeToString(sum[:])
 	record := func(out int) {
@@ -868,6 +981,128 @@ func (a *Agent) maybeCompact(ctx context.Context, tool, content string, res *Res
 	record(len(resp.Text))
 	a.emit("compact", fmt.Sprintf("%s result %d -> %d bytes", tool, len(content), len(resp.Text)))
 	return resp.Text + "\n\n[compacted from " + fmt.Sprintf("%d", len(content)) + " bytes]"
+}
+
+// interestingLine matches the lines worth rescuing from the elided middle.
+// Deliberately blunt: a false positive costs a line, a false negative costs the
+// model the error it was looking for.
+var interestingLine = regexp.MustCompile(`(?i)\b(FAIL|FAILED|ERROR|PANIC|FATAL|undefined|cannot|expected|assert)\b|^\s*---\s+FAIL`)
+
+// How an elided result spends its budget. The tail gets the largest share
+// because for a build or a test run the ending is the answer; the head says
+// what was being attempted; the middle is worth keeping only where it is
+// shouting. The remainder is slack for the markers.
+const (
+	elideTailShare = 45
+	elideHeadShare = 25
+	elideSignShare = 20
+)
+
+// elideDetailLines is how many lines after a failure marker are kept with it.
+// A test failure's message, and often a short diff, sit directly under the line
+// that names it.
+const elideDetailLines = 4
+
+// elide shortens an over-long tool result by keeping its ending, its beginning,
+// and any line between them that looks like the reason someone is reading it.
+//
+// This exists because compaction used to mean a blocking model call in the
+// middle of the tool loop, and the thing that triggered it most often was a
+// failing test run — which is not a document that needs summarising. It is a
+// head, a tail and the lines with FAIL in them, all of which can be picked out
+// here for nothing.
+//
+// Reports false when structure cannot solve it: output too short to have a
+// middle worth cutting, or one long uniform body — a file dump, a JSON blob —
+// where there is no shape to exploit and a summary really is the only answer.
+// The caller then falls back to the model.
+func elide(content string, budget int) (string, bool) {
+	if budget <= 0 {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) < 40 {
+		return "", false // too few lines for head/tail to mean anything
+	}
+
+	// Take from the end first: it has the strongest claim on the budget.
+	tail, tailFrom := takeFromEnd(lines, budget*elideTailShare/100)
+	head, headTo := takeFromStart(lines[:tailFrom], budget*elideHeadShare/100)
+
+	// A failure marker without its detail is no use: "--- FAIL: TestApply" says
+	// which test, and the line under it says what it actually got. Keep the
+	// following lines too, up to the next one that starts a new item.
+	middle := lines[headTo:tailFrom]
+	var signal []string
+	used, budgetSignal := 0, budget*elideSignShare/100
+	for i := 0; i < len(middle); i++ {
+		if !interestingLine.MatchString(middle[i]) {
+			continue
+		}
+		for j := i; j < len(middle) && j <= i+elideDetailLines; j++ {
+			if j > i && (strings.TrimSpace(middle[j]) == "" || interestingLine.MatchString(middle[j])) {
+				break
+			}
+			if used+len(middle[j])+1 > budgetSignal {
+				break
+			}
+			signal = append(signal, middle[j])
+			used += len(middle[j]) + 1
+			i = j
+		}
+		if used >= budgetSignal {
+			break
+		}
+	}
+
+	// No failure lines means this is not the case elide is for. It might be a
+	// file dump or a wall of passing output, where head-and-tail keeps a lot of
+	// bytes and almost no information, and a model summarises it far better.
+	// Say so and let the caller pay for one.
+	if len(signal) == 0 {
+		return "", false
+	}
+
+	kept := append([]string{}, head...)
+	kept = append(kept, fmt.Sprintf("[… %d lines elided …]", len(middle)-len(signal)))
+	kept = append(kept, signal...)
+	kept = append(kept, "[… end of elided lines …]")
+	kept = append(kept, tail...)
+
+	out := strings.Join(kept, "\n") +
+		fmt.Sprintf("\n\n[elided from %d bytes; the start, the end and any failure lines are kept verbatim]", len(content))
+	// If this did not get under the budget that triggered compaction, it has
+	// not done the job and the model should have its turn.
+	if len(out) >= budget || len(out) >= len(content) {
+		return "", false
+	}
+	return out, true
+}
+
+// takeFromStart returns the leading lines that fit in budget, and the index one
+// past the last one taken.
+func takeFromStart(lines []string, budget int) ([]string, int) {
+	used, i := 0, 0
+	for ; i < len(lines); i++ {
+		if used+len(lines[i])+1 > budget {
+			break
+		}
+		used += len(lines[i]) + 1
+	}
+	return lines[:i], i
+}
+
+// takeFromEnd returns the trailing lines that fit in budget, and the index of
+// the first one taken.
+func takeFromEnd(lines []string, budget int) ([]string, int) {
+	used, i := 0, len(lines)
+	for ; i > 0; i-- {
+		if used+len(lines[i-1])+1 > budget {
+			break
+		}
+		used += len(lines[i-1]) + 1
+	}
+	return lines[i:], i
 }
 
 const reviewerSystem = "You are a senior staff engineer doing a focused code " +
@@ -1287,6 +1522,166 @@ func gateSummary(tc provider.ToolCall) string {
 	return truncate(string(tc.Input), 200)
 }
 
+// readOnlyTools are the built-in tools that only look: they touch no file, run
+// no command, and ask the user nothing. Several of them in one assistant
+// message can therefore run at the same time without changing the outcome —
+// which is where a turn's wall-clock actually goes when a model opens six files
+// before writing a line.
+//
+// Deliberately a closed list of dross's own tools. A plugin, an MCP tool, or a
+// caller-registered one may do anything at all, so it stays on the slow path.
+var readOnlyTools = map[string]bool{
+	"read": true, "grep": true, "glob": true,
+	"web_search": true, "web_fetch": true,
+}
+
+// parallelSafe reports whether tc can run concurrently with its neighbours.
+func (a *Agent) parallelSafe(tc provider.ToolCall) bool {
+	name := a.resolveToolName(tc.Name, tc.Input)
+	if _, ok := a.plugins[name]; ok {
+		return false
+	}
+	if _, ok := a.extraTools[name]; ok {
+		return false
+	}
+	return readOnlyTools[name]
+}
+
+// execBatch runs one assistant message's tool calls and returns their results in
+// the order they were requested.
+//
+// Consecutive read-only calls run as one concurrent group; everything else runs
+// one at a time, in order. Grouping only runs of adjacent calls (rather than
+// hoisting every read-only call to the front) keeps the semantics identical to
+// running them serially: a read that follows an edit still sees the edit.
+func (a *Agent) execBatch(ctx context.Context, calls []provider.ToolCall, res *Result) []provider.ToolResult {
+	out := make([]provider.ToolResult, len(calls))
+	for i := 0; i < len(calls); {
+		j := i
+		for j < len(calls) && a.parallelSafe(calls[j]) {
+			j++
+		}
+		if j-i > 1 {
+			a.execGroup(ctx, calls[i:j], out[i:j], res)
+			i = j
+			continue
+		}
+		out[i] = a.execOne(ctx, calls[i], res)
+		i++
+	}
+	return out
+}
+
+// execOne runs a single tool call: announce, gate, execute, report.
+func (a *Agent) execOne(ctx context.Context, tc provider.ToolCall, res *Result) provider.ToolResult {
+	a.emit("tool", fmt.Sprintf("%s %s", tc.Name, string(tc.Input)))
+	if deny, ok := a.gate(tc); !ok {
+		a.emit("tool-result", deny)
+		return provider.ToolResult{ID: tc.ID, Content: deny}
+	}
+	content, isErr := a.execTool(ctx, tc, res)
+	return provider.ToolResult{ID: tc.ID, Content: a.report(ctx, tc, content, isErr, res), IsError: isErr}
+}
+
+// execGroup runs a run of read-only calls concurrently, writing into out in the
+// calls' original order.
+//
+// Everything the user or the model sees still happens in order and on this
+// goroutine — announcing, gating, compacting, reporting. Only execTool runs in
+// parallel, so no event ordering or shared Result bookkeeping moves.
+func (a *Agent) execGroup(ctx context.Context, calls []provider.ToolCall, out []provider.ToolResult, res *Result) {
+	type outcome struct {
+		content string
+		isErr   bool
+		denied  bool
+	}
+	got := make([]outcome, len(calls))
+
+	var wg sync.WaitGroup
+	for i, tc := range calls {
+		a.emit("tool", fmt.Sprintf("%s %s", tc.Name, string(tc.Input)))
+		if deny, ok := a.gate(tc); !ok {
+			got[i] = outcome{content: deny, denied: true}
+			continue
+		}
+		wg.Add(1)
+		go func(i int, tc provider.ToolCall) {
+			defer wg.Done()
+			// res is passed for signature parity only: a read-only tool never
+			// touches it (delegation, which does, is not in this group).
+			got[i].content, got[i].isErr = a.execTool(ctx, tc, res)
+		}(i, tc)
+	}
+	wg.Wait()
+
+	for i, tc := range calls {
+		if got[i].denied {
+			a.emit("tool-result", got[i].content)
+			out[i] = provider.ToolResult{ID: tc.ID, Content: got[i].content}
+			continue
+		}
+		content := a.report(ctx, tc, got[i].content, got[i].isErr, res)
+		out[i] = provider.ToolResult{ID: tc.ID, Content: content, IsError: got[i].isErr}
+	}
+}
+
+// repeatLimit is how many times the same call may fail the same way before the
+// agent stops answering it and says so.
+//
+// Two identical failures is a coincidence; three is a loop. A model that
+// re-issues a byte-identical call after a byte-identical error has stopped
+// reading the error, and every further attempt costs a full round trip to
+// produce the same message. Left alone this is how a task reaches its turn
+// limit — or, in the run that prompted this, a ten-minute timeout — having
+// changed nothing.
+const repeatLimit = 3
+
+// loopKey identifies a call precisely enough that only a genuine repeat matches:
+// same tool, same arguments, same resulting error.
+func loopKey(tc provider.ToolCall, content string) string {
+	return tc.Name + "\x00" + string(tc.Input) + "\x00" + content
+}
+
+// noteFailure records a failed call and reports the escalation to send back
+// once the same failure has happened too often.
+func (a *Agent) noteFailure(tc provider.ToolCall, content string) (string, bool) {
+	if a.failures == nil {
+		a.failures = map[string]int{}
+	}
+	k := loopKey(tc, content)
+	a.failures[k]++
+	if a.failures[k] < repeatLimit {
+		return "", false
+	}
+	return fmt.Sprintf("%s\n\n[This is the same %s call failing the same way for the %d time. "+
+		"Retrying it will not work. Do something different: read the file to see its real "+
+		"contents, search for the thing you expected to find, or say plainly what is blocking "+
+		"you and stop.]", content, tc.Name, a.failures[k]), true
+}
+
+// report emits a finished tool call's output and returns what the model should
+// see for it.
+func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string, isErr bool, res *Result) string {
+	if isErr {
+		if escalated, looping := a.noteFailure(tc, content); looping {
+			content = escalated
+		}
+		a.emit("error", content)
+		return content
+	}
+	// Retrieval tools that are not ours - Exa's, over MCP - return their
+	// findings as text, so their citations have to be read back out of it.
+	// Without this, a turn that searched through MCP would answer with sources
+	// and show none, which looks exactly like a model that did not search at
+	// all.
+	recordSourcesFromToolOutput(ctx, tc.Name, content)
+	content = a.maybeCompact(ctx, tc.Name, content, res)
+	// Emit a generous slice so clients can expand the full output (the feed
+	// still shows a one-line preview); cap to bound payload.
+	a.emit("tool-result", truncate(content, 16000))
+	return content
+}
+
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
 // so the run's cost reflects both models.
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
@@ -1317,7 +1712,7 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		old, _ := a.ws.readFile(in.Path) // "" if new file
+		old, _ := a.ws.rawFile(in.Path) // "" if new file
 		out, err := a.ws.writeFile(in.Path, in.Content)
 		if err == nil {
 			a.emitEdit(in.Path, old, in.Content)
@@ -1325,17 +1720,27 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(out, err)
 	case "edit":
 		var in struct {
-			Path   string `json:"path"`
-			OldStr string `json:"old_str"`
-			NewStr string `json:"new_str"`
+			Path       string `json:"path"`
+			OldStr     string `json:"old_str"`
+			NewStr     string `json:"new_str"`
+			ReplaceAll bool   `json:"replace_all"`
+			Edits      []edit `json:"edits"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		old, _ := a.ws.readFile(in.Path)
-		out, err := a.ws.editFile(in.Path, in.OldStr, in.NewStr)
+		edits := in.Edits
+		if len(edits) == 0 {
+			edits = []edit{{OldStr: in.OldStr, NewStr: in.NewStr, ReplaceAll: in.ReplaceAll}}
+		}
+		// Read before and after rather than replaying the edits here: with
+		// replace_all and batches, re-deriving the result would be a second
+		// implementation of the same logic, and the one that drifts.
+		before, _ := a.ws.rawFile(in.Path)
+		out, err := a.ws.applyEdits(in.Path, edits)
 		if err == nil {
-			a.emitEdit(in.Path, old, strings.Replace(old, in.OldStr, in.NewStr, 1))
+			after, _ := a.ws.rawFile(in.Path)
+			a.emitEdit(in.Path, before, after)
 		}
 		return orErr(out, err)
 	case "bash":
@@ -1392,13 +1797,18 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		return orErr(webFetch(ctx, in.URL))
 	case "grep":
 		var in struct {
-			Pattern string `json:"pattern"`
-			Path    string `json:"path"`
+			Pattern   string `json:"pattern"`
+			Path      string `json:"path"`
+			Context   int    `json:"context"`
+			Glob      string `json:"glob"`
+			FilesOnly bool   `json:"files_only"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		return orErr(a.ws.grep(in.Pattern, in.Path))
+		return orErr(a.ws.grep(in.Pattern, grepOpts{
+			Path: in.Path, Context: in.Context, Glob: in.Glob, FilesOnly: in.FilesOnly,
+		}))
 	case "glob":
 		var in struct {
 			Pattern string `json:"pattern"`

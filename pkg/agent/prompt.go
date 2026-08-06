@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dougkirkley/dross/pkg/provider"
@@ -85,26 +89,172 @@ func projectDocs(workdir string) string {
 		" them exactly." + b.String()
 }
 
+// mapEntries and mapBudget bound the workspace listing.
+//
+// The point is orientation, not an inventory: a few hundred paths is enough for
+// a model to know where things live and what the project is made of, and a
+// monorepo's full file list would crowd out the rest of the prompt for no gain.
+const (
+	mapEntries = 200
+	mapBudget  = 4000
+)
+
+// workspaceMap lists what is in the workspace, and where git thinks it stands.
+//
+// A session used to open blind. Every task in the benchmark spent its first
+// turn running a glob or an ls to discover a five-file directory — a whole
+// model round trip to learn something the process already knew before the
+// session started. Putting it in the system prompt costs nothing per turn: it
+// is computed once and sits inside the cached prefix.
+//
+// This is deliberately not a substitute for looking. It says what exists, never
+// what is in it, and it is labelled as a snapshot so a model that has since
+// created a file does not trust a stale list over its own eyes.
+func workspaceMap(workdir string) string {
+	if workdir == "" {
+		return ""
+	}
+	var files []string
+	truncated := false
+	filepath.WalkDir(workdir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDir(d.Name()) && p != workdir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(files) >= mapEntries {
+			truncated = true
+			return filepath.SkipAll
+		}
+		if rel, err := filepath.Rel(workdir, p); err == nil {
+			files = append(files, rel)
+		}
+		return nil
+	})
+	if len(files) == 0 {
+		return ""
+	}
+	sort.Strings(files)
+
+	list := strings.Join(files, "\n")
+	if len(list) > mapBudget {
+		list = list[:mapBudget]
+		if i := strings.LastIndexByte(list, '\n'); i > 0 {
+			list = list[:i]
+		}
+		truncated = true
+	}
+
+	b := "\n\n## Files here at session start\n\n" +
+		"A snapshot, so you do not have to spend a turn discovering the layout. " +
+		"It says what exists, not what is in it, and it does not reflect anything " +
+		"changed since — use glob and read for that.\n\n```\n" + list + "\n"
+	if truncated {
+		b += "[…truncated. Use glob for the rest.]\n"
+	}
+	b += "```"
+	if st := gitState(workdir); st != "" {
+		b += "\n\n" + st
+	}
+	return b
+}
+
+// gitState reports the branch and the working tree's dirtiness, when the
+// workspace is a repository. What a session is standing on and whether it is
+// clean are the two facts it would otherwise ask git for on turn one.
+func gitState(workdir string) string {
+	run := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = workdir
+		out, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	branch := run("rev-parse", "--abbrev-ref", "HEAD")
+	if branch == "" {
+		return ""
+	}
+	s := "Git: on branch " + branch
+	status := run("status", "--porcelain")
+	if status == "" {
+		return s + ", working tree clean."
+	}
+	lines := strings.Split(status, "\n")
+	if len(lines) > 20 {
+		lines = append(lines[:20], fmt.Sprintf("[…and %d more]", len(lines)-20))
+	}
+	return s + ", with uncommitted changes:\n\n```\n" + strings.Join(lines, "\n") + "\n```"
+}
+
+// codeToolLines describes the coding tools a session actually holds, one line
+// each, in the order they matter.
+//
+// Generated from the session's real tool list rather than written out, because
+// the written-out version went stale: it named four tools while the session was
+// handed ten, so grep and glob were invisible and a model that wanted to search
+// reached for `bash grep` instead — slower, noisier, and a turn it did not need
+// to spend. A prompt that under-lists tools does not make a model careful, it
+// makes it improvise.
+func codeToolLines(tools []string) string {
+	desc := map[string]string{
+		"read":         "read(path): read a file; content is returned with line numbers.",
+		"write":        "write(path, content): create or overwrite a file.",
+		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes to one file in a single call rather than one call each.",
+		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched.",
+		"glob":         "glob(pattern): list files whose paths match a glob (**/*.go). Use this to find files, not `bash find` or `ls -R`.",
+		"bash":         "bash(command): run a shell command with the workspace as the working directory. Set background=true for anything long-lived.",
+		"shell_output": "shell_output(id): read (or kill) a background shell started by bash.",
+		"monitor":      "monitor(command): poll a command until it exits 0 — wait for a server or a build without burning turns.",
+		"web_search":   "web_search(query): search the web.",
+		"web_fetch":    "web_fetch(url): fetch a URL and return its readable text.",
+	}
+	// A fixed order, so the prompt reads the same whatever order the tools were
+	// registered in — and so the cache prefix is stable across sessions.
+	order := []string{"read", "write", "edit", "grep", "glob", "bash", "shell_output", "monitor", "web_search", "web_fetch"}
+	have := map[string]bool{}
+	for _, t := range tools {
+		have[t] = true
+	}
+	var b strings.Builder
+	for _, name := range order {
+		// No list at all means the caller did not say; fall back to describing
+		// the full built-in set rather than an empty prompt.
+		if len(tools) > 0 && !have[name] {
+			continue
+		}
+		b.WriteString("- " + desc[name] + "\n")
+	}
+	return b.String()
+}
+
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific
 // framing while tool behavior stays consistent.
-const basePrompt = `You are a coding agent operating inside a confined workspace directory.
+func basePrompt(tools []string) string {
+	return `You are a coding agent operating inside a confined workspace directory.
 
 You have these tools:
-- read(path): read a file; content is returned with line numbers.
-- write(path, content): create or overwrite a file.
-- edit(path, old_str, new_str): replace an exact, unique substring in a file. old_str must match the file exactly, including whitespace, and match exactly once — include surrounding context to make it unique.
-- bash(command): run a shell command with the workspace as the working directory.
-
+` + codeToolLines(tools) + `
 All paths are relative to the workspace root; paths that escape it are rejected.
 
 Working style:
 - When you have enough information to act, act. Do not narrate a plan you will not follow.
+- Ask for everything you need at once. read, grep, glob and web_fetch calls in a
+  single reply are executed at the same time, so opening six files costs one
+  round trip, not six. Batch every look-up whose target you already know;
+  waiting for one file before naming the next is the slowest way to work.
 - Verify your work: after editing code, build or run the relevant tests via bash.
 - Keep responses concise. Lead with the outcome.
 - Report completion only when the task is actually done. If something is blocked, say so plainly.
 - Plain markdown only, and no HTML: a <br> is printed as those four characters, not as a line break.
 - Prefer prose, short lists and code blocks to tables. This is often read on a phone, where a three-column table is three words wide.`
+}
 
 // chatBasePrompt documents the working style for a chat session: no filesystem,
 // shell, or codebase — just conversation, provided context, and the web.
@@ -281,7 +431,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 		}
 		return p
 	}
-	p := basePrompt
+	p := basePrompt(tools)
 	if hasWorker {
 		p += delegateGuidance
 	}
@@ -293,6 +443,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	}
 	p += workspaceOrientation(cfg.Repo, cfg.Branch)
 	p += projectDocs(cfg.Workdir)
+	p += workspaceMap(cfg.Workdir)
 	if d := styleDirective(cfg.Style); d != "" {
 		p += "\n" + d
 	}
@@ -326,14 +477,31 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Required: []string{"path", "content"},
 		},
 		{
-			Name:        "edit",
-			Description: "edit: replace an exact, unique substring in a file. old_str must match exactly once.",
+			Name: "edit",
+			Description: "edit: replace exact substrings in a file. Pass old_str/new_str for one replacement, " +
+				"or edits (an array) to make SEVERAL changes to the same file in one call — they are applied in " +
+				"order and all together, so if any one fails nothing is written. old_str must match exactly, " +
+				"including whitespace, and must be unique unless replace_all is set.",
 			Properties: map[string]any{
-				"path":    strProp("File path relative to the workspace root."),
-				"old_str": strProp("Exact substring to replace, including whitespace. Must be unique in the file."),
-				"new_str": strProp("Replacement text."),
+				"path":        strProp("File path relative to the workspace root."),
+				"old_str":     strProp("Exact substring to replace, including whitespace. Must be unique in the file unless replace_all is set."),
+				"new_str":     strProp("Replacement text."),
+				"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match. Use for a rename. Default false."},
+				"edits": map[string]any{
+					"type":        "array",
+					"description": "Several replacements in this same file, applied in order. Use this instead of several edit calls.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"old_str":     strProp("Exact substring to replace, including whitespace."),
+							"new_str":     strProp("Replacement text."),
+							"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence of this old_str."},
+						},
+						"required": []string{"old_str", "new_str"},
+					},
+				},
 			},
-			Required: []string{"path", "old_str", "new_str"},
+			Required: []string{"path"},
 		},
 		{
 			Name:        "bash",
@@ -376,11 +544,17 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Required:    []string{"url"},
 		},
 		{
-			Name:        "grep",
-			Description: "grep: search the contents of files in the workspace for a regular expression. This is the workspace search; to search the web use web_search instead. Returns matching lines as path:line:text.",
+			Name: "grep",
+			Description: "grep: search the contents of files in the workspace for a regular expression. This is the workspace search; " +
+				"to search the web use web_search instead. Returns matching lines as path:line:text. Pass context to get the " +
+				"surrounding lines back in the same call, which usually saves a follow-up read.",
 			Properties: map[string]any{
 				"pattern": strProp("Regular expression to search for."),
 				"path":    strProp("Optional file or directory to search (relative to the workspace root; default whole workspace)."),
+				"context": map[string]any{"type": "integer", "description": "Lines of context to show either side of each match (max 20). Default 0."},
+				"glob":    strProp("Optional glob restricting which files are searched (e.g. **/*.go)."),
+				"files_only": map[string]any{"type": "boolean",
+					"description": "Return only the names of files that match, not the matching lines. Use when you want to know where something lives."},
 			},
 			Required: []string{"pattern"},
 		},

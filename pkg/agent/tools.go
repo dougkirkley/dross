@@ -440,14 +440,44 @@ func (w *workspace) blockedCmd(command string) string {
 // grep searches file contents under path (or the whole workspace) for a regexp,
 // returning matches as "rel:line: text". Skips VCS/dep dirs and binary/large
 // files, and caps the result.
-func (w *workspace) grep(pattern, path string) (string, error) {
+// grepOpts are the optional narrowings and widenings of a search.
+//
+// Context exists because a bare matching line is rarely the answer: a search
+// for a symbol was always followed by a read of the file it was found in, so
+// the search cost two round trips instead of one. FilesOnly is the opposite
+// need — "which files mention this" — where the lines themselves are noise.
+type grepOpts struct {
+	Path      string
+	Context   int
+	Glob      string
+	FilesOnly bool
+}
+
+// maxGrepContext bounds how much a single search can quote back. Enough to see
+// a function around a match, not enough to return a file a line at a time.
+const maxGrepContext = 20
+
+func (w *workspace) grep(pattern string, opts grepOpts) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("bad pattern: %w", err)
 	}
+	var pathRE *regexp.Regexp
+	if opts.Glob != "" {
+		pathRE, err = globToRegex(opts.Glob)
+		if err != nil {
+			return "", fmt.Errorf("bad glob: %w", err)
+		}
+	}
+	if opts.Context > maxGrepContext {
+		opts.Context = maxGrepContext
+	}
+	if opts.Context < 0 {
+		opts.Context = 0
+	}
 	base := w.root
-	if path != "" {
-		abs, err := w.resolve(path)
+	if opts.Path != "" {
+		abs, err := w.resolve(opts.Path)
 		if err != nil {
 			return "", err
 		}
@@ -456,6 +486,7 @@ func (w *workspace) grep(pattern, path string) (string, error) {
 	const maxMatches = 300
 	var out strings.Builder
 	matches := 0
+	var files []string
 	walkErr := filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -469,6 +500,10 @@ func (w *workspace) grep(pattern, path string) (string, error) {
 		if matches >= maxMatches {
 			return io.EOF
 		}
+		rel, _ := filepath.Rel(w.root, p)
+		if pathRE != nil && !pathRE.MatchString(rel) {
+			return nil
+		}
 		if info, err := d.Info(); err == nil && info.Size() > 1<<20 {
 			return nil // skip large files
 		}
@@ -477,23 +512,44 @@ func (w *workspace) grep(pattern, path string) (string, error) {
 			return nil
 		}
 		defer f.Close()
-		rel, _ := filepath.Rel(w.root, p)
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-		ln := 0
+		var lines []string
+		binary := false
 		for sc.Scan() {
-			ln++
 			line := sc.Text()
 			if !utf8.ValidString(line) {
-				return nil // binary file
+				binary = true
+				break
 			}
-			if re.MatchString(line) {
-				fmt.Fprintf(&out, "%s:%d: %s\n", rel, ln, truncate(strings.TrimSpace(line), 300))
-				matches++
-				if matches >= maxMatches {
-					break
-				}
+			lines = append(lines, line)
+		}
+		if binary {
+			return nil
+		}
+
+		hits := 0
+		lastPrinted := 0 // 1-based; 0 means nothing printed from this file yet
+		for i, line := range lines {
+			if !re.MatchString(line) {
+				continue
 			}
+			hits++
+			matches++
+			if opts.FilesOnly {
+				break
+			}
+			if opts.Context == 0 {
+				fmt.Fprintf(&out, "%s:%d: %s\n", rel, i+1, truncate(strings.TrimSpace(line), 300))
+			} else {
+				lastPrinted = writeWithContext(&out, rel, lines, i, opts.Context, lastPrinted)
+			}
+			if matches >= maxMatches {
+				break
+			}
+		}
+		if hits > 0 && opts.FilesOnly {
+			files = append(files, rel)
 		}
 		return nil
 	})
@@ -503,11 +559,41 @@ func (w *workspace) grep(pattern, path string) (string, error) {
 	if matches == 0 {
 		return "[no matches]", nil
 	}
+	if opts.FilesOnly {
+		sort.Strings(files)
+		return strings.Join(files, "\n") + "\n", nil
+	}
 	res := out.String()
 	if matches >= maxMatches {
 		res += fmt.Sprintf("[truncated at %d matches]\n", maxMatches)
 	}
 	return res, nil
+}
+
+// writeWithContext prints the lines around a match, numbered, skipping anything
+// already printed for an earlier match so overlapping windows do not repeat
+// themselves. Returns the new high-water line number (1-based).
+func writeWithContext(out *strings.Builder, rel string, lines []string, idx, ctx, lastPrinted int) int {
+	start := idx - ctx
+	if start < 0 {
+		start = 0
+	}
+	end := idx + ctx
+	if end > len(lines)-1 {
+		end = len(lines) - 1
+	}
+	if start+1 <= lastPrinted {
+		start = lastPrinted // already printed up to here
+	} else if lastPrinted > 0 {
+		out.WriteString("--\n")
+	}
+	if lastPrinted == 0 {
+		fmt.Fprintf(out, "%s:\n", rel)
+	}
+	for i := start; i <= end; i++ {
+		fmt.Fprintf(out, "%6d\t%s\n", i+1, truncate(lines[i], 300))
+	}
+	return end + 1
 }
 
 // glob lists workspace files matching a glob pattern (supports ** ).
@@ -664,6 +750,28 @@ func (w *workspace) readFile(path string) (string, error) {
 	return b.String(), nil
 }
 
+// rawFile returns a file's bytes as they are, with no line numbers, for the
+// callers that need to diff two versions of it.
+//
+// readFile is for the model and numbers every line, which is right there and
+// wrong here: diffing numbered text against raw text reports the whole file as
+// changed, and diffing numbered against numbered puts line numbers inside the
+// diff. A missing file is "" and no error — that is the "before" of a create.
+func (w *workspace) rawFile(path string) (string, error) {
+	abs, err := w.resolve(path)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
 // writeFile creates or overwrites a file, creating parent dirs.
 func (w *workspace) writeFile(path, content string) (string, error) {
 	abs, err := w.resolve(path)
@@ -679,10 +787,31 @@ func (w *workspace) writeFile(path, content string) (string, error) {
 	return fmt.Sprintf("wrote %d bytes to %s", len(content), path), nil
 }
 
+// edit is one replacement within a file.
+type edit struct {
+	OldStr     string `json:"old_str"`
+	NewStr     string `json:"new_str"`
+	ReplaceAll bool   `json:"replace_all"`
+}
+
 // editFile does an exact-string replacement that must match exactly once.
 // Ambiguous (>1) or absent (0) matches are errors with a legible message — the
 // quality of this one tool disproportionately shapes how good the agent feels.
 func (w *workspace) editFile(path, oldStr, newStr string) (string, error) {
+	return w.applyEdits(path, []edit{{OldStr: oldStr, NewStr: newStr}})
+}
+
+// applyEdits applies a list of replacements to one file, all or nothing.
+//
+// All or nothing because a half-applied batch is the worst outcome available:
+// the file is in a state neither the model nor the user asked for, and the
+// model's next move is based on a diff it did not make. Applying in order
+// against the running text also means a later edit can legitimately touch what
+// an earlier one produced.
+func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
+	if len(edits) == 0 {
+		return "", fmt.Errorf("no edits given")
+	}
 	abs, err := w.resolve(path)
 	if err != nil {
 		return "", err
@@ -691,19 +820,315 @@ func (w *workspace) editFile(path, oldStr, newStr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	text := string(data)
-	n := strings.Count(text, oldStr)
-	switch {
-	case n == 0:
-		return "", fmt.Errorf("old_str not found in %s; it must match the file exactly including whitespace", path)
-	case n > 1:
-		return "", fmt.Errorf("old_str matched %d times in %s; add surrounding context so it is unique", n, path)
+	total, adjusted := 0, 0
+	for i, e := range edits {
+		if e.OldStr == "" {
+			return "", fmt.Errorf("edit %d has an empty old_str; use write to create a file", i+1)
+		}
+		if e.OldStr == e.NewStr {
+			return "", fmt.Errorf("edit %d has old_str identical to new_str, so it would change nothing", i+1)
+		}
+		n := strings.Count(text, e.OldStr)
+		if n == 0 {
+			// Nothing matched byte for byte. Before failing, try again ignoring
+			// each line's leading whitespace — see reindentedFor.
+			if updated, ok := looseReplace(text, e.OldStr, e.NewStr); ok {
+				text = updated
+				total++
+				adjusted++
+				continue
+			}
+			return "", fmt.Errorf("%s", noMatchMessage(path, text, e.OldStr, i, len(edits)))
+		}
+		if n > 1 && !e.ReplaceAll {
+			return "", fmt.Errorf("%s", ambiguousMessage(path, text, e.OldStr, n, i, len(edits)))
+		}
+		if e.ReplaceAll {
+			text = strings.ReplaceAll(text, e.OldStr, e.NewStr)
+			total += n
+			continue
+		}
+		text = strings.Replace(text, e.OldStr, e.NewStr, 1)
+		total++
 	}
-	updated := strings.Replace(text, oldStr, newStr, 1)
-	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
+
+	if err := os.WriteFile(abs, []byte(text), 0o644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("edited %s (1 replacement)", path), nil
+	// Hand back the result rather than only the fact of it: a model that cannot
+	// see what it produced re-reads the file to check, which costs a whole
+	// round trip to learn something this call already knows.
+	note := ""
+	if adjusted > 0 {
+		// Never silent: the edit that landed is not byte-for-byte the one that
+		// was asked for, and the echoed region below shows what it became.
+		note = fmt.Sprintf(" — %d matched only after ignoring indentation, and were "+
+			"applied using the file's own", adjusted)
+	}
+	return fmt.Sprintf("edited %s (%d replacement%s%s)\n\n%s",
+		path, total, plural(total), note, changedRegion(string(data), text)), nil
+}
+
+// looseReplace applies an edit whose old_str matches the file except for the
+// whitespace at the start of its lines.
+//
+// A model reconstructing indentation from a line-numbered read is guessing:
+// read separates the number from the content with a tab, the content of a Go
+// file starts with tabs, and the boundary between the two is not visible. A run
+// was watched failing exactly there — the model dropped one leading tab, the
+// edit was refused, it retried with four spaces, and gave up having changed
+// nothing. Refusing that edit is technically correct and practically useless:
+// the intent was unambiguous.
+//
+// So it is honoured, but only when it is genuinely unambiguous — the trimmed
+// lines match in exactly one place — and the file's own indentation is kept
+// rather than the model's guess. Anything less certain still fails, loudly.
+func looseReplace(text, oldStr, newStr string) (string, bool) {
+	fileLines := strings.Split(text, "\n")
+	oldLines := strings.Split(oldStr, "\n")
+	if len(oldLines) == 0 || len(oldLines) > len(fileLines) {
+		return "", false
+	}
+	trimmedEqual := func(a, b string) bool {
+		return strings.TrimSpace(a) == strings.TrimSpace(b)
+	}
+
+	at := -1
+	for i := 0; i+len(oldLines) <= len(fileLines); i++ {
+		match := true
+		for j := range oldLines {
+			if !trimmedEqual(fileLines[i+j], oldLines[j]) {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		if at >= 0 {
+			return "", false // more than one place: not unambiguous
+		}
+		at = i
+	}
+	if at < 0 {
+		return "", false
+	}
+
+	region := fileLines[at : at+len(oldLines)]
+	out := append([]string{}, fileLines[:at]...)
+	out = append(out, reindentedFor(newStr, region)...)
+	out = append(out, fileLines[at+len(oldLines):]...)
+	return strings.Join(out, "\n"), true
+}
+
+// reindentedFor puts the replacement lines back in the file's indentation.
+//
+// When the replacement has one line per replaced line — the common case, a
+// changed word or a changed return — each keeps the indentation of the line it
+// stands in for, which is exactly right whatever the model sent. Otherwise the
+// shape has changed and there is nothing to map onto, so every line is shifted
+// by the indentation the first line was missing.
+func reindentedFor(newStr string, region []string) []string {
+	newLines := strings.Split(newStr, "\n")
+	out := make([]string, 0, len(newLines))
+	if len(newLines) == len(region) {
+		for i, l := range newLines {
+			if strings.TrimSpace(l) == "" {
+				out = append(out, l) // a blank line has no indentation to keep
+				continue
+			}
+			out = append(out, leadingWS(region[i])+strings.TrimLeft(l, " \t"))
+		}
+		return out
+	}
+	shift := leadingWS(region[0])
+	for _, l := range newLines {
+		if strings.TrimSpace(l) == "" {
+			out = append(out, l)
+			continue
+		}
+		out = append(out, shift+strings.TrimLeft(l, " \t"))
+	}
+	return out
+}
+
+func leadingWS(s string) string {
+	return s[:len(s)-len(strings.TrimLeft(s, " \t"))]
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// editWhere labels which edit of a batch failed, and says nothing at all for a
+// single edit, where "edit 1 of 1" is just noise.
+func editWhere(i, of int) string {
+	if of <= 1 {
+		return ""
+	}
+	return fmt.Sprintf(" (edit %d of %d; nothing was written)", i+1, of)
+}
+
+// noMatchMessage explains a failed match, and where it can, supplies the fix.
+//
+// "It must match exactly including whitespace" is true and nearly useless: the
+// model already believes it matched exactly. The common cause is indentation —
+// tabs against spaces, or a level of nesting misremembered — so when the text
+// is there under different whitespace, say so and quote the real line. That
+// turns the most expensive failure in the agent, a re-read followed by an
+// identical retry, into a correction the model can make from this message
+// alone.
+func noMatchMessage(path, text, oldStr string, i, of int) string {
+	msg := fmt.Sprintf("old_str not found in %s%s", path, editWhere(i, of))
+	// An old_str that differs only by indentation has already been applied by
+	// now, so reaching here means the content differs too. Anchor on the first
+	// line and show the region the model was probably aiming at: quoting one
+	// line of a three-line old_str would leave it reconstructing the rest from
+	// the same memory that just failed it.
+	if _, n, ok := findIgnoringIndent(text, oldStr); ok {
+		want := strings.Count(oldStr, "\n") + 1
+		return fmt.Sprintf("%s. It starts at line %d, but the rest does not match. The file has:\n%s\n"+
+			"Copy that block exactly, including leading whitespace, and change only what you mean to.",
+			msg, n, quoteLines(regionAt(text, n, want)))
+	}
+	if strings.Contains(text, strings.TrimSpace(oldStr)) {
+		return msg + " — but a trimmed version of old_str does appear. The surrounding" +
+			" whitespace differs; read the file and copy the region verbatim."
+	}
+	return msg + "; it must match the file exactly, including whitespace. Read the file and copy the region."
+}
+
+// ambiguousMessage names the sites instead of asking the model to go and find
+// them. Without this the model re-reads the whole file to build a unique
+// old_str, which is a turn spent recovering information this call already had.
+func ambiguousMessage(path, text, oldStr string, n, i, of int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "old_str matched %d times in %s%s. Either pass replace_all to change every one,"+
+		" or add surrounding context so it is unique. It matches at:\n", n, path, editWhere(i, of))
+	for _, ln := range matchLines(text, oldStr, 5) {
+		fmt.Fprintf(&b, "  %s:%d: %s\n", path, ln.num, strings.TrimSpace(ln.text))
+	}
+	if n > 5 {
+		fmt.Fprintf(&b, "  …and %d more\n", n-5)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type matchLine struct {
+	num  int
+	text string
+}
+
+// matchLines reports the first max lines on which oldStr's matches begin.
+func matchLines(text, oldStr string, max int) []matchLine {
+	var out []matchLine
+	offset := 0
+	for len(out) < max {
+		i := strings.Index(text[offset:], oldStr)
+		if i < 0 {
+			break
+		}
+		at := offset + i
+		num := strings.Count(text[:at], "\n") + 1
+		start := strings.LastIndexByte(text[:at], '\n') + 1
+		end := strings.IndexByte(text[at:], '\n')
+		if end < 0 {
+			end = len(text)
+		} else {
+			end += at
+		}
+		out = append(out, matchLine{num: num, text: text[start:end]})
+		offset = at + len(oldStr)
+	}
+	return out
+}
+
+// findIgnoringIndent looks for oldStr's first line with its leading whitespace
+// ignored, and returns the file's own version of that line.
+func findIgnoringIndent(text, oldStr string) (line string, num int, ok bool) {
+	want := strings.TrimSpace(firstNonBlankLine(oldStr))
+	if want == "" {
+		return "", 0, false
+	}
+	for i, l := range strings.Split(text, "\n") {
+		if strings.TrimSpace(l) == want {
+			return l, i + 1, true
+		}
+	}
+	return "", 0, false
+}
+
+func firstNonBlankLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+// regionAt returns count lines of the file starting at the 1-based line n.
+func regionAt(text string, n, count int) string {
+	lines := strings.Split(text, "\n")
+	start := n - 1
+	if start < 0 {
+		start = 0
+	}
+	end := start + count
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+// quoteLines renders text in a fenced block so leading whitespace survives the
+// trip through the model's own formatting.
+func quoteLines(s string) string {
+	return "```\n" + s + "\n```"
+}
+
+// editContext is how many lines either side of a change are echoed back.
+const editContext = 4
+
+// changedRegion returns the numbered lines around the first difference between
+// two versions of a file, so an edit reports what it produced.
+func changedRegion(before, after string) string {
+	oldLines := strings.Split(before, "\n")
+	newLines := strings.Split(after, "\n")
+	first := 0
+	for first < len(oldLines) && first < len(newLines) && oldLines[first] == newLines[first] {
+		first++
+	}
+	if first >= len(newLines) {
+		return ""
+	}
+	// How far the change runs, measured from the end so an insertion does not
+	// look like it rewrote everything below it.
+	lastOld, lastNew := len(oldLines)-1, len(newLines)-1
+	for lastOld > first && lastNew > first && oldLines[lastOld] == newLines[lastNew] {
+		lastOld--
+		lastNew--
+	}
+	start := first - editContext
+	if start < 0 {
+		start = 0
+	}
+	end := lastNew + editContext
+	if end > len(newLines)-1 {
+		end = len(newLines) - 1
+	}
+	var b strings.Builder
+	b.WriteString("The file now reads:\n```\n")
+	for i := start; i <= end; i++ {
+		fmt.Fprintf(&b, "%6d\t%s\n", i+1, newLines[i])
+	}
+	b.WriteString("```")
+	return b.String()
 }
 
 // diffStat produces a line-level diff of oldText vs newText: the number of

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/dougkirkley/dross/pkg/provider"
@@ -13,7 +14,10 @@ import (
 
 // scriptedProvider replays a fixed list of responses, one per Send, so a run can
 // be driven without hitting a real model.
+// Locked because parallel delegation opens worker sessions from several
+// goroutines at once, so the fixture is shared exactly like a real provider is.
 type scriptedProvider struct {
+	mu    sync.Mutex
 	steps []provider.Response
 	last  *scriptedSession // most recently opened session, for inspection
 }
@@ -21,7 +25,9 @@ type scriptedProvider struct {
 func (p *scriptedProvider) Name() string { return "scripted" }
 func (p *scriptedProvider) NewSession(provider.SessionConfig) provider.Session {
 	s := &scriptedSession{steps: p.steps}
+	p.mu.Lock()
 	p.last = s
+	p.mu.Unlock()
 	return s
 }
 
@@ -160,6 +166,8 @@ func TestReviewSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The review runs behind the answer now; a caller that reads it waits.
+	ag.Wait()
 	if !strings.Contains(res.Review, "missing license") {
 		t.Fatalf("Review = %q", res.Review)
 	}
@@ -389,6 +397,7 @@ func TestCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ag.Wait()
 	if saved != "BRIEF: did the thing" || res.Brief != saved {
 		t.Fatalf("brief not saved: saved=%q res.Brief=%q", saved, res.Brief)
 	}

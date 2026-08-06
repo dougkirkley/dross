@@ -26,14 +26,14 @@ func TestWorkspaceGrepGlob(t *testing.T) {
 	}
 
 	// grep
-	out, err := w.grep("func main", "")
+	out, err := w.grep("func main", grepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "main.go:2:") {
 		t.Fatalf("grep missed match:\n%s", out)
 	}
-	if empty, _ := w.grep("zzz-nope", ""); empty != "[no matches]" {
+	if empty, _ := w.grep("zzz-nope", grepOpts{}); empty != "[no matches]" {
 		t.Fatalf("expected no matches, got %q", empty)
 	}
 
