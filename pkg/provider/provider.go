@@ -12,9 +12,11 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Config holds backend construction options. Kept minimal; grows per backend.
@@ -85,6 +87,13 @@ type Response struct {
 	ToolCalls  []ToolCall
 	StopReason string
 	Usage      Usage
+
+	// APITime is how long the backend says the model itself took, when it says
+	// so at all (zero otherwise). It exists to separate the model's latency
+	// from the cost of reaching it: a provider that shells out to a CLI pays a
+	// process start on every turn, and without this that shows up as the model
+	// being slow rather than as something worth fixing.
+	APITime time.Duration
 }
 
 // SessionConfig is fixed for a conversation's lifetime.
@@ -94,6 +103,16 @@ type SessionConfig struct {
 	Model     string
 	MaxTokens int
 }
+
+// ErrMalformedToolCall reports that the backend rejected the model's own
+// output because it could not parse the tool call in it.
+//
+// It is separated from every other failure because it is the only one the model
+// can fix. ollama answers 500 for this, and a plain retry re-asks the same
+// question and gets a similarly malformed answer — three attempts, three
+// failures, and a run that was minutes in ends with nothing. Told what
+// happened, the model simply writes the call again.
+var ErrMalformedToolCall = errors.New("backend could not parse the model's tool call")
 
 // Session is one stateful conversation with a backend.
 type Session interface {
