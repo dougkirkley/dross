@@ -1873,13 +1873,19 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 		a.emit("answer", ans)
 		return ans, false
 	default:
-		// Help the model recover instead of dead-ending: name the real tools.
+		// Help the model recover instead of dead-ending: name the real tools,
+		// and lead with the nearest one. A list of eleven names is a menu; the
+		// single closest is an answer.
 		names := make([]string, 0, len(a.enabledTools()))
 		for _, d := range a.enabledTools() {
 			names = append(names, d.Name)
 		}
-		return fmt.Sprintf("no tool named %q. Available tools: %s. Use the exact lowercase name.",
-			tc.Name, strings.Join(names, ", ")), true
+		msg := fmt.Sprintf("no tool named %q.", tc.Name)
+		if near := nearestTool(normalizeToolName(tc.Name), names); near != "" {
+			msg += fmt.Sprintf(" Did you mean %s?", near)
+		}
+		return fmt.Sprintf("%s Available tools: %s. Use the exact lowercase name.",
+			msg, strings.Join(names, ", ")), true
 	}
 }
 
@@ -1899,13 +1905,7 @@ func (a *Agent) resolveToolName(name string, input json.RawMessage) string {
 	if a.hasTool(name) {
 		return name
 	}
-	n := strings.ToLower(strings.TrimSpace(name))
-	// Some models qualify the name ("functions.read") or suffix it.
-	if i := strings.LastIndex(n, "."); i >= 0 && i+1 < len(n) {
-		n = n[i+1:]
-	}
-	n = strings.TrimSuffix(strings.TrimSuffix(n, "_tool"), "-tool")
-	n = strings.ReplaceAll(n, "-", "_")
+	n := normalizeToolName(name)
 	if a.hasTool(n) {
 		return n
 	}
@@ -1928,23 +1928,105 @@ func (a *Agent) resolveToolName(name string, input json.RawMessage) string {
 		return name // no signal either way; say so rather than pick
 	}
 
-	for alias, real := range map[string]string{
-		"read_file": "read", "readfile": "read", "cat": "read", "open": "read",
-		"write_file": "write", "writefile": "write", "create_file": "write",
-		"edit_file": "edit", "replace": "edit", "str_replace": "edit",
-		"shell": "bash", "run": "bash", "exec": "bash", "run_command": "bash",
-		"terminal": "bash", "command": "bash",
-		"list_files": "glob", "list": "glob", "ls": "glob", "find_files": "glob",
-		"grep_search": "grep", "search_files": "grep", "ripgrep": "grep", "rg": "grep",
-		"websearch": "web_search", "search_web": "web_search",
-		"webfetch": "web_fetch", "fetch": "web_fetch", "http_get": "web_fetch",
-		"ask": "ask_user", "ask_question": "ask_user", "question": "ask_user",
-	} {
-		if n == alias && a.hasTool(real) {
-			return real
-		}
+	if real, ok := toolAliases[n]; ok && a.hasTool(real) {
+		return real
 	}
 	return name
+}
+
+// normalizeToolName strips the decoration a model puts around a tool name.
+//
+// A qualifier ("functions.read"), a suffix ("read_tool"), a separator style
+// ("web-search"), an argument list ("grep(pattern)"), or trailing punctuation —
+// "search?" was seen in the wild, and cost a turn purely because the question
+// mark stopped it reaching the search/find disambiguation below.
+func normalizeToolName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	// Drop anything from an opening bracket on: some models write the call
+	// rather than the name.
+	if i := strings.IndexAny(n, "([{"); i > 0 {
+		n = n[:i]
+	}
+	n = strings.Trim(n, " \t\"'`?!.,:;*")
+	// A qualifier is namespacing, not part of the name.
+	if i := strings.LastIndex(n, "."); i >= 0 && i+1 < len(n) {
+		n = n[i+1:]
+	}
+	n = strings.TrimSuffix(strings.TrimSuffix(n, "_tool"), "-tool")
+	return strings.ReplaceAll(strings.ReplaceAll(n, "-", "_"), " ", "_")
+}
+
+// toolAliases maps a near-miss onto the tool it can only have meant.
+//
+// Deliberately a table of names with one obvious destination. Anything genuinely
+// ambiguous is handled above by looking at the arguments, and anything with no
+// obvious home — "debug" was one — is left to fail with a suggestion rather than
+// silently become something the model did not ask for.
+var toolAliases = map[string]string{
+	"read_file": "read", "readfile": "read", "cat": "read", "open": "read",
+	"view": "read", "view_file": "read", "show": "read",
+	"write_file": "write", "writefile": "write", "create_file": "write",
+	"create": "write", "save": "write",
+	"edit_file": "edit", "replace": "edit", "str_replace": "edit",
+	"apply_patch": "edit", "patch": "edit", "modify": "edit", "update_file": "edit",
+	"shell": "bash", "run": "bash", "exec": "bash", "run_command": "bash",
+	"terminal": "bash", "command": "bash", "sh": "bash", "execute": "bash",
+	"list_files": "glob", "list": "glob", "ls": "glob", "find_files": "glob",
+	"glob_files": "glob", "tree": "glob",
+	"grep_search": "grep", "search_files": "grep", "ripgrep": "grep", "rg": "grep",
+	"regex": "grep", "regex_search": "grep", "code_search": "grep",
+	"search_code": "grep", "grep_files": "grep",
+	"websearch": "web_search", "search_web": "web_search",
+	"webfetch": "web_fetch", "fetch": "web_fetch", "http_get": "web_fetch",
+	"curl": "web_fetch", "get_url": "web_fetch",
+	"ask": "ask_user", "ask_question": "ask_user", "question": "ask_user",
+}
+
+// nearestTool returns the available name closest to want, or "" when nothing is
+// close enough to be worth suggesting.
+//
+// The threshold matters more than the metric: suggesting "read" for "debug"
+// would send a model somewhere it never meant to go, which is worse than the
+// plain list it would otherwise get.
+func nearestTool(want string, names []string) string {
+	best, bestDist := "", 1<<30
+	for _, n := range names {
+		d := editDistance(want, n)
+		if d < bestDist {
+			best, bestDist = n, d
+		}
+	}
+	// Allow roughly a third of the name to differ, and never more than three
+	// edits — enough for a typo or a plural, not enough for a different word.
+	limit := len(best)/3 + 1
+	if limit > 3 {
+		limit = 3
+	}
+	if bestDist > limit {
+		return ""
+	}
+	return best
+}
+
+// editDistance is Levenshtein, on names short enough that nothing cleverer pays.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, min(cur[j-1]+1, prev[j-1]+cost))
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(b)]
 }
 
 // hasTool reports whether a tool of this exact name is available to the agent,
