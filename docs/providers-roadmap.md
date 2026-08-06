@@ -5,7 +5,7 @@ Goal: support roughly the same breadth of model providers as **OpenCode** and
 / [models.dev](https://models.dev) — ~75 providers). dross already has a
 `provider.Provider` registry (`internal/provider`) with `anthropic`, `openai`
 (OpenAI-compatible, covers ollama/LM Studio/llama.cpp via `base_url`), `bedrock`,
-`claude-sub`, and `claude-code`. Most remaining providers are OpenAI-compatible,
+and `claude-code`. Most remaining providers are OpenAI-compatible,
 so the work is mostly a **catalog + a few native adapters + auth helpers**, not 75
 bespoke clients.
 

@@ -29,7 +29,7 @@ product.
 ```
 cmd/dross              # CLI entry (bare `dross` = TUI; agent/serve/rc/login/... subcommands)
 pkg/agent              # the tool loop, delegation, permissions, plugins, conversation memory (importable)
-pkg/provider           # backend registry (anthropic, openai-compatible, bedrock, claude-sub, claude-code) (importable)
+pkg/provider           # backend registry (anthropic, openai-compatible, bedrock, claude-code) (importable)
 internal/catalog       # known providers (id, base URL, key env, preview models)
 internal/tui           # Charm Bubble Tea terminal client (holographic-crystal theme)
 internal/server        # serve: sessions, SSE, device relay, SSO
@@ -41,7 +41,7 @@ mobile/                # Flutter client (web build embedded into serve)
 `pkg/agent` and `pkg/provider` are the public embedding surface: another Go
 program imports them, fills out `agent.Config` directly, builds a
 `provider.Provider`, and calls `agent.New(...).Run(...)`. Everything a consumer
-must name lives under `pkg/`; `internal/{config,catalog,subauth}` are
+must name lives under `pkg/`; `internal/{config,catalog}` are
 implementation detail the backends pull in transitively (allowed within the
 module) but consumers never reference. See the Embedding section in the README.
 
@@ -182,7 +182,6 @@ Backends registered in `internal/provider`:
   Groq, DeepSeek, OpenRouter, …), selected by base URL. Includes an XML
   tool-call fallback for models (e.g. qwen3-coder) that emit tool calls as text.
 - `bedrock` — Anthropic on AWS Bedrock.
-- `claude-sub` — a Claude subscription via user-supplied OAuth (`dross login`).
 - `claude-code` — shells out to the installed `claude` CLI in *driven* mode:
   dross disables Claude Code's own tools and drives its own loop, so dross's
   tools/delegation/permissions stay in control. No API key.
@@ -322,7 +321,7 @@ won't be re-pulled).
 
 ## Status
 
-Built: real Anthropic + OpenAI-compatible + bedrock + claude-sub + claude-code
+Built: real Anthropic + OpenAI-compatible + bedrock + claude-code
 providers; the agent loop with `read`/`edit`/`write`/`bash`/`monitor`/
 `shell_output`/`web_fetch`/`delegate`; tool allow-list, per-tool/per-command
 permissions, plugins; conversation memory; handoff brief + resume; output styles;

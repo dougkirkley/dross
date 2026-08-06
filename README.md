@@ -61,7 +61,6 @@ dross --resume <id>           # resume a prior TUI session (id printed on exit)
 dross agent  [flags] <prompt> # run the agent once against a workspace
 dross serve  [flags]          # HTTP + SSE server (sessions, device relay, SSO)
 dross rc     --server <url>   # link this machine so a phone can drive it
-dross login                   # OAuth sign-in for the claude-sub provider (config [oauth])
 dross login  gemini           # Google browser login for Vertex Gemini (no API key)
 dross brief  [name]           # print a saved handoff brief, or list sessions
 ```

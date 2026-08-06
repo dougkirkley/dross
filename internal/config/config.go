@@ -112,10 +112,9 @@ type File struct {
 	// backend is configured, and to Models otherwise — because offering the
 	// lead's models to a chat running on a different server is offering models
 	// that server does not have.
-	ChatModels []string    `json:"chat_models,omitempty"`
-	CompactAt  int         `json:"compact_at,omitempty"` // tool-result byte threshold
-	Phrases    []string    `json:"phrases,omitempty"`    // TUI status phrases
-	OAuth      *OAuthLogin `json:"oauth,omitempty"`      // for the claude-sub provider
+	ChatModels []string `json:"chat_models,omitempty"`
+	CompactAt  int      `json:"compact_at,omitempty"` // tool-result byte threshold
+	Phrases    []string `json:"phrases,omitempty"`    // TUI status phrases
 
 	// tools is an allow-list: when set, only these tool ids are enabled (empty =
 	// all). permission is per-tool allow|ask|deny — either a plain string, or,
@@ -195,26 +194,6 @@ type PluginTool struct {
 	Command     []string       `json:"command"` // argv
 	Properties  map[string]any `json:"properties,omitempty"`
 	Required    []string       `json:"required,omitempty"`
-}
-
-// OAuthLogin configures the `dross login` PKCE flow and the claude-sub
-// provider. Every value is user-supplied — dross ships no OAuth client and
-// impersonates nobody. To use a Claude subscription you must fill these in
-// yourself (client id, endpoints, and the header/system-pin that scope needs).
-type OAuthLogin struct {
-	ClientID     string `json:"client_id"`
-	AuthorizeURL string `json:"authorize_url"`
-	TokenURL     string `json:"token_url"`
-	RedirectURI  string `json:"redirect_uri"`
-	Scope        string `json:"scope"`
-	ShowCode     bool   `json:"show_code"`   // add ?code=true for a paste-code page
-	BetaHeader   string `json:"beta_header"` // anthropic-beta value, if the scope needs one
-	SystemPin    string `json:"system_pin"`  // first system block the scope requires
-	BaseURL      string `json:"base_url"`    // provider endpoint the token is valid for
-}
-
-func (o *OAuthLogin) Configured() bool {
-	return o != nil && o.ClientID != "" && o.AuthorizeURL != "" && o.TokenURL != ""
 }
 
 // SearchPaths returns the config file locations checked, in order. An explicit
