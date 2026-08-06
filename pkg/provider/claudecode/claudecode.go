@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dougkirkley/dross/pkg/provider"
 )
@@ -179,6 +180,60 @@ func normalizeProtocol(s string) string {
 	return s
 }
 
+// verbatimParams are the tool arguments whose whitespace is part of the value.
+//
+// This list exists because the parser used to run strings.TrimSpace over every
+// argument, which is right for a path and catastrophic for code. edit's old_str
+// has to match the file byte for byte, and almost every edit inside a function
+// body begins with indentation — trimming it made the match fail, so the agent
+// re-read the file, retried with the same indentation, and failed again. A
+// one-line change could burn a whole turn budget. write's content lost its
+// leading and trailing newlines the same way, silently, in the file that got
+// written.
+var verbatimParams = map[string]bool{
+	"old_str": true, "new_str": true, "content": true,
+}
+
+// wholeFileParams hold the entire contents of a file rather than a fragment of
+// one.
+//
+// They need the opposite guess about the last newline. This protocol cannot
+// distinguish "the file ends with a newline" from "the closing tag is on its
+// own line" — both are written the same way. For a fragment being matched
+// against a file, an extra trailing newline breaks the match, so it is dropped.
+// For a whole file, a missing final newline is a file that gofmt rewrites and
+// every diff complains about, so it is kept.
+var wholeFileParams = map[string]bool{"content": true}
+
+// paramValue recovers a tool argument from between its XML tags.
+//
+// The newline after the opening tag, and the one before the closing tag, are
+// the formatting of the block rather than part of the value, so one of each is
+// removed — a value that really does begin with a blank line keeps it. Beyond
+// that, an argument whose whitespace matters is returned untouched, and
+// everything else is trimmed as before, so an indented <parameter=path> still
+// yields a clean path.
+func paramValue(name, s string) string {
+	switch {
+	case strings.HasPrefix(s, "\r\n"):
+		s = s[2:]
+	case strings.HasPrefix(s, "\n"):
+		s = s[1:]
+	}
+	if !wholeFileParams[name] {
+		switch {
+		case strings.HasSuffix(s, "\r\n"):
+			s = s[:len(s)-2]
+		case strings.HasSuffix(s, "\n"):
+			s = s[:len(s)-1]
+		}
+	}
+	if verbatimParams[name] {
+		return s
+	}
+	return strings.TrimSpace(s)
+}
+
 func parseCalls(s string) ([]provider.ToolCall, string) {
 	s = normalizeProtocol(s)
 	if !strings.Contains(s, "<function=") {
@@ -188,7 +243,8 @@ func parseCalls(s string) ([]provider.ToolCall, string) {
 	for i, m := range funcRE.FindAllStringSubmatch(s, -1) {
 		args := map[string]string{}
 		for _, p := range paramRE.FindAllStringSubmatch(m[2], -1) {
-			args[strings.TrimSpace(p[1])] = strings.TrimSpace(p[2])
+			name := strings.TrimSpace(p[1])
+			args[name] = paramValue(name, p[2])
 		}
 		raw, err := json.Marshal(args)
 		if err != nil {
@@ -240,6 +296,10 @@ type streamEvent struct {
 	Result  string     `json:"result"`
 	IsError bool       `json:"is_error"`
 	Usage   tokenUsage `json:"usage"`
+	// How long the CLI spent waiting on the API, as opposed to how long dross
+	// spent waiting on the CLI. The gap between the two is what this provider
+	// costs per turn on top of the model.
+	DurationAPIMs int64 `json:"duration_api_ms"`
 }
 
 // tokenUsage mirrors the token accounting Claude Code reports. Cache tokens are
@@ -292,6 +352,7 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 
 	var final, assistant strings.Builder
 	var usage provider.Usage
+	var apiTime time.Duration
 	isErr := false
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024) // tool outputs can be large
@@ -328,6 +389,7 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		case "result":
 			final.WriteString(e.Result)
 			isErr = e.IsError
+			apiTime = time.Duration(e.DurationAPIMs) * time.Millisecond
 			u := e.Usage
 			if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 || u.CacheCreationTokens > 0 {
 				usage.InputTokens, usage.OutputTokens = u.InputTokens, u.OutputTokens
@@ -350,9 +412,9 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	if s.driven {
 		calls, cleaned := parseCalls(out)
 		if len(calls) > 0 {
-			return &provider.Response{Text: cleaned, ToolCalls: calls, StopReason: provider.StopToolUse, Usage: usage}, nil
+			return &provider.Response{Text: cleaned, ToolCalls: calls, StopReason: provider.StopToolUse, Usage: usage, APITime: apiTime}, nil
 		}
-		return &provider.Response{Text: cleaned, StopReason: provider.StopEndTurn, Usage: usage}, nil
+		return &provider.Response{Text: cleaned, StopReason: provider.StopEndTurn, Usage: usage, APITime: apiTime}, nil
 	}
-	return &provider.Response{Text: out, StopReason: provider.StopEndTurn, Usage: usage}, nil
+	return &provider.Response{Text: out, StopReason: provider.StopEndTurn, Usage: usage, APITime: apiTime}, nil
 }
