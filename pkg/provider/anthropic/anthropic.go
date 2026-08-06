@@ -123,14 +123,51 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		params.System = sys
 	}
 
-	resp, err := s.client.Messages.New(ctx, params)
+	resp, err := s.send(ctx, params, in.OnText)
 	if err != nil {
 		return nil, err
 	}
 	// Append the assistant response verbatim so tool_use blocks are preserved
 	// for the next turn.
 	s.messages = append(s.messages, resp.ToParam())
+	return shape(resp), nil
+}
 
+// send performs one request, streaming when the caller wants to watch.
+//
+// Both paths end with the same *sdk.Message, so everything downstream — the
+// history append, the block extraction, the usage — is shared and cannot drift
+// between them. Streaming exists for perceived latency only: a whole generation
+// buffered is a long silence followed by a wall of text, which reads as a hang
+// and then a dump.
+func (s *session) send(ctx context.Context, params sdk.MessageNewParams, onText func(string)) (*sdk.Message, error) {
+	if onText == nil {
+		return s.client.Messages.New(ctx, params)
+	}
+	stream := s.client.Messages.NewStreaming(ctx, params)
+	var msg sdk.Message
+	for stream.Next() {
+		event := stream.Current()
+		// Accumulate rather than hand-assembling: a tool call's input arrives as
+		// a run of partial-JSON fragments, and only the accumulator knows when
+		// they add up to something parseable.
+		if err := msg.Accumulate(event); err != nil {
+			return nil, err
+		}
+		if d, ok := event.AsAny().(sdk.ContentBlockDeltaEvent); ok {
+			if t, ok := d.Delta.AsAny().(sdk.TextDelta); ok && t.Text != "" {
+				onText(t.Text)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// shape converts a completed message into the provider-agnostic response.
+func shape(resp *sdk.Message) *provider.Response {
 	out := &provider.Response{
 		StopReason: normStop(resp.StopReason),
 		Usage: provider.Usage{
@@ -152,7 +189,7 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 			})
 		}
 	}
-	return out, nil
+	return out
 }
 
 func convertTools(defs []provider.ToolDef) []sdk.ToolUnionParam {
