@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/dougkirkley/dross/pkg/provider"
 )
@@ -151,26 +152,53 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 	reqBody, _ := json.Marshal(req)
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.prov.base+"/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, err
+	// An empty answer is a failed turn, not a finished one, so it is re-asked
+	// like any other transient failure — see emptyResponse.
+	mark := len(s.messages)
+	for attempt := 1; ; attempt++ {
+		out, err := s.attempt(ctx, reqBody, req.Stream, in.OnText)
+		if err != nil {
+			return nil, err
+		}
+		if !emptyResponse(out) || attempt >= sendAttempts {
+			return out, nil
+		}
+		// Drop the empty assistant turn before re-asking, or the history grows
+		// a message that says nothing and the next attempt is asked to continue
+		// from it.
+		s.messages = s.messages[:mark]
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(retryPause(attempt)):
+		}
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if s.prov.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+s.prov.apiKey)
-	}
+}
 
-	resp, err := s.prov.hc.Do(httpReq)
+// emptyResponse reports a turn that said nothing and did nothing.
+//
+// A local server can answer 200 with a completion containing no text, no tool
+// call and no tokens at all. Taken at face value that reads to the agent loop
+// as "the model has decided it is finished", so a task ends in one turn having
+// done nothing, and reports success. That was watched happening: in=0, out=0,
+// one turn, 1.6 seconds, the bug still there.
+//
+// Re-asking is right because it is not a decision the model made. A model that
+// genuinely has nothing left to do says so in words.
+func emptyResponse(r *provider.Response) bool {
+	return r != nil && strings.TrimSpace(r.Text) == "" && len(r.ToolCalls) == 0 &&
+		r.Usage.OutputTokens == 0
+}
+
+// attempt performs one request and shapes the reply.
+func (s *session) attempt(ctx context.Context, reqBody []byte, stream bool, onText func(string)) (*provider.Response, error) {
+	resp, err := s.post(ctx, reqBody)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai: %s: %s", resp.Status, truncate(body, 300))
-	}
-	if req.Stream {
-		return s.readStream(resp.Body, in.OnText)
+	if stream {
+		return s.readStream(resp.Body, onText)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
@@ -188,6 +216,88 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		InputTokens:  cr.Usage.PromptTokens,
 		OutputTokens: cr.Usage.CompletionTokens,
 	}), nil
+}
+
+// sendAttempts is how many times one turn will be asked for.
+//
+// A local server fails a whole turn for reasons that are not the turn's fault:
+// ollama answers 500 when the model emits a tool call it cannot parse, and a
+// shared GPU answers 503 while another job holds it. Both clear on a re-ask —
+// the second sample is a different sample. Without this, one bad token from a
+// small model ends a run that is otherwise minutes in, which is the most
+// expensive kind of slow there is.
+//
+// Three attempts, not more: past that the model is not having a bad roll, it
+// is producing something the server genuinely cannot accept, and the error is
+// worth showing.
+const sendAttempts = 3
+
+// retryPause is the wait before re-asking. Short on purpose — somebody is
+// watching a cursor blink.
+func retryPause(attempt int) time.Duration { return time.Duration(attempt) * 400 * time.Millisecond }
+
+// post sends one completion request, re-asking on the failures that a re-ask
+// fixes. The returned response's body is still open and belongs to the caller.
+func (s *session) post(ctx context.Context, reqBody []byte) (*http.Response, error) {
+	var lastErr error
+	for attempt := 1; attempt <= sendAttempts; attempt++ {
+		if attempt > 1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryPause(attempt - 1)):
+			}
+		}
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.prov.base+"/chat/completions", bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		if s.prov.apiKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+s.prov.apiKey)
+		}
+
+		resp, err := s.prov.hc.Do(httpReq)
+		if err != nil {
+			// A cancelled context is the user's decision, not a flaky server.
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		lastErr = fmt.Errorf("openai: %s: %s", resp.Status, truncate(body, 300))
+		// The server rejected the model's own output rather than failing at
+		// something. Re-asking produces another sample of the same confusion —
+		// watched failing three times running — so it goes back to the caller
+		// immediately, tagged as the one error the model itself can fix.
+		if malformedToolCall(body) {
+			return nil, fmt.Errorf("%w: %s", provider.ErrMalformedToolCall, truncate(body, 300))
+		}
+		if !retryableStatus(resp.StatusCode) {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
+}
+
+// malformedToolCall spots the server complaining that it could not parse the
+// tool call the model emitted, as opposed to the server itself being unwell.
+func malformedToolCall(body []byte) bool {
+	return bytes.Contains(bytes.ToLower(body), []byte("parsing tool call"))
+}
+
+// retryableStatus reports whether asking again could plausibly answer
+// differently: the server is overloaded, wedged, or rejected a sample it will
+// not be given twice. A 4xx other than rate-limiting is a request the server
+// will refuse identically, so it fails now rather than three times as slowly.
+func retryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code >= 500
 }
 
 // finish normalizes an assistant message, applies the XML tool-call fallback,
