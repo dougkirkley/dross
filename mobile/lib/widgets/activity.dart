@@ -27,6 +27,15 @@ class ActStep {
   /// The tool's result content, filled in when the tool-result event arrives.
   String? output;
 
+  /// Whether the command behind this step ended non-zero.
+  ///
+  /// The bash tool returns a failure as ordinary content — the output, then an
+  /// "[exit status: ...]" line — because a non-zero exit is information for the
+  /// model rather than a broken tool. That makes a failed command look exactly
+  /// like a successful one here, so the one thing worth reading sat behind a
+  /// chevron while the model's account of it was the only thing on screen.
+  bool get failed => (output ?? '').contains('[exit status:');
+
   /// Whether tapping the row opens a detail view (edits use their own diff view).
   bool get hasDetail =>
       edit == null &&
@@ -38,6 +47,10 @@ class ActStep {
 /// collapsed as one line ("Used a tool, edited a file +A -B") that expands.
 class Activity {
   final List<ActStep> steps = [];
+
+  /// Whether any command in this run ended badly. A failure is the reason
+  /// somebody is reading a transcript at all.
+  bool get failed => steps.any((s) => s.failed);
 
   int get added => steps.fold(0, (s, e) => s + (e.edit?.added ?? 0));
   int get removed => steps.fold(0, (s, e) => s + (e.edit?.removed ?? 0));
@@ -367,7 +380,13 @@ class ActivityBlock extends StatefulWidget {
 }
 
 class _ActivityBlockState extends State<ActivityBlock> {
-  bool _open = false;
+  /// Null until somebody taps. A run with a failure in it opens itself: the
+  /// error is the reason anybody is reading this, and leaving it behind a
+  /// chevron is how a model's summary of what went wrong becomes the only
+  /// account of it on screen.
+  bool? _tapped;
+
+  bool get _open => _tapped ?? widget.activity.failed;
 
   @override
   Widget build(BuildContext context) {
@@ -376,7 +395,7 @@ class _ActivityBlockState extends State<ActivityBlock> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         InkWell(
-          onTap: () => setState(() => _open = !_open),
+          onTap: () => setState(() => _tapped = !_open),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
@@ -428,7 +447,11 @@ class _InlineStep extends StatefulWidget {
 }
 
 class _InlineStepState extends State<_InlineStep> {
-  bool _open = false;
+  /// Null until somebody taps: a failed step opens itself, a successful one
+  /// stays shut, and either can be toggled after that.
+  bool? _tapped;
+
+  bool get _open => _tapped ?? widget.step.failed;
 
   @override
   Widget build(BuildContext context) {
@@ -444,7 +467,7 @@ class _InlineStepState extends State<_InlineStep> {
           onTap: edit != null
               ? () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => EditDiffView(edit)))
-              : (s.hasDetail ? () => setState(() => _open = !_open) : null),
+              : (s.hasDetail ? () => setState(() => _tapped = !_open) : null),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(
@@ -453,7 +476,8 @@ class _InlineStepState extends State<_InlineStep> {
                 // The gutter from the terminal: this line belongs to the one
                 // above it.
                 const Text('└ ', style: TextStyle(color: T.textFaint)),
-                Icon(s.icon, size: 16, color: s.color),
+                Icon(s.failed ? Icons.error_outline : s.icon,
+                    size: 16, color: s.failed ? T.danger : s.color),
                 const SizedBox(width: 8),
                 // The counts sit against the name they belong to rather than
                 // against the right edge. On a wide window that edge is a long
