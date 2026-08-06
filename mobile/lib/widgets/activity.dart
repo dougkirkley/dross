@@ -115,7 +115,7 @@ List<Event> withoutLiveSetup(List<Event> events, String setup) {
       .toList();
 }
 
-List<Object> buildTimeline(List<Event> events) {
+List<Object> buildTimeline(List<Event> events, {bool running = false}) {
   final out = <Object>[];
   Activity? cur;
   void flush() {
@@ -198,6 +198,16 @@ List<Object> buildTimeline(List<Event> events) {
             .steps
             .add(ActStep(icon: Icons.bolt, label: e.data, color: T.accentHi));
     }
+  }
+  // The step still waiting on its result is the one happening now, and the row
+  // under the transcript is already saying so. Listing it as well showed the
+  // same command twice — "Ran go test ./..." above "Running go test ./..." —
+  // one of them in the past tense before it had happened. It joins the list
+  // when its result arrives, which is when it is genuinely something that was
+  // done.
+  if (running && awaiting != null && cur != null) {
+    cur!.steps.remove(awaiting);
+    if (cur!.steps.isEmpty) cur = null;
   }
   flush();
   return out;
