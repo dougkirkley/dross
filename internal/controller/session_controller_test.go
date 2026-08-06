@@ -430,3 +430,52 @@ func TestSessionPodCarriesTheWorkBranch(t *testing.T) {
 		t.Errorf("args did not carry the working branch: %s", args)
 	}
 }
+
+// A pod replaced mid-turn takes the command the agent is waiting on with it,
+// and the session is left holding a tool call that never gets a result — a
+// `go test` that ran for minutes and reported nothing. The server marks a busy
+// session for exactly this; the operator was not reading it.
+func TestABusySessionIsNotRolled(t *testing.T) {
+	s := newSession()
+	s.Spec.Image = "registry.example.com/dross-web:0.7.56"
+	s.Labels = map[string]string{dross.BusyLabel: "true"}
+	set := statefulSetFor(s)
+	set.Spec.Template.Spec.Containers[0].Image = "registry.example.com/dross-web:0.7.55"
+
+	have := reconcileAndGetSet(t, s, set)
+	if got := have.Spec.Template.Spec.Containers[0].Image; got != "registry.example.com/dross-web:0.7.55" {
+		t.Errorf("rolled a session that was mid-turn: image is now %q", got)
+	}
+}
+
+// And it is deferred, not abandoned: the mark clears when the turn ends.
+func TestAnIdleSessionIsRolled(t *testing.T) {
+	s := newSession()
+	s.Spec.Image = "registry.example.com/dross-web:0.7.56"
+	set := statefulSetFor(s)
+	set.Spec.Template.Spec.Containers[0].Image = "registry.example.com/dross-web:0.7.55"
+
+	have := reconcileAndGetSet(t, s, set)
+	if got := have.Spec.Template.Spec.Containers[0].Image; got != "registry.example.com/dross-web:0.7.56" {
+		t.Errorf("an idle session was left on %q", got)
+	}
+}
+
+// reconcileAndGetSet runs one pass over a Session that already has a workload,
+// and hands back what the workload looks like afterwards.
+func reconcileAndGetSet(t *testing.T, s *dross.Session, set *appsv1.StatefulSet) appsv1.StatefulSet {
+	t.Helper()
+	sc := scheme(t)
+	c := fake.NewClientBuilder().WithScheme(sc).
+		WithObjects(s, set).WithStatusSubresource(s).Build()
+	r := &SessionReconciler{Client: c}
+	key := types.NamespacedName{Namespace: s.Namespace, Name: s.Name}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	var have appsv1.StatefulSet
+	if err := c.Get(context.Background(), key, &have); err != nil {
+		t.Fatal(err)
+	}
+	return have
+}

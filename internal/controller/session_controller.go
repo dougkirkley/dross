@@ -115,6 +115,21 @@ func (r *SessionReconciler) ensureStatefulSet(ctx context.Context, req ctrl.Requ
 		if !changed {
 			return subreconciler.ContinueReconciling()
 		}
+		// Not while it is mid-turn. Replacing the pod kills the command the
+		// agent is waiting on, and the session is left holding a tool call with
+		// no result — a `go test` that ran for minutes and reported nothing,
+		// with no sign of why. The server marks the session busy for exactly
+		// this, and this is the side that was never reading it.
+		//
+		// Requeued rather than dropped: the mark clears when the turn ends, and
+		// the workload is rolled on a later pass. A session that stays busy for
+		// ever is the failure of whatever set the mark, not a reason to take
+		// its pod away mid-sentence.
+		if s.Labels[dross.BusyLabel] == "true" {
+			log.FromContext(ctx).Info("session is mid-turn; deferring the roll",
+				"session", s.Spec.SessionID, "image", s.Spec.Image)
+			return subreconciler.RequeueAfter(busyRecheck)
+		}
 		if err := r.Update(ctx, &have); err != nil {
 			if apierrors.IsConflict(err) {
 				return subreconciler.Retry()

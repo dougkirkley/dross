@@ -455,16 +455,28 @@ class _InlineStepState extends State<_InlineStep> {
                 const Text('└ ', style: TextStyle(color: T.textFaint)),
                 Icon(s.icon, size: 16, color: s.color),
                 const SizedBox(width: 8),
-                Expanded(child: Text(s.label, style: bodyFor(context))),
+                // The counts sit against the name they belong to rather than
+                // against the right edge. On a wide window that edge is a long
+                // way from "Created main.go", and a "+34 -0" alone out there
+                // reads as a column of its own instead of as part of the line.
+                Flexible(
+                  child: Text(s.label,
+                      style: bodyFor(context),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
                 if (edit != null) ...[
+                  const SizedBox(width: 10),
                   Text('+${edit.added}',
                       style: const TextStyle(color: T.ok, fontSize: 13)),
                   const SizedBox(width: 4),
                   Text('-${edit.removed}',
                       style: const TextStyle(color: T.danger, fontSize: 13)),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.chevron_right, size: 16, color: T.textFaint),
-                ] else if (s.hasDetail)
+                ],
+                const Spacer(),
+                if (edit != null)
+                  const Icon(Icons.chevron_right, size: 16, color: T.textFaint)
+                else if (s.hasDetail)
                   Icon(_open ? Icons.expand_less : Icons.expand_more,
                       size: 16, color: T.textFaint),
               ],

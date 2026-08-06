@@ -96,9 +96,15 @@ class _SessionScreenState extends State<SessionScreen> {
         // is visible without going back to the list to see its card.
         if (sess?.isRunning ?? false) const RunningBar(),
         if (_starting(sess))
-          _StartingPanel(
-            resuming: isResuming(s.events),
-            setup: sess?.setup ?? '',
+          // In the same column the transcript reads in. Left to itself it
+          // stretched the full width of a desktop window while every line
+          // under it sat in a narrower one, so the two did not look like the
+          // same screen.
+          Readable(
+            child: _StartingPanel(
+              resuming: isResuming(s.events),
+              setup: sess?.setup ?? '',
+            ),
           ),
         Expanded(
           child: Builder(builder: (_) {
