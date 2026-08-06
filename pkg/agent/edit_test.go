@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dougkirkley/dross/pkg/provider"
 )
 
 func ws(t *testing.T, files map[string]string) (*workspace, string) {
@@ -236,6 +239,74 @@ func TestEditRejectsNoOps(t *testing.T) {
 	}
 }
 
+// TestBatchSkipsNoOps was costing a turn per occurrence: a model listing every
+// site of a rename will include one that already reads correctly, and rejecting
+// the whole batch for it told the model nothing and changed no file.
+func TestBatchSkipsNoOps(t *testing.T) {
+	w, dir := ws(t, map[string]string{"limiter.go": limiter})
+
+	out, err := w.applyEdits("limiter.go", []edit{
+		{OldStr: "Bound", NewStr: "Bound"}, // already the way it is asked for
+		{OldStr: "Clamp", NewStr: "Bound", ReplaceAll: true},
+	})
+	if err != nil {
+		t.Fatalf("one no-op should not reject the batch: %v", err)
+	}
+	if !strings.Contains(out, "skipped") {
+		t.Errorf("the skipped entry should be reported: %q", out)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "limiter.go"))
+	if strings.Contains(string(got), "Clamp") {
+		t.Errorf("the real edit did not apply:\n%s", got)
+	}
+}
+
+// TestBatchOfOnlyNoOpsIsAnError: a model that thinks it is working and is not
+// should be told, or it will keep going.
+func TestBatchOfOnlyNoOpsIsAnError(t *testing.T) {
+	w, _ := ws(t, map[string]string{"limiter.go": limiter})
+
+	_, err := w.applyEdits("limiter.go", []edit{
+		{OldStr: "Clamp", NewStr: "Clamp"},
+		{OldStr: "return v", NewStr: "return v"},
+	})
+	if err == nil {
+		t.Fatal("a batch that would change nothing is an error")
+	}
+	if !strings.Contains(err.Error(), "already reads") {
+		t.Errorf("the error should say why: %v", err)
+	}
+}
+
+// TestWrongFileIsNamedAsSuch: without this a rename that walks the wrong file
+// fails once for the whitespace it assumes is to blame, then again identically.
+func TestWrongFileIsNamedAsSuch(t *testing.T) {
+	w, _ := ws(t, map[string]string{"other.go": "package bench\n\nfunc unrelated() {}\n"})
+
+	_, err := w.applyEdits("other.go", []edit{{OldStr: "Clamp(v, lo, hi)", NewStr: "Bound(v, lo, hi)"}})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "does not appear anywhere in this file") {
+		t.Errorf("should say the symbol is absent entirely: %v", err)
+	}
+	if !strings.Contains(msg, "grep") {
+		t.Errorf("should point at the way to find the right file: %v", err)
+	}
+}
+
+// TestAbsentReportUsesTheIdentifier: reporting "if" missing would be noise, so
+// the longest identifier is what gets named.
+func TestAbsentReportUsesTheIdentifier(t *testing.T) {
+	if got := firstWord("\tif v < lo {"); got != "" {
+		t.Errorf("firstWord = %q, want nothing worth reporting", got)
+	}
+	if got := firstWord("return Clamp(v, lo, hi)"); got != "Clamp" {
+		t.Errorf("firstWord = %q, want Clamp", got)
+	}
+}
+
 // TestEditFileStillWorks: the single-edit entry point is unchanged for callers.
 func TestEditFileStillWorks(t *testing.T) {
 	w, dir := ws(t, map[string]string{"a.txt": "hello world\n"})
@@ -245,5 +316,51 @@ func TestEditFileStillWorks(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
 	if string(got) != "hello there\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestEditAcceptsTheMisspeltBatchKey: a model sent four well-formed batches
+// under "eds" instead of "edits" in a single run, and every one was refused for
+// having no old_str. Same reasoning as resolveToolName — a whole turn should
+// not turn on spelling.
+func TestEditAcceptsTheMisspeltBatchKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "util.go"), []byte(limiter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+			toolCall("1", "edit", map[string]any{
+				"path": "util.go",
+				"eds": []map[string]any{
+					{"old_str": "func Clamp(", "new_str": "func Bound("},
+				},
+			}),
+		}},
+		{StopReason: provider.StopEndTurn, Text: "renamed"},
+	}}
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: dir}, prov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.Run(context.Background(), "rename it"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "util.go"))
+	if !strings.Contains(string(got), "func Bound(") {
+		t.Fatalf("the batch under the near-miss key never applied:\n%s", got)
+	}
+}
+
+// TestEmptyOldStrNamesTheRightKey is the fallback when the spelling is one we
+// do not know: say what the parameter is actually called.
+func TestEmptyOldStrNamesTheRightKey(t *testing.T) {
+	w, _ := ws(t, map[string]string{"a.txt": "hello\n"})
+	_, err := w.applyEdits("a.txt", []edit{{OldStr: "", NewStr: "x"}})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "`edits`") {
+		t.Errorf("the error should name the real key: %v", err)
 	}
 }

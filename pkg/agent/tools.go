@@ -822,13 +822,21 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 	}
 
 	text := string(data)
-	total, adjusted := 0, 0
+	total, adjusted, skipped := 0, 0, 0
 	for i, e := range edits {
 		if e.OldStr == "" {
-			return "", fmt.Errorf("edit %d has an empty old_str; use write to create a file", i+1)
+			return "", fmt.Errorf("edit %d has an empty old_str. To replace text, pass old_str and "+
+				"new_str, or an array under the key `edits`; to create a file, use write", i+1)
 		}
+		// A single entry that changes nothing used to reject the whole batch,
+		// which cost a turn to be told something that changed no file. When a
+		// model lists every occurrence of a symbol, one of them being already
+		// correct is ordinary; skip it and do the rest. A batch where nothing
+		// would change is still an error, because that is a model that thinks
+		// it is working and is not.
 		if e.OldStr == e.NewStr {
-			return "", fmt.Errorf("edit %d has old_str identical to new_str, so it would change nothing", i+1)
+			skipped++
+			continue
 		}
 		n := strings.Count(text, e.OldStr)
 		if n == 0 {
@@ -854,18 +862,30 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 		total++
 	}
 
+	if total == 0 {
+		return "", fmt.Errorf("nothing to do: %s already reads the way every edit asks for. "+
+			"Check the file before editing it again", path)
+	}
+
 	if err := os.WriteFile(abs, []byte(text), 0o644); err != nil {
 		return "", err
 	}
 	// Hand back the result rather than only the fact of it: a model that cannot
 	// see what it produced re-reads the file to check, which costs a whole
 	// round trip to learn something this call already knows.
-	note := ""
+	var notes []string
 	if adjusted > 0 {
 		// Never silent: the edit that landed is not byte-for-byte the one that
 		// was asked for, and the echoed region below shows what it became.
-		note = fmt.Sprintf(" — %d matched only after ignoring indentation, and were "+
-			"applied using the file's own", adjusted)
+		notes = append(notes, fmt.Sprintf("%d matched only after ignoring indentation, "+
+			"and used the file's own", adjusted))
+	}
+	if skipped > 0 {
+		notes = append(notes, fmt.Sprintf("%d already read that way and were skipped", skipped))
+	}
+	note := ""
+	if len(notes) > 0 {
+		note = " — " + strings.Join(notes, "; ")
 	}
 	return fmt.Sprintf("edited %s (%d replacement%s%s)\n\n%s",
 		path, total, plural(total), note, changedRegion(string(data), text)), nil
@@ -1000,7 +1020,50 @@ func noMatchMessage(path, text, oldStr string, i, of int) string {
 		return msg + " — but a trimmed version of old_str does appear. The surrounding" +
 			" whitespace differs; read the file and copy the region verbatim."
 	}
+	// Nothing of it is here at all. Saying so stops the retry: a rename that
+	// walks the wrong file otherwise fails once for the whitespace it assumes
+	// is to blame, and again for the same reason.
+	if word := firstWord(oldStr); word != "" && !strings.Contains(text, word) {
+		return fmt.Sprintf("%s — and %q does not appear anywhere in this file. "+
+			"You are editing the wrong file; grep for it to find the right one.", msg, word)
+	}
 	return msg + "; it must match the file exactly, including whitespace. Read the file and copy the region."
+}
+
+// commonWords are the words whose absence from a file says nothing. Reporting
+// that "return" is missing would be noise; reporting that "Clamp" is would be
+// the answer.
+var commonWords = map[string]bool{
+	"return": true, "func": true, "for": true, "range": true, "int": true,
+	"string": true, "bool": true, "err": true, "error": true, "nil": true,
+	"var": true, "const": true, "type": true, "struct": true, "package": true,
+	"import": true, "true": true, "false": true, "the": true, "and": true,
+}
+
+// firstWord picks the most distinctive identifier in s.
+//
+// An identifier carrying an uppercase letter wins outright — it is a name
+// somebody chose, so its absence localises the mistake. Failing that, the
+// longest word that is not boilerplate.
+func firstWord(s string) string {
+	words := strings.FieldsFunc(s, func(r rune) bool {
+		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+	})
+	best := ""
+	for _, w := range words {
+		if len(w) < 3 || commonWords[strings.ToLower(w)] {
+			continue
+		}
+		named := w != strings.ToLower(w)
+		bestNamed := best != "" && best != strings.ToLower(best)
+		switch {
+		case named && !bestNamed:
+			best = w // a chosen name beats any plain one
+		case named == bestNamed && len(w) > len(best):
+			best = w
+		}
+	}
+	return best
 }
 
 // ambiguousMessage names the sites instead of asking the model to go and find

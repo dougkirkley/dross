@@ -1725,11 +1725,19 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 			NewStr     string `json:"new_str"`
 			ReplaceAll bool   `json:"replace_all"`
 			Edits      []edit `json:"edits"`
+			// A near-miss on the parameter name, for the same reason
+			// resolveToolName exists: a well-formed batch under the wrong key
+			// is a whole turn lost to spelling. "eds" is the one seen in the
+			// wild, four times in one run.
+			Eds []edit `json:"eds"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
 		edits := in.Edits
+		if len(edits) == 0 {
+			edits = in.Eds
+		}
 		if len(edits) == 0 {
 			edits = []edit{{OldStr: in.OldStr, NewStr: in.NewStr, ReplaceAll: in.ReplaceAll}}
 		}

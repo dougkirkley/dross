@@ -55,12 +55,23 @@ func TestReportShowsSuccessRate(t *testing.T) {
 
 // TestReportShowsSpread: a median with no range invites a conclusion the
 // samples do not support.
+//
+// Built from fixed durations rather than from a real run — a fake runner does
+// no work, so its measured time rounds to zero and there is no spread to find.
 func TestReportShowsSpread(t *testing.T) {
-	r := &flakyRunner{name: "r", pass: map[int]bool{}}
-	results := Run(context.Background(), []Task{{Name: "t"}}, []Runner{r}, 3)
+	var results []Result
+	for _, d := range []time.Duration{2 * time.Second, 5 * time.Second, 9 * time.Second} {
+		results = append(results, Result{Runner: "r", Task: "t", Success: true, Duration: d})
+	}
 	report := Report(results)
-	if !strings.Contains(report, "wall ") || !strings.Contains(report, "–") {
-		t.Fatalf("report should carry the wall-clock range:\n%s", report)
+	for _, want := range []string{"wall ", "2s", "9s", "–"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report should carry the wall-clock range, missing %q:\n%s", want, report)
+		}
+	}
+	// The median, not the mean: 5s, not 5.33s.
+	if !strings.Contains(report, "5s") {
+		t.Fatalf("report should show the median:\n%s", report)
 	}
 }
 
