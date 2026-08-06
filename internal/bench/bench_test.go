@@ -39,7 +39,7 @@ func TestHarness(t *testing.T) {
 		&fakeRunner{name: "missing", available: false},
 	}
 
-	results := Run(context.Background(), []Task{task}, runners)
+	results := Run(context.Background(), []Task{task}, runners, 1)
 
 	byRunner := map[string]Result{}
 	for _, r := range results {
@@ -83,7 +83,7 @@ func TestCheckIsolation(t *testing.T) {
 		&fakeRunner{name: "r1", available: true, writeName: "leaked.txt", writeBody: "1"},
 		&fakeRunner{name: "r2", available: true},
 	}
-	results := Run(context.Background(), []Task{task}, runners)
+	results := Run(context.Background(), []Task{task}, runners, 1)
 	for _, r := range results {
 		if r.Runner == "r2" && !r.Success {
 			t.Fatal("r2 saw a file leaked from r1 — workspaces not isolated")

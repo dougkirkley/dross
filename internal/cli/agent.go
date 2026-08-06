@@ -129,6 +129,10 @@ func newAgentCmd() *cobra.Command {
 				return fmt.Errorf("run: %w", err)
 			}
 
+			// This command prints the review and then exits, so it has to wait
+			// for it. Everything above it is already known.
+			ag.Wait()
+
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "\n--- done in %d turns ---\n", res.Turns)
 			for m, u := range res.ByModel {
