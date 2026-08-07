@@ -51,6 +51,9 @@ var (
 	ruleStyle    lipgloss.Style
 	youLabel     lipgloss.Style
 	remoteLabel  lipgloss.Style
+	youGutter    lipgloss.Style
+	remoteGutter lipgloss.Style
+	agentGutter  lipgloss.Style
 	agentLabel   lipgloss.Style
 	agentText    lipgloss.Style
 	proseStyle   lipgloss.Style
@@ -152,6 +155,15 @@ func rebuildStyles() {
 	// Accent, not muted: a prompt someone else sent should catch the eye of
 	// whoever is watching the terminal it landed in.
 	remoteLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	// Gutter rules for a person's turn. A one-column bar down the left says
+	// whose turn it is without spending a word on it, and the colour says which
+	// origin — accent for this terminal, gold for a prompt that arrived from a
+	// phone, keeping the "someone else sent this" contrast the labels had.
+	youGutter = lipgloss.NewStyle().Foreground(accent)
+	remoteGutter = lipgloss.NewStyle().Foreground(gold).Bold(true)
+	// The agent's own rule, a different hue again, so a glance down the left
+	// edge says who is speaking without reading a word of it.
+	agentGutter = lipgloss.NewStyle().Foreground(holoViol)
 	agentLabel = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	agentText = lipgloss.NewStyle().Foreground(fg)
 	proseStyle = lipgloss.NewStyle().Foreground(prose)
@@ -319,6 +331,7 @@ var slashCommands = []slashCmd{
 	{"/usage", "token and cost usage by model"},
 	{"/mcp", "list, add, or remove MCP servers"},
 	{"/clear", "start a fresh session"},
+	{"/files", "list the files changed this session, with their diffstats"},
 	{"/copy", "copy the whole transcript to the clipboard"},
 	{"/exit", "quit dross"},
 	{"/init", "generate an AGENTS.md for this repo"},
@@ -549,7 +562,10 @@ type Model struct {
 	shimmer      int    // animation phase for the holographic welcome shimmer
 
 	// full tool calls this session, for the /tools expandable viewer
-	toolRecs   []toolRec
+	toolRecs []toolRec
+	// Files this session has changed, in first-touch order, with running
+	// diffstats — summarised in the bottom bar and listed by /files.
+	changed    []changedFile
 	toolLineOf map[int]int // feed line index → toolRecs index (for click-to-expand)
 	// Inline expansion: how many detail lines sit under each expanded summary
 	// line, and which lines those are, so a splice can be undone and the
@@ -573,7 +589,7 @@ func RenderRun(ctx context.Context, width, height int, agentName, model, provide
 	m := New(agentName, model, provider, run)
 	m.width, m.height = width, height
 	m.layout()
-	m.append(youLabel.Render("you") + "  " + prompt)
+	m.appendTurn(youGutter, "", prompt)
 	res, err := run(ctx, prompt, "", func(e agent.Event) { m.applyEvent(e) })
 	if err != nil {
 		m.applyEvent(agent.Event{Kind: "error", Data: err.Error()})
@@ -1113,7 +1129,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			m.title = name
 		}
 		m.turnGap()
-		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  " + name)
+		m.appendTurn(youGutter, "", name)
 		m.running = true
 		m.runStart = time.Now()
 		m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
@@ -1226,6 +1242,26 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.input.Reset()
 		m.helpOpen = true
 		return true, nil
+	case "/files":
+		m.input.Reset()
+		if len(m.changed) == 0 {
+			m.append(metaStyle.Render("nothing changed yet this session"))
+			return true, nil
+		}
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("files changed this session"))
+		for _, c := range m.changed {
+			verb := "edited "
+			if c.created {
+				verb = "created"
+			}
+			line := "  " + resultStyle.Render(verb) + " " + toolName.Render(c.path) + " " +
+				diffAddStyle.Render(fmt.Sprintf("+%d", c.added))
+			if c.removed > 0 {
+				line += " " + diffDelStyle.Render(fmt.Sprintf("-%d", c.removed))
+			}
+			m.append(line)
+		}
+		return true, nil
 	case "/copy":
 		m.input.Reset()
 		if len(m.lines) == 0 {
@@ -1246,6 +1282,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 		m.lines = nil
 		m.title, m.lastText = "", ""
 		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
+		m.changed = nil
 		m.workerOrder, m.workerAct, m.workerLog = nil, nil, nil
 		m.shellOrder, m.shells = nil, nil
 		m.toolRecs, m.toolLineOf = nil, nil
@@ -1265,7 +1302,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			m.title = "/init"
 		}
 		m.turnGap()
-		m.append(startGlyph.Render("▸ ") + youLabel.Render("you") + "  /init")
+		m.appendTurn(youGutter, "", "/init")
 		m.running = true
 		m.runStart = time.Now()
 		m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
@@ -1869,7 +1906,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.pendingAsk != nil && m.pendingAsk.freeText && strings.TrimSpace(m.input.Value()) != "" {
 				ans := m.input.Value()
-				m.append(youLabel.Render("you") + "  " + ans)
+				m.appendTurn(youGutter, "", ans)
 				m.pendingAsk.reply <- ans
 				m.pendingAsk = nil
 				m.input.Reset()
@@ -1915,7 +1952,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.Reset()
 				m.remoteOrigin = false
 				m.routeAsks(false)
-				return m, m.startPrompt(youLabel, "you", prompt)
+				return m, m.startPrompt("you", prompt)
 			}
 		}
 	case EventMsg:
@@ -1958,11 +1995,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queue = m.queue[1:]
 			m.remoteOrigin = next.remote
 			m.routeAsks(next.remote)
-			label, origin := youLabel, "you"
+			origin := "you"
 			if next.remote {
-				label, origin = remoteLabel, "phone"
+				origin = "phone"
 			}
-			cmds = append(cmds, m.startPrompt(label, origin, next.text))
+			cmds = append(cmds, m.startPrompt(origin, next.text))
 		}
 	case tea.MouseMsg:
 		overBody := !m.modelPickerOpen && !m.pickerOpen &&
@@ -2034,7 +2071,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.remoteOrigin = true
 		m.routeAsks(true)
-		cmds = append(cmds, m.startPrompt(remoteLabel, "phone", msg.text))
+		cmds = append(cmds, m.startPrompt("phone", msg.text))
 	case remoteInterruptMsg:
 		if m.running && m.runCancel != nil {
 			m.runCancel()
@@ -2406,6 +2443,57 @@ func sweepSegment(w, tick int) (pos, seg int, ok bool) {
 
 // statsSegment is the context meter (when the window is known) + running cost,
 // shown at the bottom-right.
+// changedFile is one file this session has touched, with its running diffstat.
+type changedFile struct {
+	path           string
+	added, removed int
+	created        bool
+}
+
+// noteChange folds an edit into the session's running list of changed files.
+//
+// Accumulated rather than replaced: a file edited four times has one entry
+// whose counts are the whole session's work on it, which is the question
+// "what has this changed" actually asks. Kept in first-touch order, because
+// that is the order the work happened in and it does not reshuffle under you
+// while you read it.
+func (m *Model) noteChange(path string, added, removed int, created bool) {
+	if path == "" {
+		return
+	}
+	for i := range m.changed {
+		if m.changed[i].path == path {
+			m.changed[i].added += added
+			m.changed[i].removed += removed
+			return
+		}
+	}
+	m.changed = append(m.changed, changedFile{path: path, added: added, removed: removed, created: created})
+}
+
+// changedSummary is the one-line "this session has touched N files" for the
+// bottom bar.
+//
+// A count and a total, not a list: the bar has room for a fact, and the list
+// is a keystroke away in /files. It is the number you want continuously — how
+// much is uncommitted — rather than the detail you want occasionally.
+func (m Model) changedSummary() string {
+	if len(m.changed) == 0 {
+		return ""
+	}
+	var added, removed int
+	for _, c := range m.changed {
+		added += c.added
+		removed += c.removed
+	}
+	s := metaStyle.Render(fmt.Sprintf("%d file%s ", len(m.changed), plural(len(m.changed)))) +
+		diffAddStyle.Render(fmt.Sprintf("+%d", added))
+	if removed > 0 {
+		s += " " + diffDelStyle.Render(fmt.Sprintf("-%d", removed))
+	}
+	return s
+}
+
 func (m Model) statsSegment() string {
 	cost := costStyle.Render(fmt.Sprintf("$%.4f", m.cost))
 	// The meter tracks how full the model's context window is: the latest turn's
@@ -2414,15 +2502,19 @@ func (m Model) statsSegment() string {
 	if ctx == 0 {
 		ctx = m.inTok // fall back to cumulative input if no per-turn context reported
 	}
+	seg := cost
 	if win, ok := contextWindow(m.model); ok && ctx > 0 {
 		frac := float64(ctx) / float64(win)
 		if frac > 1 {
 			frac = 1
 		}
-		return crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
+		seg = crystalMeter(frac, 6) + metaStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))) +
 			metaStyle.Render("   ·   ") + cost
 	}
-	return cost
+	if files := m.changedSummary(); files != "" {
+		seg = files + metaStyle.Render("   ·   ") + seg
+	}
+	return seg
 }
 
 // runStats renders the live token usage + elapsed time in parentheses, shown
@@ -2935,7 +3027,7 @@ func (m *Model) submitAsk() {
 		}
 		ans := strings.Join(a.chosen(i), ", ")
 		parts = append(parts, label+": "+ans)
-		m.append(youLabel.Render("you") + "  " + agentText.Render(label+" → "+ans))
+		m.appendTurn(youGutter, "", agentText.Render(label+" → "+ans))
 	}
 	// One question answers with the choice alone.
 	//
@@ -3320,9 +3412,10 @@ func (m *Model) applyEvent(e agent.Event) {
 		if len(lines) == 0 {
 			lines = []string{""}
 		}
-		m.append(indent + drossBullet.Render(drossOrbGlyph) + " " + lines[0])
+		bar := agentGutter.Render(gutterMark)
+		m.append(indent + bar + " " + drossBullet.Render(drossOrbGlyph) + " " + lines[0])
 		for _, l := range lines[1:] {
-			m.append(indent + "  " + l)
+			m.append(indent + bar + "   " + l)
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
@@ -3392,6 +3485,7 @@ func (m *Model) applyEvent(e agent.Event) {
 			Content string `json:"content"`
 		}
 		if json.Unmarshal([]byte(e.Data), &ed) == nil {
+			m.noteChange(ed.File, ed.Added, ed.Removed, ed.New)
 			base := ed.File
 			if i := strings.LastIndexByte(base, '/'); i >= 0 {
 				base = base[i+1:]
@@ -3570,6 +3664,39 @@ func (m *Model) turnGap() {
 	}
 }
 
+// gutterMark is the rule drawn down the left of a person's turn.
+const gutterMark = "▌"
+
+// gutterFor picks the rule colour, and the label worth keeping beside it, for a
+// turn's origin.
+//
+// Nothing is written next to a local prompt: the colour already says it, and
+// "you" next to the thing you just typed is a word that tells you nothing. A
+// remote one keeps its name, because which phone-shaped elsewhere it came from
+// is information, and because a colour alone is a poor way to carry the one
+// case that matters when you did not type it.
+func gutterFor(label string) (lipgloss.Style, string) {
+	if label == "you" {
+		return youGutter, ""
+	}
+	return remoteGutter, label
+}
+
+// appendTurn writes a person's turn into the feed with a rule down its left.
+//
+// One feed line per line of text rather than a single multi-line entry, because
+// the click-to-expand bookkeeping indexes m.lines and a wrapped block would put
+// its arithmetic out.
+func (m *Model) appendTurn(bar lipgloss.Style, label, text string) {
+	mark := bar.Render(gutterMark)
+	for i, line := range strings.Split(text, "\n") {
+		if i == 0 && label != "" {
+			line = bar.Render(label) + "  " + line
+		}
+		m.append(mark + " " + line)
+	}
+}
+
 func (m *Model) append(line string) {
 	m.lines = append(m.lines, line)
 	m.vp.SetContent(strings.Join(m.lines, "\n"))
@@ -3596,9 +3723,10 @@ func (m *Model) renderStream() {
 	if len(wrapped) == 0 {
 		wrapped = []string{""}
 	}
-	m.append(drossBullet.Render(drossOrbGlyph) + " " + proseStyle.Render(wrapped[0]))
+	bar := agentGutter.Render(gutterMark)
+	m.append(bar + " " + drossBullet.Render(drossOrbGlyph) + " " + proseStyle.Render(wrapped[0]))
 	for _, l := range wrapped[1:] {
-		m.append("  " + proseStyle.Render(l))
+		m.append(bar + "   " + proseStyle.Render(l))
 	}
 }
 
@@ -3844,9 +3972,10 @@ func (m *Model) lastToolLine() int {
 // Three callers now: a prompt typed at the input, one drained from the queue
 // when the run before it finished, and one arriving over the relay. The first
 // two held identical copies of this and had already drifted apart once.
-func (m *Model) startPrompt(who lipgloss.Style, label, text string) tea.Cmd {
+func (m *Model) startPrompt(label, text string) tea.Cmd {
 	m.turnGap()
-	m.append(startGlyph.Render("▸ ") + who.Render(label) + "  " + text)
+	bar, name := gutterFor(label)
+	m.appendTurn(bar, name, text)
 	m.running = true
 	m.runStart = time.Now()
 	m.tick, m.phraseIdx, m.phraseSeq = 0, m.phraseSeq, m.phraseSeq+1
