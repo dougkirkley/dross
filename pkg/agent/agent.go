@@ -528,6 +528,10 @@ func (a *Agent) Name() string { return a.cfg.Name }
 // underneath a running one would turn a slow finish into a failed one.
 func (a *Agent) Close() {
 	a.Wait()
+	if a.sess != nil {
+		closeSession(a.sess)
+		a.sess = nil
+	}
 	a.closeMCP()
 }
 
@@ -651,6 +655,15 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			a.sess = sess
 		}
 	}
+	// A one-shot session dies with the Run that made it, however that Run ends;
+	// a conversation's outlives it and is closed by Close. Without this, every
+	// aborted Run against the claude-code provider left a `claude` behind.
+	handedOn := false
+	defer func() {
+		if !a.conv && !handedOn {
+			closeSession(sess)
+		}
+	}()
 
 	res := &Result{}
 	in := provider.Input{Text: prompt}
@@ -743,8 +756,21 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		return res, fmt.Errorf("agent %q: hit turn limit (%d) — raise it with max_turns in config", a.cfg.Name, limit)
 	}
 
+	// Handed on: aftercare still needs the session to write the brief, so it
+	// closes it instead of the deferred cleanup above.
+	handedOn = true
 	a.runAftercare(ctx, sess, res)
 	return res, nil
+}
+
+// closeSession releases a session that holds something real — the claude-code
+// provider keeps a child process behind one. Most sessions are a slice of
+// messages and implement nothing, so this is usually a type assertion and
+// nothing else.
+func closeSession(sess provider.Session) {
+	if c, ok := sess.(io.Closer); ok {
+		_ = c.Close()
+	}
 }
 
 // emptyTurnNudge is sent when a turn came back with neither words nor an
@@ -776,6 +802,9 @@ const malformedLimit = 3
 // where a caller genuinely needs the fields populated.
 func (a *Agent) runAftercare(ctx context.Context, sess provider.Session, res *Result) {
 	work := func() {
+		if !a.conv {
+			defer closeSession(sess) // Run handed it over; nothing else will
+		}
 		a.runReview(ctx, res)
 		if a.checkpoint != nil && a.autoBrief {
 			if brief := a.makeBrief(ctx, sess, res); brief != "" {

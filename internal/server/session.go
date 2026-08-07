@@ -246,6 +246,19 @@ func (s *Session) failIfNotPickedUp() {
 	})
 }
 
+// deviceName reports which linked device owns this session.
+//
+// It takes the session's lock because upsertDeviceSession writes the field
+// under that lock, on the goroutine serving the device's connect frame, while
+// the readers below run on whichever request happens to arrive. Reading it bare
+// was a race — visible under -race, and in principle a caller routing a frame
+// to a device by a name half-written.
+func (s *Session) deviceName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.device
+}
+
 // markPicked records that the device has acknowledged the running prompt.
 func (s *Session) markPicked() {
 	s.mu.Lock()

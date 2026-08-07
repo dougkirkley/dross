@@ -176,7 +176,7 @@ func (m *Manager) upsertDeviceSession(device string, info relay.SessionInfo) {
 // deviceEvent appends an event streamed from a device into its mirror session.
 func (m *Manager) deviceEvent(device, sessionID, kind, data string) {
 	s, ok := m.getAny(sessionID)
-	if !ok || s.device != device {
+	if !ok || s.deviceName() != device {
 		return
 	}
 	s.markPicked()
@@ -193,7 +193,7 @@ func (m *Manager) setDeviceConnected(device string, connected bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.sessions {
-		if s.device == device {
+		if s.deviceName() == device {
 			s.mu.Lock()
 			s.connected = connected
 			s.mu.Unlock()
@@ -240,7 +240,7 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 // session's watchers can answer it.
 func (m *Manager) deviceAsk(device, sessionID, askID, payload string) {
 	s, ok := m.getAny(sessionID)
-	if !ok || s.device != device {
+	if !ok || s.deviceName() != device {
 		return
 	}
 	s.mu.Lock()
@@ -261,7 +261,7 @@ func (m *Manager) deviceAsk(device, sessionID, askID, payload string) {
 // the session is one that can be answered at all.
 func (m *Manager) answerDevice(sessionID, askID, text string) bool {
 	s, ok := m.getAny(sessionID)
-	if !ok || s.device == "" || m.hub == nil {
+	if !ok || s.deviceName() == "" || m.hub == nil {
 		return false
 	}
 	s.mu.Lock()
@@ -276,7 +276,7 @@ func (m *Manager) answerDevice(sessionID, askID, text string) bool {
 	if askID == "" {
 		return false
 	}
-	return m.hub.toDevice(s.device, relay.Frame{
+	return m.hub.toDevice(s.deviceName(), relay.Frame{
 		Type: "answer", SessionID: sessionID, AskID: askID, Text: text,
 	})
 }

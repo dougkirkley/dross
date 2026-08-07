@@ -121,7 +121,7 @@ func waitForDeviceSession(t *testing.T, mgr *Manager, device string) string {
 	for {
 		mgr.mu.Lock()
 		for id, s := range mgr.sessions {
-			if s.device == device {
+			if s.deviceName() == device {
 				mgr.mu.Unlock()
 				return id
 			}
