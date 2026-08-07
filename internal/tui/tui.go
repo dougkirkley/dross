@@ -323,29 +323,36 @@ type modelsMsg struct {
 }
 
 // slashCmd is a "/command" offered by autocomplete.
-type slashCmd struct{ name, desc string }
+//
+// key is the keystroke that does the same thing, where one exists. Most
+// commands have none — they are the long tail you reach for by name — so the
+// column is blank far more often than not, and that is the point: it marks the
+// few worth learning rather than implying every command has a shortcut.
+type slashCmd struct{ name, desc, key string }
 
 // slashCommands is the set surfaced by autocomplete and handled on enter.
 var slashCommands = []slashCmd{
-	{"/model", "list and switch models"},
-	{"/usage", "token and cost usage by model"},
-	{"/mcp", "list, add, or remove MCP servers"},
-	{"/clear", "start a fresh session"},
-	{"/files", "list the files changed this session, with their diffstats"},
-	{"/copy", "copy the whole transcript to the clipboard"},
-	{"/exit", "quit dross"},
-	{"/init", "generate an AGENTS.md for this repo"},
-	{"/help", "show shortcuts"},
-	{"/theme", "switch color theme"},
-	{"/dim", "cycle UI dim level (opacity)"},
-	{"/welcome", "switch empty-state layout"},
-	{"/mouse", "toggle mouse capture (drag-select+copy, wheel scroll)"},
-	{"/config", "edit the config file in $EDITOR"},
-	{"/skills", "list available skills"},
-	{"/plugin", "manage plugins + marketplaces"},
-	{"/login", "sign in via SSO"},
-	{"/rc", "link this machine to the server"},
-	{"/remote-control", "link this machine to the server"},
+	{"/model", "list and switch models", ""},
+	{"/sessions", "switch between sessions", "←"},
+	{"/mode", "cycle mode (auto/manual/accept-edits/plan)", "shift+tab"},
+	{"/usage", "token and cost usage by model", ""},
+	{"/mcp", "list, add, or remove MCP servers", ""},
+	{"/clear", "start a fresh session", ""},
+	{"/files", "list the files changed this session, with their diffstats", ""},
+	{"/copy", "copy the whole transcript to the clipboard", ""},
+	{"/exit", "quit dross", "ctrl+c ctrl+c"},
+	{"/init", "generate an AGENTS.md for this repo", ""},
+	{"/help", "show shortcuts", "?"},
+	{"/theme", "switch color theme", ""},
+	{"/dim", "cycle UI dim level (opacity)", ""},
+	{"/welcome", "switch empty-state layout", ""},
+	{"/mouse", "toggle mouse capture (drag-select+copy, wheel scroll)", ""},
+	{"/config", "edit the config file in $EDITOR", ""},
+	{"/skills", "list available skills", ""},
+	{"/plugin", "manage plugins + marketplaces", ""},
+	{"/login", "sign in via SSO", ""},
+	{"/rc", "link this machine to the server", ""},
+	{"/remote-control", "link this machine to the server", ""},
 }
 
 // SkillItem is a discovered skill surfaced in the TUI (for /skills, /plugin, and
@@ -883,12 +890,12 @@ func (m Model) userSlash() []slashCmd {
 		if !s.UserInvocable || isBuiltinSlash("/"+s.Name) {
 			continue
 		}
-		out = append(out, slashCmd{"/" + s.Name, s.Desc})
+		out = append(out, slashCmd{name: "/" + s.Name, desc: s.Desc})
 		// Add a short alias (plugin:skill -> skill) when unambiguous and not a
 		// built-in or a name a skill already uses verbatim.
 		short := shortSkillName(s.Name)
 		if short != s.Name && shortCount[short] == 1 && !isBuiltinSlash("/"+short) {
-			out = append(out, slashCmd{"/" + short, s.Desc})
+			out = append(out, slashCmd{name: "/" + short, desc: s.Desc})
 		}
 	}
 	return out
@@ -1053,7 +1060,7 @@ func (m Model) matchSlash() []slashCmd {
 		var out []slashCmd
 		for _, o := range opts {
 			if strings.HasPrefix(o, partial) {
-				out = append(out, slashCmd{fields[0] + " " + o, ""})
+				out = append(out, slashCmd{name: fields[0] + " " + o})
 			}
 		}
 		if len(out) == 1 && out[0].name == v { // already complete
@@ -1241,6 +1248,26 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 	case "/help":
 		m.input.Reset()
 		m.helpOpen = true
+		return true, nil
+	case "/sessions":
+		m.input.Reset()
+		if m.running || m.pendingAsk != nil {
+			m.append(metaStyle.Render("busy — wait for the current run to finish"))
+			return true, nil
+		}
+		m.saveCurrent()
+		m.pickOrder = m.buildPickOrder()
+		m.pickerOpen = true
+		m.pickIdx = 0
+		return true, nil
+	case "/mode":
+		m.input.Reset()
+		m.modeIdx = (m.modeIdx + 1) % len(modeLabels)
+		if m.onMode != nil {
+			m.onMode(modeLabels[m.modeIdx])
+		}
+		m.append(startGlyph.Render("▸ ") + metaStyle.Render("mode ") +
+			crystalStyle.Render(strings.ToLower(modeLabels[m.modeIdx])))
 		return true, nil
 	case "/files":
 		m.input.Reset()
@@ -3285,15 +3312,30 @@ func (m Model) footer() string {
 			if i == sel {
 				cur, style = promptMark.Render("› "), agentText
 			}
-			// Truncate the (plain) description so the styled line fits the width.
-			descW := m.width - 2 - 2 - len([]rune(c.name)) - 2
+			// Truncate the (plain) description so the styled line fits the
+			// width, leaving room for the keystroke when there is one.
+			keyW := 0
+			if c.key != "" {
+				keyW = len([]rune(c.key)) + 2
+			}
+			descW := m.width - 2 - 2 - len([]rune(c.name)) - 2 - keyW
 			desc := c.desc
 			if descW > 1 {
 				desc = truncate(desc, descW)
 			} else {
 				desc = ""
 			}
-			rows = append(rows, cur+style.Render(c.name)+metaStyle.Render("  "+desc))
+			row := cur + style.Render(c.name) + metaStyle.Render("  "+desc)
+			if c.key != "" {
+				// Right-aligned, so the few commands with a shortcut form a
+				// column instead of trailing off the end of their description.
+				pad := m.width - 2 - lipgloss.Width(row) - len([]rune(c.key))
+				if pad < 1 {
+					pad = 1
+				}
+				row += strings.Repeat(" ", pad) + costStyle.Render(c.key)
+			}
+			rows = append(rows, row)
 		}
 		if start > 0 || end < len(ms) {
 			rows = append(rows, metaStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(ms))))

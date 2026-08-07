@@ -129,3 +129,46 @@ func TestUserTurnIsRuledOnEveryLine(t *testing.T) {
 		t.Errorf("text lost: %q", stripANSI(m.lines[2]))
 	}
 }
+
+// TestKeystrokesAppearBesideCommands: the column marks the few worth learning.
+func TestKeystrokesAppearBesideCommands(t *testing.T) {
+	keys := map[string]string{}
+	for _, c := range slashCommands {
+		keys[c.name] = c.key
+	}
+	for name, want := range map[string]string{
+		"/help":     "?",
+		"/sessions": "←",
+		"/mode":     "shift+tab",
+	} {
+		if keys[name] != want {
+			t.Errorf("%s key = %q, want %q", name, keys[name], want)
+		}
+	}
+	// Most commands have none, and claiming otherwise would be worse than blank.
+	if keys["/model"] != "" || keys["/theme"] != "" {
+		t.Error("a command without a shortcut must not invent one")
+	}
+}
+
+// TestSessionsAndModeAreReachableByName is why the column has anything to say:
+// both actions existed only as keystrokes, discoverable only through /help.
+func TestSessionsAndModeAreReachableByName(t *testing.T) {
+	m := New("dross", "m", "p", nil)
+	m.width, m.height = 100, 40
+
+	before := m.modeIdx
+	if handled, _ := m.handleSlash("/mode"); !handled {
+		t.Fatal("/mode should be a command")
+	}
+	if m.modeIdx == before {
+		t.Error("/mode should cycle the mode")
+	}
+
+	if handled, _ := m.handleSlash("/sessions"); !handled {
+		t.Fatal("/sessions should be a command")
+	}
+	if !m.pickerOpen {
+		t.Error("/sessions should open the session switcher")
+	}
+}
