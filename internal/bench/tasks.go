@@ -36,12 +36,31 @@ func DefaultTasks() []Task {
 		},
 		{
 			Name:  "rename-symbol",
-			Files: multiFilePkg(),
+			Files: workingPkg(),
 			Prompt: `Rename the exported function Clamp to Bound everywhere in this package, ` +
 				`including its uses and its doc comments. Nothing may still refer to Clamp.`,
-			Check: []string{"sh", "-c", "! grep -rq Clamp . && go vet ./..."},
+			Check: []string{"sh", "-c", "! grep -rq Clamp . && go test ./..."},
 		},
 	}
+}
+
+// workingPkg is multiFilePkg with the bug fixed: the same shape, spread over
+// the same files, but its test passes.
+//
+// This task used to share the broken seed, and it made the benchmark measure
+// the wrong thing entirely. The agent is told to verify its work by running the
+// tests, so it did — found a failure it had not caused, reasonably assumed it
+// had broken something, and spent nine of seventeen turns fixing a bug nobody
+// asked it to touch. The rename itself was finished by turn seven.
+//
+// The check runs the tests now rather than go vet, because with a seed that
+// starts green a rename that breaks them is a rename that failed.
+func workingPkg() map[string]string {
+	files := multiFilePkg()
+	files["util.go"] = "package bench\n\n" +
+		"// Clamp returns v limited to the range [lo, hi].\nfunc Clamp(v, lo, hi int) int {\n" +
+		"\tif v > hi {\n\t\treturn hi\n\t}\n\tif v < lo {\n\t\treturn lo\n\t}\n\treturn v\n}\n"
+	return files
 }
 
 // multiFilePkg seeds a small package whose bug — Clamp returning hi for a value

@@ -750,6 +750,57 @@ func (w *workspace) readFile(path string) (string, error) {
 	return b.String(), nil
 }
 
+// maxReadPaths bounds a single multi-file read. Enough to open a package, not
+// enough to pull a repository into the context window by accident.
+const maxReadPaths = 20
+
+// readFiles reads several files in one call, each headed by its path.
+//
+// This exists because concurrency was the wrong shape of answer for the models
+// that need it most. A turn's read-only calls already run at the same time, but
+// that only pays when a model puts several of them in one message, and a small
+// local model does not: gpt-oss:20b was measured at almost exactly one tool
+// call per turn, and went on issuing them one at a time even when the prompt
+// told it in as many words to send all three together. Opening four files cost
+// four round trips.
+//
+// So the batching moves into the call. A model that will not send three
+// requests can still send one that asks for three things.
+//
+// A file that cannot be read is reported in place rather than failing the call,
+// because the other three were fine and re-asking for them is the round trip
+// this is trying to avoid.
+func (w *workspace) readFiles(paths []string) (string, error) {
+	if len(paths) == 0 {
+		return "", fmt.Errorf("no path given")
+	}
+	if len(paths) > maxReadPaths {
+		return "", fmt.Errorf("asked for %d files at once; the limit is %d — read the ones you need",
+			len(paths), maxReadPaths)
+	}
+	if len(paths) == 1 {
+		return w.readFile(paths[0])
+	}
+	var b strings.Builder
+	failed := 0
+	for _, p := range paths {
+		out, err := w.readFile(p)
+		fmt.Fprintf(&b, "=== %s ===\n", p)
+		if err != nil {
+			failed++
+			fmt.Fprintf(&b, "[could not read: %s]\n\n", err)
+			continue
+		}
+		b.WriteString(out)
+		b.WriteString("\n")
+	}
+	if failed == len(paths) {
+		// Nothing came back; that is a failed call, not a result with notes.
+		return "", fmt.Errorf("none of the %d paths could be read:\n%s", len(paths), b.String())
+	}
+	return b.String(), nil
+}
+
 // rawFile returns a file's bytes as they are, with no line numbers, for the
 // callers that need to diff two versions of it.
 //

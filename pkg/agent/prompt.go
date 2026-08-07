@@ -203,7 +203,7 @@ func gitState(workdir string) string {
 // makes it improvise.
 func codeToolLines(tools []string) string {
 	desc := map[string]string{
-		"read":         "read(path): read a file; content is returned with line numbers.",
+		"read":         "read(path) or read(paths=[…]): read one file, or several in a single call. Content comes back with line numbers. When you already know which files you want, ask for them all at once.",
 		"write":        "write(path, content): create or overwrite a file.",
 		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes to one file in a single call rather than one call each.",
 		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched.",
@@ -245,9 +245,9 @@ All paths are relative to the workspace root; paths that escape it are rejected.
 
 Working style:
 - When you have enough information to act, act. Do not narrate a plan you will not follow.
-- Ask for everything you need at once. read, grep, glob and web_fetch calls in a
-  single reply are executed at the same time, so opening six files costs one
-  round trip, not six. Batch every look-up whose target you already know;
+- Ask for everything you need at once. read takes a paths array, so six files is
+  one call; and read, grep, glob and web_fetch calls in a single reply are all
+  executed at the same time. Batch every look-up whose target you already know —
   waiting for one file before naming the next is the slowest way to work.
 - Verify your work: after editing code, build or run the relevant tests via bash.
 - Keep responses concise. Lead with the outcome.
@@ -462,10 +462,18 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 	}
 	defs := []provider.ToolDef{
 		{
-			Name:        "read",
-			Description: "Read a file from the workspace. Returns line-numbered content.",
-			Properties:  map[string]any{"path": strProp("File path relative to the workspace root.")},
-			Required:    []string{"path"},
+			Name: "read",
+			Description: "Read files from the workspace. Returns line-numbered content. " +
+				"Pass paths (an array) to read SEVERAL files in one call — always prefer that " +
+				"over one call per file when you already know which files you want.",
+			Properties: map[string]any{
+				"path": strProp("File path relative to the workspace root."),
+				"paths": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Several file paths to read at once, relative to the workspace root.",
+				},
+			},
 		},
 		{
 			Name:        "write",

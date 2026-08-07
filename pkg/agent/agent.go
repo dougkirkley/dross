@@ -1698,12 +1698,19 @@ func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result)
 	switch tc.Name {
 	case "read":
 		var in struct {
-			Path string `json:"path"`
+			Path  string   `json:"path"`
+			Paths []string `json:"paths"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
-		return orErr(a.ws.readFile(in.Path))
+		paths := in.Paths
+		if in.Path != "" {
+			// Both forms together is a model hedging; take them all rather
+			// than picking one and silently dropping the other.
+			paths = append([]string{in.Path}, paths...)
+		}
+		return orErr(a.ws.readFiles(paths))
 	case "write":
 		var in struct {
 			Path    string `json:"path"`
