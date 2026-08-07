@@ -271,7 +271,8 @@ runs several independent subtasks in parallel.
 `dross serve` hosts the embedded web client plus a JSON/SSE API: multiple
 sessions, sandboxed per-session workspaces, and a device relay. `dross rc
 --server <url>` links a computer so a phone app can drive sessions that run on
-it, authenticated as the SSO user (`dross login`). Serve supports SSO via any
+it, authenticated as the SSO user (`dross rc` opens the browser sign-in itself
+the first time, or pass `--token`). Serve supports SSO via any
 OIDC provider or Cloudflare Access, plus a static bearer token for programmatic
 clients. See `dross serve --help`.
 

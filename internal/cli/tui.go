@@ -182,6 +182,25 @@ func newTUICmd() *cobra.Command {
 			// One persistent agent per (provider, model, skills) so the conversation
 			// is remembered across prompts; rebuilt when any of those change.
 			var conv *agent.Agent
+			// The conversation agent is rebuilt whenever the model, worker, or
+			// skill set changes, and there are several places that drop it. Each
+			// one used to abandon whatever it was holding — MCP server
+			// connections, and now any review or handoff brief still running —
+			// so retirement goes through one place that closes it.
+			//
+			// Off the UI goroutine because Close waits for that outstanding work.
+			// Today the TUI configures no reviewer and no automatic brief, so
+			// there is none and this returns at once; that is a fact about the
+			// current wiring rather than a guarantee, and blocking the interface
+			// on a model call would be a poor way to discover it changed.
+			retire := func() {
+				if conv == nil {
+					return
+				}
+				old := conv
+				conv = nil
+				go old.Close()
+			}
 			var convKey string
 			run := func(ctx context.Context, prompt, mode string, emit func(agent.Event)) (*agent.Result, error) {
 				if st.prov == nil || st.model == "" {
@@ -189,6 +208,7 @@ func newTUICmd() *cobra.Command {
 				}
 				key := fmt.Sprintf("%s|%s|%s|%s|%d|%d", st.name, st.model, st.workerName, st.workerModel, skillGen, mcpGen)
 				if conv == nil || key != convKey {
+					retire() // the old agent is about to be replaced, not reused
 					opts := []agent.Option{agent.WithConversation()}
 					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
 					if store != nil {
@@ -301,14 +321,14 @@ func newTUICmd() *cobra.Command {
 			mdl.SetPluginReload(func() []tui.SkillItem {
 				loadSkills()
 				skillGen++
-				conv = nil // rebuild the agent with the new skill set on the next run
+				retire() // rebuild the agent with the new skill set on the next run
 				return skillItems
 			})
 			mdl.SetSkillsApply(func(off map[string]bool) {
 				skillOff = off
 				loadSkills()
 				skillGen++
-				conv = nil // apply the new enabled/disabled set on the next run
+				retire() // apply the new enabled/disabled set on the next run
 			})
 			mdl.SetReset(func() {
 				if conv != nil {
@@ -479,6 +499,13 @@ func newTUICmd() *cobra.Command {
 			// so selecting text copies it without a modifier. /mouse turns capture
 			// off to fall back to the terminal's native selection.
 			prog = tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
+			// Synchronously here, unlike retire: the process is about to exit,
+			// so a goroutine would be a way of not doing it at all.
+			defer func() {
+				if conv != nil {
+					conv.Close()
+				}
+			}()
 			if _, err = prog.Run(); err != nil {
 				return err
 			}
