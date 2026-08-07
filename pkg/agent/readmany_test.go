@@ -125,7 +125,7 @@ func TestReadAcceptsBothForms(t *testing.T) {
 // TestPromptOffersTheBatchedRead: the tool can do it, so the model has to be
 // told — this whole change exists because a model would not batch on its own.
 func TestPromptOffersTheBatchedRead(t *testing.T) {
-	p := basePrompt([]string{"read", "grep", "bash"})
+	p := basePrompt([]string{"read", "grep", "bash"}, false)
 	if !strings.Contains(p, "paths") {
 		t.Fatalf("prompt never mentions reading several files at once:\n%s", p)
 	}

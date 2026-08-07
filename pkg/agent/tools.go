@@ -298,6 +298,11 @@ type workspace struct {
 	root  string
 	tools string   // sandbox: where SDKs/toolchains install ($DROSS_TOOLS); "" if not sandboxed
 	env   []string // sandbox: scoped process env for bash/monitor; nil = inherit parent env
+	// confined refuses any path outside root. On for a sandboxed session —
+	// anything driven remotely, where nobody is watching what it opens — and
+	// off for a local one, where being unable to read the repository next door
+	// is an obstacle rather than a protection.
+	confined bool
 }
 
 func newWorkspace(root string, sandbox bool) (*workspace, error) {
@@ -312,7 +317,7 @@ func newWorkspace(root string, sandbox bool) (*workspace, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("workspace %s is not a directory", abs)
 	}
-	w := &workspace{root: abs}
+	w := &workspace{root: abs, confined: sandbox}
 	if sandbox {
 		if err := w.initSandbox(); err != nil {
 			return nil, err
@@ -680,13 +685,19 @@ func (w *workspace) resolve(p string) (string, error) {
 	} else {
 		abs = filepath.Join(w.root, p)
 	}
+	if !w.confined {
+		// Unsandboxed: the agent may read and write wherever the person running
+		// it can. Relative paths still resolve against the workspace, so the
+		// common case is unchanged; an absolute one is simply honoured.
+		return abs, nil
+	}
 	// Clean already collapsed .. segments; verify the result is under root.
 	rel, err := filepath.Rel(w.root, abs)
 	if err != nil {
 		return "", err
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes the workspace", p)
+		return "", fmt.Errorf("path %q escapes the workspace; this session is sandboxed", p)
 	}
 	// The lexical check above is not enough: a symlink inside the workspace can
 	// point anywhere, and every file call would follow it. A repo can carry one,

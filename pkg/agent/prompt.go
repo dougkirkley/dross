@@ -236,12 +236,21 @@ func codeToolLines(tools []string) string {
 // basePrompt documents the tools and the working style for every agent. A
 // Config.Identity is appended after it, so callers write only the role-specific
 // framing while tool behavior stays consistent.
-func basePrompt(tools []string) string {
-	return `You are a coding agent operating inside a confined workspace directory.
+func basePrompt(tools []string, confined bool) string {
+	reach := `Relative paths resolve against the workspace root. You may also read and
+write elsewhere on this machine with an absolute path, so a sibling checkout or
+a file in the home directory is reachable — say which path you are touching when
+it is outside the workspace.`
+	if confined {
+		reach = `All paths are relative to the workspace root; paths that escape it are
+rejected. This session is sandboxed: you cannot read or write outside it, so do
+not offer to.`
+	}
+	return `You are a coding agent operating inside a workspace directory.
 
 You have these tools:
 ` + codeToolLines(tools) + `
-All paths are relative to the workspace root; paths that escape it are rejected.
+` + reach + `
 
 Working style:
 - When you have enough information to act, act. Do not narrate a plan you will not follow.
@@ -431,7 +440,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 		}
 		return p
 	}
-	p := basePrompt(tools)
+	p := basePrompt(tools, cfg.Sandbox)
 	if hasWorker {
 		p += delegateGuidance
 	}

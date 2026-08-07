@@ -469,9 +469,11 @@ func TestEdit_Uniqueness(t *testing.T) {
 	}
 }
 
-// TestWorkspace_Confinement proves paths escaping the workspace are rejected.
+// TestWorkspace_Confinement proves a sandboxed workspace rejects paths that
+// escape it. An unsandboxed one deliberately does not — see
+// TestUnsandboxedReachesOutside.
 func TestWorkspace_Confinement(t *testing.T) {
-	ws := &workspace{root: t.TempDir()}
+	ws := &workspace{root: t.TempDir(), confined: true}
 	for _, bad := range []string{"../escape", "../../etc/passwd", "/etc/passwd"} {
 		if _, err := ws.resolve(bad); err == nil {
 			t.Fatalf("resolve(%q) should have failed", bad)

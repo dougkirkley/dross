@@ -52,7 +52,7 @@ func TestPromptOmitsToolsTheSessionLacks(t *testing.T) {
 // at the same time, and that is only worth anything if the model knows to ask
 // for them together.
 func TestPromptSaysLookupsAreBatched(t *testing.T) {
-	p := basePrompt([]string{"read", "grep", "glob", "bash"})
+	p := basePrompt([]string{"read", "grep", "glob", "bash"}, false)
 	if !strings.Contains(p, "at the same time") {
 		t.Fatalf("prompt never tells the model its look-ups are batched:\n%s", p)
 	}

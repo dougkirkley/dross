@@ -114,7 +114,12 @@ type File struct {
 	// that server does not have.
 	ChatModels []string `json:"chat_models,omitempty"`
 	CompactAt  int      `json:"compact_at,omitempty"` // tool-result byte threshold
-	Phrases    []string `json:"phrases,omitempty"`    // TUI status phrases
+	// Sandbox confines a session to its workspace: no reading or writing
+	// outside it, and toolchains install inside it. Off by default for a local
+	// session, where being unable to open the checkout next door is an
+	// obstacle; server-driven sessions set it regardless of this.
+	Sandbox bool     `json:"sandbox,omitempty"`
+	Phrases []string `json:"phrases,omitempty"` // TUI status phrases
 
 	// tools is an allow-list: when set, only these tool ids are enabled (empty =
 	// all). permission is per-tool allow|ask|deny — either a plain string, or,

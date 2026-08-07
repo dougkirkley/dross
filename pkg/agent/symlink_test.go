@@ -16,7 +16,7 @@ func TestSymlinkCannotEscapeWorkspace(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	w := &workspace{root: root}
+	w := &workspace{root: root, confined: true}
 
 	// A link to a file outside, and a link to the directory containing it.
 	if err := os.Symlink(secret, filepath.Join(root, "leak")); err != nil {

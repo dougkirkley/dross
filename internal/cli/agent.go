@@ -22,6 +22,7 @@ func newAgentCmd() *cobra.Command {
 		revProv, revModel, revBaseURL, revKey             string
 		compProv, compModel, compBaseURL, compKey         string
 		sessionName                                       string
+		sandbox                                           bool
 		fresh                                             bool
 		maxParallel                                       int
 	)
@@ -118,7 +119,8 @@ func newAgentCmd() *cobra.Command {
 			}
 
 			ag, err := agent.New(agent.Config{
-				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style), MaxTurns: pc.File.MaxTurns,
+				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style),
+				MaxTurns: pc.File.MaxTurns, Sandbox: sandbox || pc.File.Sandbox,
 			}, prov, opts...)
 			if err != nil {
 				return err
@@ -147,6 +149,8 @@ func newAgentCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
+	f.BoolVar(&sandbox, "sandbox", false,
+		"confine the agent to the workspace: no reading or writing outside it")
 	f.StringVarP(&workdir, "workdir", "C", ".", "workspace root")
 	f.StringVar(&model, "model", defaultModel, "lead model")
 	f.StringVar(&name, "name", "agent", "agent name")
