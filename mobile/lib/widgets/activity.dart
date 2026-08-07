@@ -198,14 +198,13 @@ List<Object> buildTimeline(List<Event> events, {bool running = false}) {
             label: 'Compacted ${e.data}',
             color: T.textFaint));
       case 'edit':
-        try {
-          final info =
-              EditInfo.fromJson(jsonDecode(e.data) as Map<String, dynamic>);
+        final info = e.editInfo;
+        if (info != null) {
           (cur ??= Activity()).steps.add(ActStep(
               icon: info.isNew ? Icons.note_add_outlined : Icons.edit_outlined,
               label: '${info.isNew ? 'Created' : 'Edited'} ${info.file}',
               edit: info));
-        } catch (_) {}
+        }
       default:
         (cur ??= Activity())
             .steps

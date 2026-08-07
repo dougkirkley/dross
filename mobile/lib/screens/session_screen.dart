@@ -17,6 +17,7 @@ import '../widgets/tasks_sheet.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/composer_keys.dart';
+import '../widgets/changed_files.dart';
 import '../widgets/speaker.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
@@ -96,6 +97,7 @@ class _SessionScreenState extends State<SessionScreen> {
         // Same signal at the top of the window the session owns, so a run
         // is visible without going back to the list to see its card.
         if (sess?.isRunning ?? false) const RunningBar(),
+        _changedStrip(context, s),
         if (_starting(sess))
           // In the same column the transcript reads in. Left to itself it
           // stretched the full width of a desktop window while every line
@@ -171,6 +173,30 @@ class _SessionScreenState extends State<SessionScreen> {
             : pane,
       ),
     ));
+  }
+
+  /// What the session has touched, under the header: "3 files +81 −12".
+  ///
+  /// The terminal keeps this in its bottom bar, and it earns the space there
+  /// for the same reason it earns it here — how much is uncommitted is the one
+  /// thing about a working session you want to see without asking for it. The
+  /// list itself is a tap away, because that is the detail you want
+  /// occasionally rather than continuously.
+  Widget _changedStrip(BuildContext context, AppState s) {
+    final files = changedFiles(s.events);
+    if (files.isEmpty) return const SizedBox.shrink();
+    return Readable(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: ChangedFilesChip(
+            files: files,
+            onTap: () => showChangedFilesSheet(context, files),
+          ),
+        ),
+      ),
+    );
   }
 
   /// The session's own menu, top right of the page it belongs to.

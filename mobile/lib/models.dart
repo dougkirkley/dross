@@ -115,6 +115,20 @@ class Event {
   bool get isWorker => kind.startsWith('worker:');
   String get baseKind => isWorker ? kind.substring('worker:'.length) : kind;
   bool get isShell => kind.startsWith('shell:');
+
+  /// The edit this event describes, or null if it is not one (or is malformed).
+  ///
+  /// Two places want it — the activity block that shows the diff, and the
+  /// changed-files list that counts it — and they were about to hold two copies
+  /// of the same decode-and-swallow-the-error dance.
+  EditInfo? get editInfo {
+    if (baseKind != 'edit') return null;
+    try {
+      return EditInfo.fromJson(jsonDecode(data) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// A background shell reconstructed from shell:start/output/exit events.
