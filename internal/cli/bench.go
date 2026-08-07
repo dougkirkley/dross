@@ -62,6 +62,12 @@ func parseDrossSpec(s string) (drossSpec, error) {
 		if d.model != "" {
 			d.label += ":" + d.model
 		}
+		if d.workerModel != "" {
+			// A lead with a worker is a different agent from the same lead
+			// alone — that is the whole point of measuring it — so the rows
+			// must not collapse into one.
+			d.label += "+" + d.workerModel
+		}
 	}
 	return d, nil
 }

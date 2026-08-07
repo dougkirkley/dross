@@ -471,6 +471,7 @@ type Agent struct {
 	compactStats  CompactStatsFunc
 	maxParallel   int            // max concurrent worker subagents (0 = default 2)
 	failures      map[string]int // identical failing calls seen, for the no-progress guard
+	singleReads   int            // consecutive one-file reads, for the batching hint
 	aftercare     sync.WaitGroup // background review/brief still running
 	syncAftercare bool           // run review/brief before Run returns
 	edits         []editRec      // changes made this run, for the reviewer skill
@@ -1676,10 +1677,54 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 	// all.
 	recordSourcesFromToolOutput(ctx, tc.Name, content)
 	content = a.maybeCompact(ctx, tc.Name, content, res)
+	if hint := a.batchingHint(tc); hint != "" {
+		content += hint
+	}
 	// Emit a generous slice so clients can expand the full output (the feed
 	// still shows a one-line preview); cap to bound payload.
 	a.emit("tool-result", truncate(content, 16000))
 	return content
+}
+
+// singleReadsBeforeHint is how many files a model may fetch one at a time
+// before it is reminded it does not have to.
+const singleReadsBeforeHint = 3
+
+// batchingHint nudges a model that is opening files one per round trip.
+//
+// read takes a list of paths, and the difference is measured: runs that used it
+// finished a rename in seven or eight turns, runs that did not took twelve or
+// thirteen. But the tool description says so, and the system prompt says so,
+// and a small model still reached for the single-file form about half the time
+// — so saying it a third time in the prompt was not going to work either.
+//
+// This says it at the only moment it is actionable: attached to the result of
+// the third single-file read in a row, when the model is demonstrably in the
+// habit and about to do it again. It is dropped the moment a batch is used, so
+// a model that takes the hint stops being told.
+func (a *Agent) batchingHint(tc provider.ToolCall) string {
+	if a.resolveToolName(tc.Name, tc.Input) != "read" {
+		a.singleReads = 0 // a different tool ends the run of them
+		return ""
+	}
+	var in struct {
+		Paths []string `json:"paths"`
+	}
+	_ = json.Unmarshal(tc.Input, &in)
+	if len(in.Paths) > 1 {
+		a.singleReads = 0
+		return ""
+	}
+	a.singleReads++
+	if a.singleReads != singleReadsBeforeHint {
+		// Only on the threshold, not on every read after it: repeating it every
+		// turn is nagging, and the model has either taken the point or has not.
+		return ""
+	}
+	return "\n\n[You have read " + fmt.Sprint(singleReadsBeforeHint) +
+		" files one at a time, which costs a round trip each. read accepts a list: " +
+		`read(paths=["a.go","b.go","c.go"]) returns all three at once. ` +
+		"Ask for every file you already know you need in one call.]"
 }
 
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
