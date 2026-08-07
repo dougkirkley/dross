@@ -17,6 +17,7 @@ import '../widgets/tasks_sheet.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/composer_keys.dart';
+import '../widgets/speaker.dart';
 
 /// Remote-session conversation (Code view). Streams the serve event log (tool
 /// calls, delegation indented, cost). Prose is set in a reading face — it used
@@ -287,42 +288,30 @@ class _SessionScreenState extends State<SessionScreen> {
         // Blocking the run, so it gets its own card rather than a text row.
         return AskCard(e.data);
       case 'prompt':
-        // Wide: the terminal's own line, "▸ you  <prompt>", in the flow. A
-        // bubble pushed to the right margin of a desktop window puts the
-        // request and the reply it produced at opposite edges of the screen.
-        content = isWide(context)
-            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('▸ ', style: T.termBody.copyWith(color: T.accent)),
-                Text('you',
-                    style: T.termBody.copyWith(
-                        color: T.textDim, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 10),
-                Expanded(child: Text(e.data, style: T.termBody)),
-              ])
-            : Align(
-                alignment: Alignment.centerRight,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.82),
-                  decoration: BoxDecoration(
-                      color: T.surfaceAlt,
-                      borderRadius: BorderRadius.circular(T.rBubble)),
-                  child: Text(e.data, style: bodyFor(context)),
-                ),
-              );
+        // One layout at every width: a rule down the left in the speaker's
+        // colour, the mark the terminal already draws. This used to be a bubble
+        // at the right margin on a phone and a "▸ you" prefix on a desktop —
+        // two answers to one question, which made the same session read as two
+        // different products in two windows.
+        //
+        // The tint is what the bubble was really for, kept: on a phone, "this
+        // one is mine" wants more than two pixels of colour.
+        content = SpeakerTurn(
+          speaker: Speaker.you,
+          tinted: true,
+          child: Text(e.data, style: bodyFor(context)),
+        );
         break;
       case 'text':
-        // The orb marks the agent's turn, as it does in the terminal. On a
-        // phone the alternation of bubble and prose already says whose turn it
-        // is, and the gutter would only eat width.
-        content = isWide(context)
-            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('◉ ', style: T.termBody.copyWith(color: T.accentHi)),
-                Expanded(child: ProseText(e.data)),
-              ])
-            : ProseText(e.data);
+        // The orb leads the agent's turn, sitting on the agent's rule.
+        content = SpeakerTurn(
+          speaker: Speaker.agent,
+          leading: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text('◉', style: T.termBody.copyWith(color: T.accentHi)),
+          ),
+          child: ProseText(e.data),
+        );
         break;
       case 'review':
         content = Column(

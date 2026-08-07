@@ -42,6 +42,18 @@ class T {
   // Status / semantic.
   static const ok = Color(0xFF34D399);
   static const danger = Color(0xFFFB7185);
+  static const gold = Color(0xFFE6B450);
+
+  // Who is speaking, said with a colour down the left of the turn.
+  //
+  // The same three colours the terminal uses, deliberately: a session can be
+  // read in the TUI, in the browser and on a phone, often two of them at once,
+  // and the thing that tells you whose turn you are looking at should not
+  // change between them. Violet for the agent, the accent for you, gold for a
+  // turn that arrived from a linked device.
+  static const youRule = accent;
+  static const agentRule = violet;
+  static const remoteRule = gold;
 
   // Light pill (the "New session/chat" FAB is near-white with dark text).
   static const pill = Color(0xFFF3F1EC);

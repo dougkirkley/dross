@@ -12,6 +12,7 @@ import '../widgets/follow_bottom.dart';
 import '../widgets/logo.dart';
 import '../widgets/prose.dart';
 import '../widgets/server_model_sheet.dart';
+import '../widgets/speaker.dart';
 import '../util/nav.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/composer_keys.dart';
@@ -163,9 +164,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// being buffered into one dump.
   Widget _streaming(AppState s) {
     if (s.streamingText.isEmpty) return const SizedBox.shrink();
+    // On the agent's rule from the first word, so the answer does not shift
+    // sideways when the stream finishes and the final event replaces it.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: ProseText(s.streamingText),
+      child:
+          SpeakerTurn(speaker: Speaker.agent, child: ProseText(s.streamingText)),
     );
   }
 
@@ -195,17 +199,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _message(Event e) {
     if (e.baseKind == 'prompt') {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.82),
-          decoration: BoxDecoration(
-            color: T.surfaceAlt,
-            borderRadius: BorderRadius.circular(T.rBubble),
-          ),
+      // The rule, not a right-aligned bubble — the same mark the terminal and
+      // the session screen draw, so a chat and an agent session look like one
+      // product. See SpeakerTurn.
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: SpeakerTurn(
+          speaker: Speaker.you,
+          tinted: true,
           child: Text(e.data, style: bodyFor(context)),
         ),
       );
@@ -256,7 +257,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // assistant text / review
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: ProseText(e.data),
+      child: SpeakerTurn(speaker: Speaker.agent, child: ProseText(e.data)),
     );
   }
 
