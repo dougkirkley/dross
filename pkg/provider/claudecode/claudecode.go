@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -287,17 +288,133 @@ func paramValue(name, s string) string {
 	return strings.TrimSpace(s)
 }
 
-func parseCalls(s string) ([]provider.ToolCall, string) {
+// paramTypes indexes the declared JSON type of every tool parameter, by tool
+// name then parameter name. Absent means "string", which is what an untyped
+// schema and an unknown tool both amount to.
+func paramTypes(tools []provider.ToolDef) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(tools))
+	for _, t := range tools {
+		types := make(map[string]string, len(t.Properties))
+		for name, prop := range t.Properties {
+			if m, ok := prop.(map[string]any); ok {
+				if s, ok := m["type"].(string); ok {
+					types[name] = s
+				}
+			}
+		}
+		out[t.Name] = types
+	}
+	return out
+}
+
+// coerce turns one XML parameter into the JSON type its tool declared.
+//
+// The protocol carries no types: every value arrives as the text between two
+// tags. Sending them all on as strings put `"context": "3"` in front of a tool
+// whose field is an int, and encoding/json fails the WHOLE object on the first
+// bad field — so a grep lost its pattern as well as its context and came back
+// as an unmarshal error. The model could not tell which part was wrong, so it
+// retried the same call, then fell back to `bash cat -A` to read the file
+// another way. Two turns, sometimes four, for a value that was never in doubt.
+//
+// A value that cannot be read as its declared type is passed through as the
+// string it was, so the tool still reports something the model can act on
+// rather than this quietly inventing a zero.
+func coerce(declared, v string) any {
+	switch declared {
+	case "integer":
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			return n
+		}
+	case "number":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+			return f
+		}
+	case "boolean":
+		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			return b
+		}
+	case "array":
+		var out []any
+		if json.Unmarshal([]byte(v), &out) == nil {
+			return out
+		}
+		// Not JSON: one value per line is the other way a model writes a list
+		// into a text field, and a lone value is a list of one. Both beat
+		// handing an array-typed field a string.
+		var items []any
+		for _, line := range strings.Split(v, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				items = append(items, line)
+			}
+		}
+		if len(items) > 0 {
+			return items
+		}
+	case "object":
+		var out map[string]any
+		if json.Unmarshal([]byte(v), &out) == nil {
+			return out
+		}
+	}
+	return v
+}
+
+// orphanOpenRE matches an opening tag that has lost its "<function" — the shape
+// a broken call was actually seen in: "=read>" alone on a line, with the
+// arguments as bare text underneath it.
+var orphanOpenRE = regexp.MustCompile(`(?m)^\s*=[A-Za-z_][A-Za-z0-9_.-]*>\s*$`)
+
+// attemptedCall reports whether a reply that parsed to no tool calls was
+// nevertheless the model trying to make one.
+//
+// The distinction matters because the two are handled oppositely. A driven
+// reply with no calls normally means the task is done — that is how the model
+// says so. But roughly one turn in fifteen it emits a call whose opening tag is
+// malformed, nothing parses, and "no calls" then means the opposite of
+// finished. Measured on add-function: a run ended after one turn and 2.5s with
+// the file still empty, and the bench recorded it as a pass-rate failure with
+// no error to explain it.
+//
+// dross already knows how to repair this — the agent asks for one clean call
+// and carries on, three times before giving up. It was never reached because
+// the provider reported a normal end of turn.
+//
+// Both shapes are checked. Scaffolding left in the text is the ordinary case;
+// the orphaned opener is the one that was actually observed, where enough of
+// the tag survived to strip but not to parse.
+func attemptedCall(raw string) bool {
+	for _, frag := range []string{"<function", "</function", "<invoke", "</invoke", "<parameter", "</parameter"} {
+		if strings.Contains(raw, frag) {
+			return true
+		}
+	}
+	return orphanOpenRE.MatchString(raw)
+}
+
+// truncate bounds the fragment of a broken reply quoted back in an error.
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+func parseCalls(s string, tools []provider.ToolDef) ([]provider.ToolCall, string) {
 	s = normalizeProtocol(s)
 	if !strings.Contains(s, "<function=") {
 		return nil, stripProtocol(s)
 	}
+	types := paramTypes(tools)
 	var calls []provider.ToolCall
 	for i, m := range funcRE.FindAllStringSubmatch(s, -1) {
-		args := map[string]string{}
+		name := normalizeToolName(m[1])
+		schema := types[name]
+		args := map[string]any{}
 		for _, p := range paramRE.FindAllStringSubmatch(m[2], -1) {
-			name := strings.TrimSpace(p[1])
-			args[name] = paramValue(name, p[2])
+			arg := strings.TrimSpace(p[1])
+			args[arg] = coerce(schema[arg], paramValue(arg, p[2]))
 		}
 		raw, err := json.Marshal(args)
 		if err != nil {
@@ -305,7 +422,7 @@ func parseCalls(s string) ([]provider.ToolCall, string) {
 		}
 		calls = append(calls, provider.ToolCall{
 			ID:    fmt.Sprintf("call_%d", i),
-			Name:  normalizeToolName(m[1]),
+			Name:  name,
 			Input: raw,
 		})
 	}
@@ -626,9 +743,12 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 
 	if s.driven {
-		calls, cleaned := parseCalls(out)
+		calls, cleaned := parseCalls(out, s.tools)
 		if len(calls) > 0 {
 			return &provider.Response{Text: cleaned, ToolCalls: calls, StopReason: provider.StopToolUse, Usage: usage, APITime: apiTime}, nil
+		}
+		if attemptedCall(out) {
+			return nil, fmt.Errorf("%w: %s", provider.ErrMalformedToolCall, truncate(cleaned, 200))
 		}
 		return &provider.Response{Text: cleaned, StopReason: provider.StopEndTurn, Usage: usage, APITime: apiTime}, nil
 	}

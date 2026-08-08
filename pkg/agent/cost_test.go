@@ -22,6 +22,17 @@ func TestCost(t *testing.T) {
 	if got := Cost("some-unknown-model", u); got != 0 {
 		t.Fatalf("unknown cost = %v, want 0", got)
 	}
+	// The Claude Code CLI's short names cost what they are. "Unknown means
+	// free" is right for a local model and exactly wrong for the most
+	// expensive one on the list — a session run as --model opus priced at
+	// zero, which reads as a saving and was a missing table entry.
+	for alias, id := range map[string]string{
+		"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5",
+	} {
+		if got, want := Cost(alias, u), Cost(id, u); got != want || got == 0 {
+			t.Errorf("Cost(%q) = %v, want %v (same as %q)", alias, got, want, id)
+		}
+	}
 }
 
 func TestCost_Zero(t *testing.T) {

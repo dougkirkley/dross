@@ -18,7 +18,7 @@ func TestEditKeepsIndentation(t *testing.T) {
 		"<parameter=new_str>\n" + new + "\n</parameter>\n" +
 		"</function>"
 
-	calls, _ := parseCalls(s)
+	calls, _ := parseCalls(s, nil)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}
@@ -45,7 +45,7 @@ func TestWriteKeepsTrailingNewline(t *testing.T) {
 	s := "<function=write>\n<parameter=path>main.go</parameter>\n" +
 		"<parameter=content>\n" + content + "</parameter>\n</function>"
 
-	calls, _ := parseCalls(s)
+	calls, _ := parseCalls(s, nil)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}

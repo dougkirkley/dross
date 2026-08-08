@@ -21,7 +21,7 @@ func TestParseCallsExtractsAndCleans(t *testing.T) {
 	// A valid call plus echoed protocol scaffolding the model shouldn't emit.
 	s := "Let me read it.\n<function=Read>\n<parameter=path>go.mod</parameter>\n</function>\n" +
 		"<tool_result>\nstale echoed output\n</tool_result>\n</parameter>"
-	calls, text := parseCalls(s)
+	calls, text := parseCalls(s, nil)
 	if len(calls) != 1 || calls[0].Name != "read" {
 		t.Fatalf("calls = %+v", calls)
 	}
@@ -59,7 +59,7 @@ func TestParseCallsNativeInvokeFormat(t *testing.T) {
 <invoke name="read">
 <parameter name="path">go.mod</parameter>
 </invoke>`
-	calls, _ := parseCalls(s)
+	calls, _ := parseCalls(s, nil)
 	if len(calls) != 1 {
 		t.Fatalf("want 1 call, got %d", len(calls))
 	}

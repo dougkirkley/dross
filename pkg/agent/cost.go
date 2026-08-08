@@ -19,9 +19,26 @@ var priceTable = map[string]pricing{
 	"qwen3-coder:30b": {},
 }
 
+// aliases are the short names the Claude Code CLI takes for a model, mapped to
+// the id the price table is keyed by.
+//
+// Without these, a session run as --model opus priced at zero. "Unknown means
+// free" is the right default for a local model and exactly the wrong one for
+// the most expensive model on the list: a benchmark comparing dross-through-
+// Claude-Code against Claude Code itself reported $0.0000 against $1.27, which
+// reads as a saving and was a missing table entry.
+var aliases = map[string]string{
+	"opus":   "claude-opus-5",
+	"sonnet": "claude-sonnet-5",
+	"haiku":  "claude-haiku-4-5",
+}
+
 // Cost estimates the USD cost of usage for the given model. Unknown models cost
 // 0 (treated as free/local) rather than guessing.
 func Cost(model string, u provider.Usage) float64 {
+	if id, ok := aliases[model]; ok {
+		model = id
+	}
 	p, ok := priceTable[model]
 	if !ok {
 		return 0
