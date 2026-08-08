@@ -854,6 +854,10 @@ type edit struct {
 	OldStr     string `json:"old_str"`
 	NewStr     string `json:"new_str"`
 	ReplaceAll bool   `json:"replace_all"`
+
+	// Which file this entry changes, when the batch spans more than one.
+	// Empty means the call's own path, so the single-file form is unchanged.
+	Path string `json:"path"`
 }
 
 // editFile does an exact-string replacement that must match exactly once.
@@ -870,24 +874,120 @@ func (w *workspace) editFile(path, oldStr, newStr string) (string, error) {
 // model's next move is based on a diff it did not make. Applying in order
 // against the running text also means a later edit can legitimately touch what
 // an earlier one produced.
-func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
+// maxEditFiles bounds one multi-file edit, for the same reason maxReadPaths
+// bounds a multi-file read: enough to finish a rename across a package, not
+// enough to rewrite a repository from one call nobody reviewed.
+const maxEditFiles = 20
+
+// applyEditsAcross runs a batch whose entries may name different files.
+//
+// A rename is one change to a codebase and several changes to files, and until
+// now the tool could only say the second thing: every file cost its own turn.
+// Traced on rename-symbol, gpt-oss:20b spent turns 5, 6 and 9 on three edits
+// that were one intention, and Claude Code — which has the same one-file-per-
+// call shape — spends its turns the same way. read already took a list of
+// paths and that is what cut its turns; this is the same move for the other
+// side of the job.
+//
+// All or nothing across every file. A half-applied rename does not compile, and
+// leaving one behind is worse than refusing the batch: the model can see a
+// refusal, whereas a codebase that builds nowhere takes a turn to diagnose. So
+// every file is edited in memory first, and nothing is written until all of
+// them have succeeded.
+func (w *workspace) applyEditsAcross(defaultPath string, edits []edit) (string, error) {
 	if len(edits) == 0 {
 		return "", fmt.Errorf("no edits given")
+	}
+	// Grouped in first-seen order so the report reads in the order the model
+	// asked for, and so a file named twice is one group rather than two.
+	var order []string
+	byPath := map[string][]edit{}
+	for i, e := range edits {
+		p := e.Path
+		if p == "" {
+			p = defaultPath
+		}
+		if p == "" {
+			return "", fmt.Errorf("edit %d has no path: give the call a path, or a path on each entry "+
+				"when the batch spans several files", i+1)
+		}
+		if _, seen := byPath[p]; !seen {
+			order = append(order, p)
+		}
+		byPath[p] = append(byPath[p], e)
+	}
+	if len(order) == 1 {
+		return w.applyEdits(order[0], byPath[order[0]])
+	}
+	if len(order) > maxEditFiles {
+		return "", fmt.Errorf("asked to edit %d files at once; the limit is %d", len(order), maxEditFiles)
+	}
+
+	// Dry run everything before writing anything.
+	staged := make(map[string]string, len(order))
+	var reports []string
+	for _, p := range order {
+		out, err := w.editInMemory(p, byPath[p])
+		if err != nil {
+			return "", fmt.Errorf("%s (nothing was written; the batch changes %d files and all of them "+
+				"must apply)", err, len(order))
+		}
+		staged[p] = out.text
+		reports = append(reports, out.report)
+	}
+	for _, p := range order {
+		abs, err := w.resolve(p)
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(abs, []byte(staged[p]), 0o644); err != nil {
+			return "", fmt.Errorf("%s: %w", p, err)
+		}
+	}
+	return strings.Join(reports, "\n\n"), nil
+}
+
+func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
+	out, err := w.editInMemory(path, edits)
+	if err != nil {
+		return "", err
 	}
 	abs, err := w.resolve(path)
 	if err != nil {
 		return "", err
 	}
+	if err := os.WriteFile(abs, []byte(out.text), 0o644); err != nil {
+		return "", err
+	}
+	return out.report, nil
+}
+
+// staged is one file's edited contents and the line to report for it, computed
+// without touching the disk so a multi-file batch can check every file before
+// committing to any of them.
+type staged struct {
+	text   string
+	report string
+}
+
+func (w *workspace) editInMemory(path string, edits []edit) (staged, error) {
+	if len(edits) == 0 {
+		return staged{}, fmt.Errorf("no edits given")
+	}
+	abs, err := w.resolve(path)
+	if err != nil {
+		return staged{}, err
+	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return "", err
+		return staged{}, err
 	}
 
 	text := string(data)
 	total, adjusted, skipped := 0, 0, 0
 	for i, e := range edits {
 		if e.OldStr == "" {
-			return "", fmt.Errorf("edit %d has an empty old_str. To replace text, pass old_str and "+
+			return staged{}, fmt.Errorf("edit %d has an empty old_str. To replace text, pass old_str and "+
 				"new_str, or an array under the key `edits`; to create a file, use write", i+1)
 		}
 		// A single entry that changes nothing used to reject the whole batch,
@@ -910,10 +1010,10 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 				adjusted++
 				continue
 			}
-			return "", fmt.Errorf("%s", noMatchMessage(path, text, e.OldStr, i, len(edits)))
+			return staged{}, fmt.Errorf("%s", noMatchMessage(path, text, e.OldStr, i, len(edits)))
 		}
 		if n > 1 && !e.ReplaceAll {
-			return "", fmt.Errorf("%s", ambiguousMessage(path, text, e.OldStr, n, i, len(edits)))
+			return staged{}, fmt.Errorf("%s", ambiguousMessage(path, text, e.OldStr, n, i, len(edits)))
 		}
 		if e.ReplaceAll {
 			text = strings.ReplaceAll(text, e.OldStr, e.NewStr)
@@ -925,13 +1025,10 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 	}
 
 	if total == 0 {
-		return "", fmt.Errorf("nothing to do: %s already reads the way every edit asks for. "+
+		return staged{}, fmt.Errorf("nothing to do: %s already reads the way every edit asks for. "+
 			"Check the file before editing it again", path)
 	}
 
-	if err := os.WriteFile(abs, []byte(text), 0o644); err != nil {
-		return "", err
-	}
 	// Hand back the result rather than only the fact of it: a model that cannot
 	// see what it produced re-reads the file to check, which costs a whole
 	// round trip to learn something this call already knows.
@@ -949,8 +1046,11 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 	if len(notes) > 0 {
 		note = " — " + strings.Join(notes, "; ")
 	}
-	return fmt.Sprintf("edited %s (%d replacement%s%s)\n\n%s",
-		path, total, plural(total), note, changedRegion(string(data), text)), nil
+	return staged{
+		text: text,
+		report: fmt.Sprintf("edited %s (%d replacement%s%s)\n\n%s",
+			path, total, plural(total), note, changedRegion(string(data), text)),
+	}, nil
 }
 
 // looseReplace applies an edit whose old_str matches the file except for the
@@ -1518,4 +1618,23 @@ func (w *workspace) runBash(command string) (string, error) {
 		return "[no output]", nil
 	}
 	return result, nil
+}
+
+// editedPaths lists the files a batch will touch, in first-seen order, so the
+// caller can read each one before and after without re-deriving the grouping.
+func editedPaths(defaultPath string, edits []edit) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range edits {
+		p := e.Path
+		if p == "" {
+			p = defaultPath
+		}
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }

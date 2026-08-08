@@ -205,7 +205,7 @@ func codeToolLines(tools []string) string {
 	desc := map[string]string{
 		"read":         "read(path) or read(paths=[…]): read one file, or several in a single call. Content comes back with line numbers. When you already know which files you want, ask for them all at once.",
 		"write":        "write(path, content): create or overwrite a file.",
-		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes to one file in a single call rather than one call each.",
+		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes in a single call rather than one call each — give an entry its own path and one call changes several files, which is how a rename across a package should be done.",
 		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched.",
 		"glob":         "glob(pattern): list files whose paths match a glob (**/*.go). Use this to find files, not `bash find` or `ls -R`.",
 		"bash":         "bash(command): run a shell command with the workspace as the working directory. Set background=true for anything long-lived.",
@@ -495,24 +495,28 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		},
 		{
 			Name: "edit",
-			Description: "edit: replace exact substrings in a file. Pass old_str/new_str for one replacement, " +
-				"or edits (an array) to make SEVERAL changes to the same file in one call — they are applied in " +
-				"order and all together, so if any one fails nothing is written. old_str must match exactly, " +
-				"including whitespace, and must be unique unless replace_all is set.",
+			Description: "edit: replace exact substrings in files. Pass old_str/new_str for one replacement, " +
+				"or edits (an array) to make SEVERAL changes in one call — always prefer that over one call per " +
+				"change. Entries may each carry their own path, so a rename across several files is ONE edit " +
+				"call, not one per file. They are applied all together, so if any one fails nothing is written " +
+				"anywhere. old_str must match exactly, including whitespace, and must be unique unless " +
+				"replace_all is set.",
 			Properties: map[string]any{
-				"path":        strProp("File path relative to the workspace root."),
+				"path":        strProp("File path relative to the workspace root. With edits, the default for entries that do not name their own."),
 				"old_str":     strProp("Exact substring to replace, including whitespace. Must be unique in the file unless replace_all is set."),
 				"new_str":     strProp("Replacement text."),
 				"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match. Use for a rename. Default false."},
 				"edits": map[string]any{
-					"type":        "array",
-					"description": "Several replacements in this same file, applied in order. Use this instead of several edit calls.",
+					"type": "array",
+					"description": "Several replacements, applied in order and all together. Use this instead of " +
+						"several edit calls. Give an entry its own path to change a different file in the same call.",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"old_str":     strProp("Exact substring to replace, including whitespace."),
 							"new_str":     strProp("Replacement text."),
 							"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence of this old_str."},
+							"path":        strProp("File this entry changes. Defaults to the call's path; set it to edit several files at once."),
 						},
 						"required": []string{"old_str", "new_str"},
 					},

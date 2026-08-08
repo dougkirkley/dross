@@ -1893,11 +1893,21 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 		// Read before and after rather than replaying the edits here: with
 		// replace_all and batches, re-deriving the result would be a second
 		// implementation of the same logic, and the one that drifts.
-		before, _ := a.ws.rawFile(in.Path)
-		out, err := a.ws.applyEdits(in.Path, edits)
+		touched := editedPaths(in.Path, edits)
+		before := make(map[string]string, len(touched))
+		for _, p := range touched {
+			before[p], _ = a.ws.rawFile(p)
+		}
+		out, err := a.ws.applyEditsAcross(in.Path, edits)
 		if err == nil {
-			after, _ := a.ws.rawFile(in.Path)
-			a.emitEdit(in.Path, before, after)
+			// One event per file, so a client showing changed files and diffs
+			// sees a three-file rename as three edits rather than one.
+			for _, p := range touched {
+				after, _ := a.ws.rawFile(p)
+				if after != before[p] {
+					a.emitEdit(p, before[p], after)
+				}
+			}
 		}
 		return orErr(out, err)
 	case "bash":

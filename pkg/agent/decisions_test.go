@@ -131,3 +131,106 @@ func TestOnlyLookupsAreCheckedForRepeats(t *testing.T) {
 		t.Errorf("running the tests twice is a real thing to do: %q", note)
 	}
 }
+
+// A rename is one change to a codebase and several changes to files, and the
+// tool could only say the second thing: every file cost its own turn. Traced on
+// rename-symbol, gpt-oss:20b spent turns 5, 6 and 9 on three edits that were
+// one intention.
+func TestOneEditCallChangesSeveralFiles(t *testing.T) {
+	w, _ := ws(t, map[string]string{
+		"util.go":    "package bench\n\n// Clamp bounds v.\nfunc Clamp(v int) int { return v }\n",
+		"limiter.go": "package bench\n\nfunc Apply(v int) int { return Clamp(v) }\n",
+	})
+
+	out, err := w.applyEditsAcross("", []edit{
+		{Path: "util.go", OldStr: "// Clamp bounds v.\nfunc Clamp(", NewStr: "// Bound bounds v.\nfunc Bound("},
+		{Path: "limiter.go", OldStr: "return Clamp(v)", NewStr: "return Bound(v)"},
+	})
+	if err != nil {
+		t.Fatalf("a two-file rename should apply: %v", err)
+	}
+	for _, want := range []string{"util.go", "limiter.go"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report should name %s: %s", want, out)
+		}
+	}
+	for path, want := range map[string]string{"util.go": "func Bound(", "limiter.go": "return Bound(v)"} {
+		got, err := w.rawFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("%s = %q, want it to contain %q", path, got, want)
+		}
+	}
+}
+
+// All or nothing across every file. A half-applied rename does not compile, and
+// leaving one file behind is worse than refusing: a refusal is visible, whereas
+// a codebase that builds nowhere costs a turn to diagnose.
+func TestAFailedEntryWritesNothingAnywhere(t *testing.T) {
+	w, _ := ws(t, map[string]string{
+		"a.go": "package a\n\nfunc Old() {}\n",
+		"b.go": "package a\n\nfunc Other() {}\n",
+	})
+	before, _ := w.rawFile("a.go")
+
+	_, err := w.applyEditsAcross("", []edit{
+		{Path: "a.go", OldStr: "func Old()", NewStr: "func New()"},
+		{Path: "b.go", OldStr: "func NotThere()", NewStr: "func Nope()"},
+	})
+	if err == nil {
+		t.Fatal("an entry that cannot apply should fail the batch")
+	}
+	if got, _ := w.rawFile("a.go"); got != before {
+		t.Errorf("the file that would have applied was written anyway:\n%s", got)
+	}
+	if !strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("the error should say the batch was abandoned: %v", err)
+	}
+}
+
+// The single-file form is untouched: entries without a path use the call's.
+func TestEntriesWithoutAPathUseTheCallsPath(t *testing.T) {
+	w, _ := ws(t, map[string]string{"a.go": "package a\n\nvar X = 1\nvar Y = 2\n"})
+	out, err := w.applyEditsAcross("a.go", []edit{
+		{OldStr: "var X = 1", NewStr: "var X = 10"},
+		{OldStr: "var Y = 2", NewStr: "var Y = 20"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "2 replacements") {
+		t.Errorf("both should have applied to the one file: %s", out)
+	}
+}
+
+// A batch with no path at all is a call that cannot be run, and saying which
+// of the two ways to give one is faster than a bare rejection.
+func TestAnEditWithNoPathSaysHowToGiveOne(t *testing.T) {
+	w, _ := ws(t, map[string]string{"a.go": "package a\n"})
+	_, err := w.applyEditsAcross("", []edit{{OldStr: "package a", NewStr: "package b"}})
+	if err == nil {
+		t.Fatal("there is no file to edit")
+	}
+	if !strings.Contains(err.Error(), "path") {
+		t.Errorf("the error should name what is missing: %v", err)
+	}
+}
+
+// editedPaths is what lets the caller emit one edit event per file, so a client
+// showing changed files sees a three-file rename as three edits.
+func TestEditedPathsListsEachFileOnce(t *testing.T) {
+	got := editedPaths("fallback.go", []edit{
+		{Path: "a.go"}, {}, {Path: "b.go"}, {Path: "a.go"},
+	})
+	want := []string{"a.go", "fallback.go", "b.go"}
+	if len(got) != len(want) {
+		t.Fatalf("editedPaths = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("editedPaths = %v, want %v (first-seen order)", got, want)
+		}
+	}
+}
