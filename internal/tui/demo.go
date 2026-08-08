@@ -363,6 +363,7 @@ func DemoAskView(width, height int) string {
 		questions: qs,
 		sel:       make([][]bool, len(qs)),
 		cursor:    make([]int, len(qs)),
+		writeIn:   make([]string, len(qs)),
 		tab:       1, // show the multi-select question
 	}
 	for i, q := range qs {

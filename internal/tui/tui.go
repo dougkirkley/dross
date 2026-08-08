@@ -247,6 +247,8 @@ type askState struct {
 	questions []agent.AskQuestion
 	sel       [][]bool // sel[q][opt] chosen
 	cursor    []int    // highlighted option per question
+	writeIn   []string // per-question write-in text
+	editing   bool     // cursor is on the write-in row and accepting keystrokes
 	tab       int      // 0..len-1 = question tabs, len = Submit
 	warn      bool     // "you have not answered all questions"
 	freeText  bool
@@ -254,6 +256,9 @@ type askState struct {
 }
 
 func (a *askState) answered(q int) bool {
+	if q < len(a.writeIn) && strings.TrimSpace(a.writeIn[q]) != "" {
+		return true
+	}
 	for _, v := range a.sel[q] {
 		if v {
 			return true
@@ -373,6 +378,7 @@ func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
 		questions: req.Questions,
 		sel:       make([][]bool, len(req.Questions)),
 		cursor:    make([]int, len(req.Questions)),
+		writeIn:   make([]string, len(req.Questions)),
 		reply:     make(chan string, 1),
 	}
 	for i, q := range req.Questions {
@@ -1707,10 +1713,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// A multi-question ask_user picker captures keys: ←/→ switch tabs, ↑/↓ or
-		// digits pick an option, enter advances / submits.
+		// digits pick an option, enter advances / submits. The last cursor
+		// position per question is the write-in row.
 		if m.pendingAsk != nil && !m.pendingAsk.freeText {
 			a := m.pendingAsk
 			nq := len(a.questions)
+			// writeInRow is the cursor position for the write-in field.
+			writeInRow := func() int {
+				if a.tab >= nq {
+					return 0
+				}
+				return len(a.questions[a.tab].Options)
+			}
+			onWriteIn := func() bool {
+				return a.tab < nq && a.cursor[a.tab] == writeInRow()
+			}
 			pick := func(i int) {
 				if a.tab >= nq || i >= len(a.sel[a.tab]) {
 					return
@@ -1721,6 +1738,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					for j := range a.sel[a.tab] {
 						a.sel[a.tab][j] = j == i
 					}
+				}
+			}
+			// While editing the write-in field, route printable keys there.
+			if a.editing {
+				switch msg.String() {
+				case "ctrl+c":
+					return m, tea.Quit
+				case "esc":
+					a.editing = false
+					return m, nil
+				case "enter":
+					a.editing = false
+					// If write-in has text, treat it as answered and advance.
+					if strings.TrimSpace(a.writeIn[a.tab]) != "" {
+						if nq == 1 && !a.questions[0].MultiSelect {
+							m.submitAsk()
+							return m, nil
+						}
+						a.tab++
+					}
+					return m, nil
+				case "backspace":
+					if w := a.writeIn[a.tab]; len(w) > 0 {
+						a.writeIn[a.tab] = w[:len(w)-1]
+					}
+					return m, nil
+				case "left", "right", "up", "down", "tab":
+					// Let navigation keys exit editing and fall through.
+					a.editing = false
+				default:
+					// Printable character — append to write-in.
+					if r := msg.String(); len(r) == 1 && r[0] >= ' ' {
+						a.writeIn[a.tab] += r
+						return m, nil
+					}
+					return m, nil
 				}
 			}
 			switch msg.String() {
@@ -1742,17 +1795,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "down", "j":
-				if a.tab < nq && a.cursor[a.tab] < len(a.questions[a.tab].Options)-1 {
+				if a.tab < nq && a.cursor[a.tab] < writeInRow() {
 					a.cursor[a.tab]++
 				}
 				return m, nil
 			case " ":
 				if a.tab < nq {
-					pick(a.cursor[a.tab])
+					if onWriteIn() {
+						a.editing = true
+					} else {
+						pick(a.cursor[a.tab])
+					}
 				}
 				return m, nil
 			case "enter":
 				if a.tab < nq {
+					if onWriteIn() {
+						// Start editing the write-in field.
+						a.editing = true
+						return m, nil
+					}
 					if !a.questions[a.tab].MultiSelect && !a.answered(a.tab) {
 						pick(a.cursor[a.tab]) // single-select: enter chooses the highlighted option
 					}
@@ -3037,6 +3099,11 @@ func (a *askState) chosen(i int) []string {
 			out = append(out, a.questions[i].Options[j])
 		}
 	}
+	if i < len(a.writeIn) {
+		if w := strings.TrimSpace(a.writeIn[i]); w != "" {
+			out = append(out, w)
+		}
+	}
 	return out
 }
 
@@ -3229,9 +3296,25 @@ func (m Model) renderPicker() string {
 			}
 			b.WriteString(line + "\n")
 		}
-		hint := "←→ tabs · ↑↓ move · enter next"
+		// Write-in row: always shown below options.
+		writeInRow := len(q.Options)
+		wiCur := "  "
+		wiStyle := resultStyle
+		if a.cursor[a.tab] == writeInRow {
+			wiCur, wiStyle = promptMark.Render("› "), agentText
+		}
+		wiText := a.writeIn[a.tab]
+		if a.editing && a.cursor[a.tab] == writeInRow {
+			// Show a blinking cursor at the end of the write-in text.
+			b.WriteString(wiCur + wiStyle.Render("✎ "+wiText) + agentText.Render("█") + "\n")
+		} else if wiText != "" {
+			b.WriteString(wiCur + wiStyle.Render("✎ "+wiText) + "\n")
+		} else {
+			b.WriteString(wiCur + metaStyle.Render("✎ write in…") + "\n")
+		}
+		hint := "←→ tabs · ↑↓ move · enter next/edit"
 		if q.MultiSelect {
-			hint = "←→ tabs · ↑↓ move · space toggle · enter next"
+			hint = "←→ tabs · ↑↓ move · space toggle · enter next/edit"
 		}
 		b.WriteString("\n" + metaStyle.Render("  "+hint))
 	} else {
