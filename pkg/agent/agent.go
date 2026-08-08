@@ -74,6 +74,10 @@ type Config struct {
 	// system prompt describes only web access and context, not the coding tools.
 	// Callers still restrict the actual toolset via WithAllowedTools.
 	Chat bool
+	// Plan starts the session in plan mode: it may read, search and think, but
+	// nothing that changes a file, runs a command or costs money is available
+	// until it has called exit_plan_mode and the user has agreed to the plan.
+	Plan bool
 }
 
 // Event is emitted for each step of a run so callers can stream progress.
@@ -473,6 +477,9 @@ type Agent struct {
 	failures      map[string]int      // identical failing calls seen, for the no-progress guard
 	singleReads   int                 // consecutive one-file reads, for the batching hint
 	lastLookups   map[string][32]byte // read-only calls already answered, by tool+args
+	todos         []todoItem          // the run's plan, as the model last wrote it
+	planning      bool                // plan mode: nothing may be changed until the plan is agreed
+	plan          string              // the plan as last put to the user
 	aftercare     sync.WaitGroup      // background review/brief still running
 	syncAftercare bool                // run review/brief before Run returns
 	edits         []editRec           // changes made this run, for the reviewer skill
@@ -511,7 +518,7 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{}, 1)}
+	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{}, 1), planning: cfg.Plan}
 	for _, o := range opts {
 		o(a)
 	}
@@ -1235,6 +1242,19 @@ func (a *Agent) enabledTools() []provider.ToolDef {
 	for _, et := range a.extraTools {
 		defs = append(defs, et.def)
 	}
+	if a.planning {
+		defs = append(defs, provider.ToolDef{
+			Name: "exit_plan_mode",
+			Description: "exit_plan_mode: put the plan to the user once you have worked out what to do. " +
+				"Call it ONLY after you have finished looking; it is the way out of planning, not a " +
+				"progress report. If they accept, the tools that change things become available.",
+			Properties: map[string]any{
+				"plan": map[string]any{"type": "string",
+					"description": "The plan: what you will do, in the order you will do it. Markdown, concise."},
+			},
+			Required: []string{"plan"},
+		})
+	}
 	if names := a.skillNames(); len(names) > 0 {
 		defs = append(defs, provider.ToolDef{
 			Name:        "skill",
@@ -1401,6 +1421,9 @@ func dangerousCmd(cmd string) (string, bool) {
 func (a *Agent) gate(tc provider.ToolCall) (string, bool) {
 	if !a.toolEnabled(tc.Name) {
 		return "the " + tc.Name + " tool is disabled by configuration.", false
+	}
+	if msg, ok := a.planGate(tc); !ok {
+		return msg, false
 	}
 	// Per-tool rules from config override the mode for that tool.
 	if r, ok := a.permRules[tc.Name]; ok {
@@ -1910,6 +1933,29 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			}
 		}
 		return orErr(out, err)
+	case "exit_plan_mode":
+		var in struct {
+			Plan string `json:"plan"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return a.exitPlanMode(in.Plan)
+	case "todo":
+		var in struct {
+			Items []todoItem `json:"items"`
+			// The same near-miss tolerance the rest of the batch parameters
+			// have: a well-formed list under the wrong key is a lost turn.
+			Todos []todoItem `json:"todos"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		items := in.Items
+		if len(items) == 0 {
+			items = in.Todos
+		}
+		return a.writeTodos(items)
 	case "bash":
 		var in struct {
 			Command    string `json:"command"`
@@ -1984,7 +2030,7 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			return err.Error(), true
 		}
 		return orErr(a.ws.glob(in.Pattern))
-	case "delegate":
+	case "task":
 		var in struct {
 			Task  string   `json:"task"`
 			Tasks []string `json:"tasks"`
@@ -2141,6 +2187,11 @@ var toolAliases = map[string]string{
 	"websearch": "web_search", "search_web": "web_search",
 	"webfetch": "web_fetch", "fetch": "web_fetch", "http_get": "web_fetch",
 	"curl": "web_fetch", "get_url": "web_fetch",
+	// The tool was called delegate until it was renamed to task, to match what
+	// every other harness calls it. A model that learned the old name — or a
+	// resumed session carrying it — should not lose a turn to the change.
+	"delegate": "task", "subagent": "task", "spawn": "task",
+	"todowrite": "todo", "todo_write": "todo", "todos": "todo", "task_list": "todo",
 	"ask": "ask_user", "ask_question": "ask_user", "question": "ask_user",
 }
 
@@ -2377,4 +2428,138 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// todoMark renders a step's state for the list handed back to the model.
+func todoMark(status string) string {
+	switch status {
+	case "completed":
+		return "[x]"
+	case "in_progress":
+		return "[>]"
+	default:
+		return "[ ]"
+	}
+}
+
+// writeTodos replaces the run's plan and hands the whole list back.
+//
+// The list is returned rather than acknowledged because that is most of its
+// value: a model working through six steps has the current one, and what is
+// left, in front of it after every update, instead of re-deriving them from a
+// conversation it may since have had compacted away.
+//
+// Nothing here is enforced. Two steps in progress at once, or a list that never
+// reaches completed, are worth a word rather than a rejection — this is the
+// model's note to itself, and refusing to keep it costs a turn and fixes
+// nothing.
+func (a *Agent) writeTodos(items []todoItem) (string, bool) {
+	if len(items) == 0 {
+		return "the list is empty: pass items, each with a task and a status. " +
+			"To say the work is finished, send the list with every item completed", true
+	}
+	a.todos = a.todos[:0]
+	var b strings.Builder
+	doing, done := 0, 0
+	for _, it := range items {
+		text := strings.TrimSpace(it.text())
+		if text == "" {
+			continue
+		}
+		status := it.normalizedStatus()
+		switch status {
+		case "in_progress":
+			doing++
+		case "completed":
+			done++
+		}
+		a.todos = append(a.todos, todoItem{Task: text, Status: status})
+		fmt.Fprintf(&b, "%s %s\n", todoMark(status), text)
+	}
+	if len(a.todos) == 0 {
+		return "every item was blank: each one needs a task", true
+	}
+	a.emit("todo", strings.TrimRight(b.String(), "\n"))
+
+	out := strings.TrimRight(b.String(), "\n")
+	switch {
+	case done == len(a.todos):
+		out += "\n\nEvery step is done. Say what you did and stop."
+	case doing == 0:
+		out += "\n\nNothing is in progress. Start the next step and mark it in_progress."
+	case doing > 1:
+		out += fmt.Sprintf("\n\n%d steps are in progress at once. Work on one at a time.", doing)
+	}
+	return out, false
+}
+
+// planAccept is the answer that starts the work.
+const planAccept = "Go ahead"
+
+// planningTools are what a session may use before its plan is agreed: anything
+// that only looks, plus the list it is drafting and the way out.
+var planningTools = map[string]bool{
+	"todo": true, "exit_plan_mode": true, "ask_user": true, "skill": true,
+}
+
+// planGate refuses anything that would change the world while the session is
+// still planning.
+//
+// Plan mode is a promise to the person who asked for it, so it is enforced at
+// the gate rather than in the prompt: a model that has been told not to write
+// and writes anyway has broken the only thing plan mode offers. The refusal
+// names the way out, because a session that cannot act and cannot say it is
+// finished planning has nowhere to go.
+func (a *Agent) planGate(tc provider.ToolCall) (string, bool) {
+	if !a.planning {
+		return "", true
+	}
+	name := a.resolveToolName(tc.Name, tc.Input)
+	if readOnlyTools[name] || planningTools[name] {
+		return "", true
+	}
+	return "this session is planning, so " + name + " is not available yet: nothing may be " +
+		"changed until the plan is agreed. Finish reading and working out what to do, then " +
+		"call exit_plan_mode with the plan. It will be put to the user, and the tools that " +
+		"change things come back if they accept it.", false
+}
+
+// Planning reports whether the agent is still in plan mode.
+func (a *Agent) Planning() bool { return a.planning }
+
+// exitPlanMode puts the plan to the user and, if they take it, lets the session
+// act.
+//
+// The approval is the point. Without an approver the plan is recorded and the
+// session proceeds — a headless run has nobody to ask, and stopping dead there
+// would make plan mode unusable in exactly the places it is most useful — but
+// where there is someone to ask, they decide.
+func (a *Agent) exitPlanMode(plan string) (string, bool) {
+	plan = strings.TrimSpace(plan)
+	if plan == "" {
+		return "exit_plan_mode needs the plan itself: say what you intend to do, in the order " +
+			"you intend to do it, so there is something to agree to", true
+	}
+	a.plan = plan
+	a.emit("plan", plan)
+	if a.asker != nil {
+		ans, err := a.asker(AskRequest{Questions: []AskQuestion{{
+			Header:   "plan",
+			Question: plan,
+			Options:  []string{planAccept, "Keep planning"},
+		}}})
+		if err != nil || !strings.EqualFold(strings.TrimSpace(ans), planAccept) {
+			// Not a failure: the plan was read and turned down, and the session
+			// carries on planning with whatever they said about it.
+			note := ""
+			if a := strings.TrimSpace(ans); a != "" && !strings.EqualFold(a, "Keep planning") {
+				note = " They said: " + a
+			}
+			return "The plan was not accepted, so the session is still planning." + note +
+				" Revise it and call exit_plan_mode again.", false
+		}
+	}
+	a.planning = false
+	return "The plan is agreed. The tools that change things are available now — start on the " +
+		"first step.", false
 }

@@ -12,7 +12,7 @@ import (
 func TestWorkerInheritsLeadGating(t *testing.T) {
 	lead := &Agent{
 		permMode:   PermPlan,
-		allowTools: map[string]bool{"read": true, "delegate": true},
+		allowTools: map[string]bool{"read": true, "task": true},
 		permRules:  map[string]permRule{"bash": {blanket: ToolDeny}},
 	}
 	sub := &Agent{}

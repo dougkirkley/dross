@@ -107,7 +107,7 @@ func TestDelegateParallel(t *testing.T) {
 		{
 			StopReason: provider.StopToolUse,
 			ToolCalls: []provider.ToolCall{
-				toolCall("1", "delegate", map[string]any{"tasks": []string{"task A", "task B"}}),
+				toolCall("1", "task", map[string]any{"tasks": []string{"task A", "task B"}}),
 			},
 		},
 		{StopReason: provider.StopEndTurn, Text: "combined"},
@@ -330,7 +330,7 @@ func TestDelegate(t *testing.T) {
 	lead := &scriptedProvider{steps: []provider.Response{
 		{
 			StopReason: provider.StopToolUse,
-			ToolCalls:  []provider.ToolCall{toolCall("d1", "delegate", map[string]string{"task": "create f.txt containing ok"})},
+			ToolCalls:  []provider.ToolCall{toolCall("d1", "task", map[string]string{"task": "create f.txt containing ok"})},
 			Usage:      provider.Usage{InputTokens: 100, OutputTokens: 20},
 		},
 		{StopReason: provider.StopEndTurn, Text: "delegated and done", Usage: provider.Usage{InputTokens: 50, OutputTokens: 10}},

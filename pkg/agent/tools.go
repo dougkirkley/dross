@@ -1638,3 +1638,38 @@ func editedPaths(defaultPath string, edits []edit) []string {
 	}
 	return out
 }
+
+// todoItem is one step of the plan a run is working through.
+//
+// `task` is what dross calls it; `content` is what a model trained on other
+// harnesses reaches for. Accepting both costs a struct field and saves the turn
+// that a rejected list would cost.
+type todoItem struct {
+	Task    string `json:"task"`
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+func (t todoItem) text() string {
+	if t.Task != "" {
+		return t.Task
+	}
+	return t.Content
+}
+
+// normalizedStatus maps what models actually write onto the three states.
+//
+// "done" and "complete" for completed, "doing"/"active"/"current" for
+// in_progress. A status nobody can parse is treated as pending rather than
+// rejected: the list is a note to self, and refusing to keep it because of one
+// word costs a turn and helps nobody.
+func (t todoItem) normalizedStatus() string {
+	switch strings.ToLower(strings.TrimSpace(t.Status)) {
+	case "completed", "complete", "done", "finished", "[x]", "x":
+		return "completed"
+	case "in_progress", "in-progress", "inprogress", "doing", "active", "current", "started":
+		return "in_progress"
+	default:
+		return "pending"
+	}
+}

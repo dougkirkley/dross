@@ -27,8 +27,8 @@ func TestNoWorkerMeansNoDelegation(t *testing.T) {
 	}
 
 	for _, tl := range ag.enabledTools() {
-		if tl.Name == "delegate" {
-			t.Error("delegate offered with no worker configured")
+		if tl.Name == "task" {
+			t.Error("task offered with no worker configured")
 		}
 	}
 
@@ -53,9 +53,9 @@ func TestWorkerEnablesDelegation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tl := range ag.enabledTools() {
-		if tl.Name == "delegate" {
+		if tl.Name == "task" {
 			return
 		}
 	}
-	t.Error("delegate not offered despite a worker")
+	t.Error("task not offered despite a worker")
 }

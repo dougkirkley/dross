@@ -2621,7 +2621,7 @@ func workerToolLabel(name, args string) string {
 		return "Editing " + toolTargetPath(args)
 	case "bash":
 		return "Running a command"
-	case "delegate":
+	case "task":
 		return "Delegating"
 	default:
 		return name
@@ -3631,7 +3631,7 @@ func toolPhrase(name string, n int) string {
 		return fmt.Sprintf("fetched %d URL%s", n, plural(n))
 	case "web_search":
 		return fmt.Sprintf("searched the web %d time%s", n, plural(n))
-	case "delegate":
+	case "task":
 		return fmt.Sprintf("delegated %d task%s", n, plural(n))
 	default:
 		if server, _, ok := mcpToolParts(name); ok {
@@ -3867,7 +3867,7 @@ func toolArgLine(name, argsJSON string) string {
 		return str("url")
 	case "shell_output":
 		return str("id")
-	case "delegate":
+	case "task":
 		if t := str("task"); t != "" {
 			return oneLine(t)
 		}

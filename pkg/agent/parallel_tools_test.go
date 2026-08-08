@@ -122,7 +122,7 @@ func TestParallelSafeExcludesSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	safe := []string{"read", "grep", "glob", "web_search", "web_fetch"}
-	unsafe := []string{"write", "edit", "bash", "monitor", "shell_output", "delegate", "ask_user", "publish", "skill", "custom", "plug"}
+	unsafe := []string{"write", "edit", "bash", "monitor", "shell_output", "task", "ask_user", "publish", "skill", "custom", "plug"}
 	for _, n := range safe {
 		if !ag.parallelSafe(provider.ToolCall{Name: n}) {
 			t.Errorf("%s should run in parallel", n)

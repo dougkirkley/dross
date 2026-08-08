@@ -208,6 +208,7 @@ func codeToolLines(tools []string) string {
 		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes in a single call rather than one call each — give an entry its own path and one call changes several files, which is how a rename across a package should be done.",
 		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched.",
 		"glob":         "glob(pattern): list files whose paths match a glob (**/*.go). Use this to find files, not `bash find` or `ls -R`.",
+		"todo":         "todo(items): keep the plan for a multi-step job. Send the whole list each time; it comes back to you, so it is also how you remember what is left. Not for one-step tasks.",
 		"bash":         "bash(command): run a shell command with the workspace as the working directory. Set background=true for anything long-lived.",
 		"shell_output": "shell_output(id): read (or kill) a background shell started by bash.",
 		"monitor":      "monitor(command): poll a command until it exits 0 — wait for a server or a build without burning turns.",
@@ -216,7 +217,7 @@ func codeToolLines(tools []string) string {
 	}
 	// A fixed order, so the prompt reads the same whatever order the tools were
 	// registered in — and so the cache prefix is stable across sessions.
-	order := []string{"read", "write", "edit", "grep", "glob", "bash", "shell_output", "monitor", "web_search", "web_fetch"}
+	order := []string{"read", "write", "edit", "grep", "glob", "bash", "shell_output", "monitor", "todo", "web_search", "web_fetch"}
 	have := map[string]bool{}
 	for _, t := range tools {
 		have[t] = true
@@ -354,9 +355,9 @@ Working style:
 // cheaper model and keep expensive context small.
 const delegateGuidance = `
 
-You also have a delegate(task) tool backed by a cheaper worker model. Use it to
+You also have a task(task) tool backed by a cheaper worker model. Use it to
 save cost and context:
-- Delegate bounded, mechanical, self-contained subtasks — a single-function
+- Hand over bounded, mechanical, self-contained subtasks — a single-function
   implementation, a rename across known sites, a file summary, a test stub, a
   search-and-extract.
 - The task string must be FULLY self-contained: the worker cannot see this
@@ -365,8 +366,32 @@ save cost and context:
 - The worker shares your workspace and returns a conclusion, not raw file
   contents. Treat its output as a draft — verify load-bearing results (compile,
   run tests) before trusting them.
-- Keep judgment, planning, and cross-file reasoning for yourself. Delegate the
+- Keep judgment, planning, and cross-file reasoning for yourself. Hand over the
   hands, not the head.`
+
+// planGuidance frames a session that has been asked to plan before it acts.
+//
+// The gate already refuses the tools that change things, so this is not what
+// makes plan mode safe — it is what makes it useful. Without it a model spends
+// its turns discovering the refusal one tool at a time, which is a slow way to
+// be told something it could have been told once.
+const planGuidance = `
+
+## Plan first
+
+This session is planning. You can read, search and run nothing: every tool that
+changes a file, runs a command, or spends money is unavailable until the plan is
+agreed.
+
+- Look first, and look properly. The plan is only worth what you know when you
+  write it, and reading is the one thing you can still do.
+- Then call exit_plan_mode with the plan: what you will do, in the order you
+  will do it, concretely enough that someone could disagree with a step.
+- It goes to the user. If they accept, the rest of the tools come back and you
+  start on step one. If they do not, you are still planning — revise and ask
+  again.
+- Do not narrate the plan in prose and stop. A plan that was not passed to
+  exit_plan_mode was never put to anyone.`
 
 // briefPrompt asks for a compact handoff at the end of a run. It is the core
 // context-economy lever: the next session resumes from this, not the transcript.
@@ -441,6 +466,9 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 		return p
 	}
 	p := basePrompt(tools, cfg.Sandbox)
+	if cfg.Plan {
+		p += planGuidance
+	}
 	if hasWorker {
 		p += delegateGuidance
 	}
@@ -462,7 +490,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	return p
 }
 
-// toolDefs is the fixed day-one tool set. The delegate tool is added only when
+// toolDefs is the fixed day-one tool set. The task tool is added only when
 // a worker model is configured. Correctness over breadth; more tools (glob,
 // symbol search, screenshot-publish) come in later phases.
 func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
@@ -585,11 +613,34 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Properties:  map[string]any{"pattern": strProp("Glob pattern relative to the workspace root.")},
 			Required:    []string{"pattern"},
 		},
+		{
+			Name: "todo",
+			Description: "todo: write down the plan for a job with more than a couple of steps, and keep it current. " +
+				"Send the WHOLE list every time — it replaces the previous one. Mark a step in_progress when you " +
+				"start it and completed the moment it is done, in the same call that adds the next one where you " +
+				"can. Skip it for a one-step task: a list of one is overhead. It is returned to you after every " +
+				"call, so it is also how you remember what is left.",
+			Properties: map[string]any{
+				"items": map[string]any{
+					"type":        "array",
+					"description": "The complete list, in order. Replaces the previous list.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"task":   strProp("What is to be done, in a few words."),
+							"status": strProp("pending, in_progress, or completed."),
+						},
+						"required": []string{"task"},
+					},
+				},
+			},
+			Required: []string{"items"},
+		},
 	}
 	if hasWorker {
 		defs = append(defs, provider.ToolDef{
-			Name:        "delegate",
-			Description: "Delegate to a cheaper worker model. Pass `task` for one subtask, or `tasks` (an array) to run several INDEPENDENT subtasks in parallel (bounded by the configured max). Each task must include all context the worker needs; it cannot see this conversation. Returns the worker conclusion(s). Only parallelize tasks that don't touch the same files.",
+			Name:        "task",
+			Description: "task: hand a self-contained subtask to a cheaper worker model. Pass `task` for one subtask, or `tasks` (an array) to run several INDEPENDENT subtasks in parallel (bounded by the configured max). Each task must include all context the worker needs; it cannot see this conversation. Returns the worker conclusion(s). Only parallelize tasks that don't touch the same files.",
 			Properties: map[string]any{
 				"task": strProp("A fully self-contained subtask (single delegation)."),
 				"tasks": map[string]any{
