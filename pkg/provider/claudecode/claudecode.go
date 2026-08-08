@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -85,20 +86,47 @@ type session struct {
 	// the transcript because --resume reloads it every time. It also threw the
 	// prompt cache away each turn; kept open, turn two reads back what turn one
 	// wrote.
-	once  sync.Once
-	mu    sync.Mutex // one turn at a time: the protocol coalesces overlapping ones
-	wmu   sync.Mutex // an interrupt is written while a turn is being read
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	out   *bufio.Reader
-	errs  *ringBuffer
-	stop  context.CancelFunc
-	reqs  int   // control_request ids, unique within the session
-	dead  error // sticky: once the child is gone every later Send fails fast
+
+	// The first message of the conversation, and whether it has already been
+	// used to start a second one. Kept because a restart has to say what the
+	// session is for again, and bounded to one because a conversation that
+	// poisons itself twice is not going to finish on the third try.
+	seed     string
+	reseeded bool
+
+	started bool       // the child is up; not sync.Once, because a restart re-arms it
+	mu      sync.Mutex // one turn at a time: the protocol coalesces overlapping ones
+	wmu     sync.Mutex // an interrupt is written while a turn is being read
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	out     *bufio.Reader
+	errs    *ringBuffer
+	stop    context.CancelFunc
+	reqs    int   // control_request ids, unique within the session
+	dead    error // sticky: once the child is gone every later Send fails fast
 }
 
 // errClosed is what a Send after Close reports, rather than reviving the child.
 var errClosed = fmt.Errorf("claude: session closed")
+
+// errPoisonedTranscript marks the one failure a restart is the only answer to.
+//
+// The model occasionally ends a reply with an empty text content block. The CLI
+// stores the reply as it came, and every later turn replays the whole
+// transcript, so the API rejects all of them:
+//
+//	API Error: 400 messages: text content blocks must be non-empty
+//
+// Nothing dross writes is empty — the messages either side of it were 3KB of
+// tool output — and the transcript belongs to the CLI, so there is nothing to
+// repair from out here. Watched on find-in-a-tree, where it failed one run in
+// five: a turn came back with an empty result and 173 characters of assistant
+// text, and the turn after it 400ed.
+var errPoisonedTranscript = fmt.Errorf("claude: the CLI's transcript holds an empty text block and can no longer be sent")
+
+// emptyBlockRE recognizes that rejection among the other things a turn can fail
+// with, which are not worth throwing a conversation away for.
+var emptyBlockRE = regexp.MustCompile(`text content blocks must be non-empty`)
 
 // maxLine bounds one JSON event. A tool result can be large, but a line longer
 // than this is a stream that has lost its framing, and with a persistent
@@ -487,7 +515,11 @@ type tokenUsage struct {
 // tool exclusions, permission mode — are all start-up flags, so they are set
 // once here and hold for the life of the conversation.
 func (s *session) start() error {
-	s.once.Do(func() {
+	func() {
+		if s.started || s.dead != nil {
+			return
+		}
+		s.started = true
 		args := []string{
 			"-p",
 			"--input-format", "stream-json",
@@ -536,8 +568,25 @@ func (s *session) start() error {
 		}
 		s.cmd, s.stdin, s.errs, s.stop = cmd, stdin, errs, cancel
 		s.out = bufio.NewReaderSize(stdout, 64<<10)
-	})
+	}()
 	return s.dead
+}
+
+// restart replaces the child with a fresh one, and with it the conversation.
+//
+// There is no way to keep the history: in driven mode the CLI owns the
+// transcript, dross keeps no copy of it, and --resume would load the very
+// transcript that cannot be sent. So this is a genuine loss, taken only when
+// the alternative is the run ending — see errPoisonedTranscript.
+func (s *session) restart() error {
+	if s.stop != nil {
+		_ = s.stdin.Close()
+		s.stop()
+		_ = s.cmd.Wait()
+	}
+	s.cmd, s.stdin, s.out, s.errs, s.stop = nil, nil, nil, nil, nil
+	s.started, s.dead, s.sessionID = false, nil, ""
+	return s.start()
 }
 
 // Close ends the conversation and reaps the child. Closing stdin is the polite
@@ -634,6 +683,31 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	// the two turns come back as one.
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	resp, err := s.turn(ctx, in, content)
+	if !errors.Is(err, errPoisonedTranscript) {
+		return resp, err
+	}
+
+	// The conversation cannot be continued, so it is started again. See
+	// errPoisonedTranscript: the transcript belongs to the CLI, the bad message
+	// is already in it, and every later turn replays it.
+	if s.reseeded || s.seed == "" {
+		return nil, err
+	}
+	s.reseeded = true
+	if err := s.restart(); err != nil {
+		return nil, err
+	}
+	// The task, not the tool result that was in flight: the fresh conversation
+	// has never seen the work the result belongs to, so handing it one would be
+	// answering a question nobody asked. It redoes the work instead, which is
+	// slower than continuing and is the only thing left that finishes the job.
+	return s.turn(ctx, in, s.seed)
+}
+
+// turn writes one message and reads the reply to it.
+func (s *session) turn(ctx context.Context, in provider.Input, content string) (*provider.Response, error) {
 	if err := s.start(); err != nil {
 		return nil, err
 	}
@@ -642,6 +716,11 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	// The first thing said is what the session is for, and it is what a restart
+	// has to say again.
+	if s.seed == "" {
+		s.seed = content
 	}
 
 	if err := s.writeJSON(map[string]any{
@@ -739,6 +818,9 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		out = assistant.String()
 	}
 	if isErr {
+		if emptyBlockRE.MatchString(out) {
+			return nil, fmt.Errorf("%w: %s", errPoisonedTranscript, strings.TrimSpace(out))
+		}
 		return nil, fmt.Errorf("claude: %s", strings.TrimSpace(out))
 	}
 

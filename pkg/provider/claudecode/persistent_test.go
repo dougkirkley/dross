@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,5 +190,125 @@ func TestDeadChildFailsFast(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a later turn blocked instead of failing fast")
+	}
+}
+
+// poisonCLI answers the first turn normally, rejects every turn after it the way
+// the API does once the transcript holds an empty text block, and answers
+// normally again after a restart. The restart is what resets it: a new process
+// gets a new counter, which is exactly the real situation — the bad message
+// lives in the child's transcript and dies with the child.
+const poisonCLI = `#!/bin/sh
+echo start >> "$DROSS_TEST_STARTS"
+n=0
+while IFS= read -r line; do
+  n=$((n+1))
+  if [ "$n" -gt 1 ]; then
+    echo '{"type":"result","result":"API Error: 400 messages: text content blocks must be non-empty","is_error":true}'
+  else
+    echo '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}'
+    echo '{"type":"result","result":"ok"}'
+  fi
+done
+`
+
+func poisonSession(t *testing.T) (*session, func() int) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte(poisonCLI), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	starts := filepath.Join(dir, "starts")
+	t.Setenv("DROSS_TEST_STARTS", starts)
+	t.Setenv("DROSS_TEST_ARGS", filepath.Join(dir, "args"))
+
+	p := &prov{bin: bin}
+	s := p.NewSession(provider.SessionConfig{Model: "sonnet"}).(*session)
+	t.Cleanup(func() { _ = s.Close() })
+	return s, func() int {
+		b, err := os.ReadFile(starts)
+		if err != nil {
+			return 0
+		}
+		return len(strings.Fields(string(b)))
+	}
+}
+
+// TestPoisonedTranscriptStartsOver: the model sometimes ends a reply with an
+// empty text content block, the CLI stores it, and every later turn replays it
+// and is rejected. Nothing dross writes is empty and the transcript is not
+// dross's to repair, so the only way on is a new conversation. Seen on
+// find-in-a-tree, one run in five.
+func TestPoisonedTranscriptStartsOver(t *testing.T) {
+	s, starts := poisonSession(t)
+	ctx := context.Background()
+
+	if _, err := s.Send(ctx, provider.Input{Text: "the original task"}); err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	// The second turn is rejected, so it starts again and asks the same thing.
+	resp, err := s.Send(ctx, provider.Input{ToolResults: []provider.ToolResult{{Content: "some output"}}})
+	if err != nil {
+		t.Fatalf("a poisoned transcript should be recovered from, not returned: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Errorf("text = %q", resp.Text)
+	}
+	if n := starts(); n != 2 {
+		t.Errorf("the CLI started %d times, want 2 (the original and the restart)", n)
+	}
+}
+
+// Once, not every time: a conversation that poisons itself twice is not going
+// to finish on the third try, and restarting forever would hide a broken CLI
+// behind a slow loop.
+func TestPoisonedTranscriptGivesUpAfterOneRestart(t *testing.T) {
+	s, starts := poisonSession(t)
+	ctx := context.Background()
+
+	if _, err := s.Send(ctx, provider.Input{Text: "the original task"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Send(ctx, provider.Input{Text: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	// The restarted child has now answered once and poisons everything after.
+	_, err := s.Send(ctx, provider.Input{Text: "third"})
+	if err == nil {
+		t.Fatal("a second poisoning should be reported, not recovered from again")
+	}
+	if !errors.Is(err, errPoisonedTranscript) {
+		t.Errorf("err = %v, want the poisoned-transcript error", err)
+	}
+	if n := starts(); n != 2 {
+		t.Errorf("the CLI started %d times, want 2 — it should not keep restarting", n)
+	}
+}
+
+// Every other failure is still a failure. Throwing a conversation away is
+// expensive, and it is only the right answer to the one error it cannot survive.
+func TestOtherErrorsDoNotRestartTheConversation(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\necho start >> \"$DROSS_TEST_STARTS\"\nwhile IFS= read -r line; do\n" +
+		"echo '{\"type\":\"result\",\"result\":\"API Error: 529 overloaded\",\"is_error\":true}'\ndone\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	starts := filepath.Join(dir, "starts")
+	t.Setenv("DROSS_TEST_STARTS", starts)
+	p := &prov{bin: bin}
+	s := p.NewSession(provider.SessionConfig{Model: "sonnet"}).(*session)
+	defer s.Close()
+
+	if _, err := s.Send(context.Background(), provider.Input{Text: "hello"}); err == nil {
+		t.Fatal("an overloaded backend should be an error")
+	} else if errors.Is(err, errPoisonedTranscript) {
+		t.Errorf("529 is not a poisoned transcript: %v", err)
+	}
+	b, _ := os.ReadFile(starts)
+	if n := len(strings.Fields(string(b))); n != 1 {
+		t.Errorf("the CLI started %d times, want 1", n)
 	}
 }
