@@ -544,7 +544,7 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 							"old_str":     strProp("Exact substring to replace, including whitespace."),
 							"new_str":     strProp("Replacement text."),
 							"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence of this old_str."},
-							"path":        strProp("File this entry changes. Defaults to the call's path; set it to edit several files at once."),
+							"path":        strProp("File this entry changes. Defaults to the file the entry before it named, or the call's path; set it when the batch moves to a different file."),
 						},
 						"required": []string{"old_str", "new_str"},
 					},

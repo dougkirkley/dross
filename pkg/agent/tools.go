@@ -902,15 +902,25 @@ func (w *workspace) applyEditsAcross(defaultPath string, edits []edit) (string, 
 	// asked for, and so a file named twice is one group rather than two.
 	var order []string
 	byPath := map[string][]edit{}
+	// An entry with no path of its own continues with the file the one before
+	// it named, falling back to the call's path.
+	//
+	// This is how the list actually gets written. Traced on rename-symbol: the
+	// model named a file on the first entries and left it off a later one, which
+	// is the natural shorthand for "still that file" — and rejecting it cost a
+	// turn to be told something the batch already implied. The call's own path
+	// still wins for entry one, so the single-file form is unchanged.
+	running := defaultPath
 	for i, e := range edits {
 		p := e.Path
 		if p == "" {
-			p = defaultPath
+			p = running
 		}
 		if p == "" {
-			return "", fmt.Errorf("edit %d has no path: give the call a path, or a path on each entry "+
-				"when the batch spans several files", i+1)
+			return "", fmt.Errorf("edit %d has no path, and no earlier entry named one: give the call "+
+				"a path, or a path on the first entry for each file", i+1)
 		}
+		running = p
 		if _, seen := byPath[p]; !seen {
 			order = append(order, p)
 		}
@@ -1625,12 +1635,17 @@ func (w *workspace) runBash(command string) (string, error) {
 func editedPaths(defaultPath string, edits []edit) []string {
 	var out []string
 	seen := map[string]bool{}
+	running := defaultPath
 	for _, e := range edits {
 		p := e.Path
 		if p == "" {
-			p = defaultPath
+			p = running // same rule as applyEditsAcross, or the two disagree
 		}
-		if p == "" || seen[p] {
+		if p == "" {
+			continue
+		}
+		running = p
+		if seen[p] {
 			continue
 		}
 		seen[p] = true

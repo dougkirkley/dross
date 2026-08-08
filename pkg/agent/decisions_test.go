@@ -219,12 +219,16 @@ func TestAnEditWithNoPathSaysHowToGiveOne(t *testing.T) {
 }
 
 // editedPaths is what lets the caller emit one edit event per file, so a client
-// showing changed files sees a three-file rename as three edits.
+// showing changed files sees a three-file rename as three edits. It has to
+// inherit paths the same way applyEditsAcross does, or the two disagree about
+// which files a batch touched and an edit event goes missing.
 func TestEditedPathsListsEachFileOnce(t *testing.T) {
 	got := editedPaths("fallback.go", []edit{
 		{Path: "a.go"}, {}, {Path: "b.go"}, {Path: "a.go"},
 	})
-	want := []string{"a.go", "fallback.go", "b.go"}
+	// The bare entry continues with a.go, the file before it — not the call's
+	// path, which only applies until an entry names one.
+	want := []string{"a.go", "b.go"}
 	if len(got) != len(want) {
 		t.Fatalf("editedPaths = %v, want %v", got, want)
 	}
@@ -232,5 +236,47 @@ func TestEditedPathsListsEachFileOnce(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("editedPaths = %v, want %v (first-seen order)", got, want)
 		}
+	}
+}
+
+// A batch that names a file once and then keeps editing it is how the list gets
+// written. Traced on rename-symbol: gpt-oss:20b put a path on the first entries
+// and left it off a later one, and rejecting that cost a turn to be told
+// something the batch already implied.
+func TestAnEntryWithoutAPathStaysOnTheSameFile(t *testing.T) {
+	w, _ := ws(t, map[string]string{
+		"util.go":    "package a\n\n// Clamp bounds.\nfunc Clamp(v int) int { return v }\n",
+		"limiter.go": "package a\n\nfunc Apply(v int) int { return Clamp(v) }\n",
+	})
+	out, err := w.applyEditsAcross("", []edit{
+		{Path: "util.go", OldStr: "// Clamp bounds.", NewStr: "// Bound bounds."},
+		{OldStr: "func Clamp(", NewStr: "func Bound("}, // still util.go
+		{Path: "limiter.go", OldStr: "return Clamp(v)", NewStr: "return Bound(v)"},
+	})
+	if err != nil {
+		t.Fatalf("the second entry should stay on util.go: %v", err)
+	}
+	got, _ := w.rawFile("util.go")
+	if !strings.Contains(got, "// Bound bounds.") || !strings.Contains(got, "func Bound(") {
+		t.Errorf("both util.go edits should have applied:\n%s", got)
+	}
+	if got, _ := w.rawFile("limiter.go"); !strings.Contains(got, "return Bound(v)") {
+		t.Errorf("limiter.go should have been edited too:\n%s", got)
+	}
+	if !strings.Contains(out, "util.go") || !strings.Contains(out, "limiter.go") {
+		t.Errorf("the report should name both files: %s", out)
+	}
+}
+
+// With nothing before it and no call path, there is genuinely no file to edit,
+// and the error says which of the two ways to name one.
+func TestAFirstEntryWithNoPathStillFails(t *testing.T) {
+	w, _ := ws(t, map[string]string{"a.go": "package a\n"})
+	_, err := w.applyEditsAcross("", []edit{{OldStr: "package a", NewStr: "package b"}})
+	if err == nil {
+		t.Fatal("there is no file to edit")
+	}
+	if !strings.Contains(err.Error(), "no earlier entry named one") {
+		t.Errorf("the error should say why there is no path to inherit: %v", err)
 	}
 }
