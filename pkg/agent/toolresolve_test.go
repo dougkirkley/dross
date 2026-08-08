@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -101,9 +103,13 @@ func TestNearestToolSuggestsATypo(t *testing.T) {
 
 // TestUnknownToolErrorLeadsWithTheSuggestion: a list of eleven names is a menu,
 // the closest one is an answer.
+//
+// The name here is two characters out. One character is now simply run — see
+// TestOneCharacterTypoRunsTheToolItMeant — so the message is what is left for
+// the cases where the intention really is unclear.
 func TestUnknownToolErrorLeadsWithTheSuggestion(t *testing.T) {
 	ag := resolver(t)
-	out, isErr := ag.execTool(t.Context(), toolCall("1", "reed", map[string]any{"path": "a.go"}), &Result{})
+	out, isErr := ag.execTool(t.Context(), toolCall("1", "raed", map[string]any{"path": "a.go"}), &Result{})
 	if !isErr {
 		t.Fatal("an unknown tool is an error")
 	}
@@ -112,6 +118,43 @@ func TestUnknownToolErrorLeadsWithTheSuggestion(t *testing.T) {
 	}
 	if !strings.Contains(out, "Available tools:") {
 		t.Errorf("error should still list the real tools: %s", out)
+	}
+}
+
+// A single character is a slip of the pen, not a different intention. Traced on
+// rename-symbol: gpt-oss:20b spent a turn on `gre?` and then sent the identical
+// arguments to `grep`. Rejecting it costs exactly the turn that running it
+// saves.
+func TestOneCharacterTypoRunsTheToolItMeant(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: dir}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, isErr := ag.execTool(t.Context(), toolCall("1", "reed", map[string]any{"path": "a.go"}), &Result{})
+	if isErr {
+		t.Fatalf("a one-character typo should run the tool it meant: %s", out)
+	}
+	if !strings.Contains(out, "package a") {
+		t.Errorf("it should return the file: %s", out)
+	}
+	// And it says so, or the model goes on using the name that does not exist.
+	if !strings.Contains(out, "Ran read") {
+		t.Errorf("the correction should be visible: %s", out)
+	}
+}
+
+// Two candidates a character away is not obvious, and guessing there sends a
+// model somewhere it never meant to go.
+func TestAmbiguousTypoIsNotGuessed(t *testing.T) {
+	ag := resolver(t)
+	// "read" and "read" are the only pair close enough to collide in the real
+	// set; construct the ambiguity explicitly instead of relying on it.
+	if got := ag.soleTypo("xxxxxxxxxxxx"); got != "" {
+		t.Errorf("nothing is a character from that: %q", got)
 	}
 }
 

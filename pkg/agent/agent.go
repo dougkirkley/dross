@@ -469,12 +469,13 @@ type Agent struct {
 	reviewer      *reviewer
 	compactor     *compactor
 	compactStats  CompactStatsFunc
-	maxParallel   int            // max concurrent worker subagents (0 = default 2)
-	failures      map[string]int // identical failing calls seen, for the no-progress guard
-	singleReads   int            // consecutive one-file reads, for the batching hint
-	aftercare     sync.WaitGroup // background review/brief still running
-	syncAftercare bool           // run review/brief before Run returns
-	edits         []editRec      // changes made this run, for the reviewer skill
+	maxParallel   int                 // max concurrent worker subagents (0 = default 2)
+	failures      map[string]int      // identical failing calls seen, for the no-progress guard
+	singleReads   int                 // consecutive one-file reads, for the batching hint
+	lastLookups   map[string][32]byte // read-only calls already answered, by tool+args
+	aftercare     sync.WaitGroup      // background review/brief still running
+	syncAftercare bool                // run review/brief before Run returns
+	edits         []editRec           // changes made this run, for the reviewer skill
 	publish       PublishFunc
 	asker         AskFunc
 	permMode      PermMode
@@ -1709,10 +1710,61 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 	if hint := a.batchingHint(tc); hint != "" {
 		content += hint
 	}
+	if note := a.repeatNote(tc, content); note != "" {
+		// In front of the output, not after it. Appended to the end of a
+		// file-sized result it sat past everything the model was reading for,
+		// and the repeated greps carried on regardless; the point of the note
+		// is to be read before the content it is about.
+		content = note + "\n\n" + content
+	}
 	// Emit a generous slice so clients can expand the full output (the feed
 	// still shows a one-line preview); cap to bound payload.
 	a.emit("tool-result", truncate(content, 16000))
 	return content
+}
+
+// repeatNote tells a model that a look-up it just made returned exactly what
+// the same look-up returned earlier, so it is holding the answer already.
+//
+// Both models traced on the benchmark did this. gpt-oss:20b read util.go twice
+// in consecutive turns with nothing between them, and on the rename it grepped
+// for the same symbol at turn 1 and again at turn 4, then re-read a file it had
+// read at turn 2. That is three of twelve turns spent re-fetching unchanged
+// bytes.
+//
+// Byte-identical output is itself the proof that nothing has changed, so no
+// bookkeeping about writes is needed: if the answer differs, this says nothing.
+// The content is still returned in full, because a model may be asking again
+// precisely because compaction took the first copy away — the note is added to
+// it rather than replacing it.
+//
+// Only dross's own read-only tools. A plugin or MCP tool may return the same
+// bytes from a source that genuinely changed, and telling a model to trust a
+// stale answer is worse than letting it ask twice.
+func (a *Agent) repeatNote(tc provider.ToolCall, content string) string {
+	name := a.resolveToolName(tc.Name, tc.Input)
+	if !readOnlyTools[name] {
+		return ""
+	}
+	if _, ok := a.plugins[name]; ok {
+		return ""
+	}
+	if _, ok := a.extraTools[name]; ok {
+		return ""
+	}
+	key := name + "\x00" + string(tc.Input)
+	sum := sha256.Sum256([]byte(content))
+	if a.lastLookups == nil {
+		a.lastLookups = map[string][32]byte{}
+	}
+	prev, seen := a.lastLookups[key]
+	a.lastLookups[key] = sum
+	if !seen || prev != sum {
+		return ""
+	}
+	return "[This is byte-for-byte what the same " + name + " call returned earlier in this run, " +
+		"so nothing has changed since. You already have this answer — use it rather than fetching it " +
+		"again, and if you are stuck, do something different.]"
 }
 
 // singleReadsBeforeHint is how many files a model may fetch one at a time
@@ -1758,7 +1810,23 @@ func (a *Agent) batchingHint(tc provider.ToolCall) string {
 
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
 // so the run's cost reflects both models.
+// execTool resolves the tool a call names and runs it, saying so when the name
+// it ran was not the name it was given.
+//
+// The correction has to be visible. Silently answering to a name that does not
+// exist teaches the model the name works, and it goes on using it for the rest
+// of the run — which costs nothing here but is a lie about the tool surface.
 func (a *Agent) execTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
+	asked := tc.Name
+	content, isErr := a.dispatchTool(ctx, tc, res)
+	if ran := a.resolveToolName(asked, tc.Input); ran != asked && !isErr {
+		content = fmt.Sprintf("[Ran %s — there is no tool called %q. Use %s from now on.]\n\n%s",
+			ran, asked, ran, content)
+	}
+	return content, isErr
+}
+
+func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Result) (string, bool) {
 	tc.Name = a.resolveToolName(tc.Name, tc.Input)
 	if p, ok := a.plugins[tc.Name]; ok {
 		return a.runPlugin(ctx, p, tc.Input)
@@ -2012,6 +2080,9 @@ func (a *Agent) resolveToolName(name string, input json.RawMessage) string {
 	if real, ok := toolAliases[n]; ok && a.hasTool(real) {
 		return real
 	}
+	if real := a.soleTypo(n); real != "" {
+		return real
+	}
 	return name
 }
 
@@ -2061,6 +2132,34 @@ var toolAliases = map[string]string{
 	"webfetch": "web_fetch", "fetch": "web_fetch", "http_get": "web_fetch",
 	"curl": "web_fetch", "get_url": "web_fetch",
 	"ask": "ask_user", "ask_question": "ask_user", "question": "ask_user",
+}
+
+// soleTypo returns the one available tool a single character away from want,
+// or "" if there is none or more than one.
+//
+// Suggesting the right name costs the same turn as rejecting the wrong one: the
+// call fails, the reply explains, and the model sends the call it meant. Traced
+// on rename-symbol, gpt-oss:20b spent a turn on `gre?` and then sent the
+// identical arguments to `grep`. One character is a slip of the pen, not a
+// different intention, so it is run.
+//
+// One character, and only when nothing else is that close. At distance two the
+// candidates stop being obvious — and an ambiguous near-miss is exactly the
+// case where guessing sends a model somewhere it never meant to go, so those
+// still get the list of real names. Approval gates are unaffected: the resolved
+// tool is checked like any other, so a typo cannot slip a write past them.
+func (a *Agent) soleTypo(want string) string {
+	found := ""
+	for _, d := range a.enabledTools() {
+		if editDistance(want, d.Name) > 1 {
+			continue
+		}
+		if found != "" {
+			return "" // two candidates: no longer obvious
+		}
+		found = d.Name
+	}
+	return found
 }
 
 // nearestTool returns the available name closest to want, or "" when nothing is

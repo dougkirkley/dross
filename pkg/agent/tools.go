@@ -1134,14 +1134,97 @@ func firstWord(s string) string {
 func ambiguousMessage(path, text, oldStr string, n, i, of int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "old_str matched %d times in %s%s. Either pass replace_all to change every one,"+
-		" or add surrounding context so it is unique. It matches at:\n", n, path, editWhere(i, of))
-	for _, ln := range matchLines(text, oldStr, 5) {
-		fmt.Fprintf(&b, "  %s:%d: %s\n", path, ln.num, strings.TrimSpace(ln.text))
+		" or use one of these instead — each already includes enough context to match only its own site:\n",
+		n, path, editWhere(i, of))
+	shown := 0
+	for _, c := range uniqueCandidates(text, oldStr, 3) {
+		fmt.Fprintf(&b, "\n%s:%d\n%s\n", path, c.num, c.text)
+		shown++
 	}
-	if n > 5 {
-		fmt.Fprintf(&b, "  …and %d more\n", n-5)
+	if shown == 0 {
+		// Every site expanded to the whole file without becoming unique, which
+		// means the file really does repeat itself. Naming the lines is all
+		// there is to offer.
+		b.Reset()
+		fmt.Fprintf(&b, "old_str matched %d times in %s%s. Either pass replace_all to change every one,"+
+			" or add surrounding context so it is unique. It matches at:\n", n, path, editWhere(i, of))
+		for _, ln := range matchLines(text, oldStr, 5) {
+			fmt.Fprintf(&b, "  %s:%d: %s\n", path, ln.num, strings.TrimSpace(ln.text))
+		}
+	}
+	if n > shown && shown > 0 {
+		fmt.Fprintf(&b, "\n…and %d more site(s).\n", n-shown)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// candidate is one site's ready-made replacement for an ambiguous old_str.
+type candidate struct {
+	num  int
+	text string
+}
+
+// uniqueCandidates expands an ambiguous old_str, at each of the first max
+// sites, into the smallest whole-line window around it that occurs exactly
+// once.
+//
+// Naming the line numbers was not enough on its own. Watched on find-the-bug:
+// `old_str: "return hi"` matched twice, and the model answered the "add
+// surrounding context" advice by re-reading the file, re-reading it a second
+// time identically, and then sending an edits array whose first entry replaced
+// "return hi" with itself — four turns to build a string this call could have
+// handed it. The information was already here; only the message was missing.
+func uniqueCandidates(text, oldStr string, max int) []candidate {
+	var out []candidate
+	offset := 0
+	for len(out) < max {
+		i := strings.Index(text[offset:], oldStr)
+		if i < 0 {
+			break
+		}
+		at := offset + i
+		if win, ok := uniqueWindow(text, at, at+len(oldStr)); ok {
+			out = append(out, candidate{num: strings.Count(text[:at], "\n") + 1, text: win})
+		}
+		offset = at + len(oldStr)
+	}
+	return out
+}
+
+// maxWindowGrowth bounds how far a candidate grows looking for uniqueness. A
+// window that has swallowed this many lines either side is no longer a useful
+// thing to paste into old_str, and replace_all is the better answer.
+const maxWindowGrowth = 6
+
+// uniqueWindow grows [start,end) a line at a time until the text it spans
+// appears exactly once.
+//
+// Upward to exhaustion before downward, rather than alternating. What tells two
+// identical lines apart is nearly always what comes before them — the `if` whose
+// body they are — and a window that reaches forward as well is a larger thing to
+// paste for no gain: growing both directions on "return hi" produced a window
+// carrying the line after it too, which matched just as uniquely and read as
+// more than was asked for.
+func uniqueWindow(text string, start, end int) (string, bool) {
+	up := start
+	for i := 0; i < maxWindowGrowth && up > 0; i++ {
+		up = strings.LastIndexByte(text[:up-1], '\n') + 1
+		if s := text[up:end]; strings.Count(text, s) == 1 {
+			return s, true
+		}
+	}
+	// Nothing above it is distinguishing, so take what is below as well.
+	for i := 0; i < maxWindowGrowth && end < len(text); i++ {
+		if nl := strings.IndexByte(text[end:], '\n'); nl < 0 {
+			end = len(text)
+		} else {
+			end += nl + 1
+		}
+		if s := text[up:end]; strings.Count(text, s) == 1 {
+			return s, true
+		}
+	}
+	return "", false
 }
 
 type matchLine struct {
