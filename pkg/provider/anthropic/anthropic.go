@@ -64,6 +64,7 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 		pin:          p.pin,
 		tools:        convertTools(cfg.Tools),
 		maxTokens:    int64(maxTok),
+		temperature:  cfg.Temperature,
 		lastCacheIdx: -1,
 	}
 }
@@ -75,6 +76,7 @@ type session struct {
 	pin          string
 	tools        []sdk.ToolUnionParam
 	maxTokens    int64
+	temperature  *float64           // nil leaves the backend's own default alone
 	messages     []sdk.MessageParam // provider-native history
 	lastCacheIdx int                // message holding the rolling cache breakpoint
 }
@@ -107,6 +109,9 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		MaxTokens: s.maxTokens,
 		Messages:  s.messages,
 		Tools:     s.tools,
+	}
+	if s.temperature != nil {
+		params.Temperature = sdk.Float(*s.temperature)
 	}
 	var sys []sdk.TextBlockParam
 	if s.pin != "" {

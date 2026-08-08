@@ -50,7 +50,8 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 	if maxTok <= 0 {
 		maxTok = defaultMaxTokens
 	}
-	s := &session{prov: p, model: cfg.Model, tools: convertTools(cfg.Tools), maxTokens: maxTok}
+	s := &session{prov: p, model: cfg.Model, tools: convertTools(cfg.Tools), maxTokens: maxTok,
+		temperature: cfg.Temperature, seed: cfg.Seed}
 	if cfg.System != "" {
 		s.messages = append(s.messages, chatMessage{Role: "system", Content: cfg.System})
 	}
@@ -90,11 +91,13 @@ type toolSpec struct {
 }
 
 type chatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []chatMessage `json:"messages"`
-	Tools     []toolSpec    `json:"tools,omitempty"`
-	MaxTokens int           `json:"max_tokens,omitempty"`
-	Stream    bool          `json:"stream,omitempty"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Tools       []toolSpec    `json:"tools,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	Seed        *int          `json:"seed,omitempty"`
 	// StreamOptions asks for the usage numbers a streaming response otherwise
 	// omits; ollama and OpenAI both honour it.
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
@@ -121,11 +124,13 @@ type chatResponse struct {
 // --- session --------------------------------------------------------------
 
 type session struct {
-	prov      *prov
-	model     string
-	tools     []toolSpec
-	maxTokens int
-	messages  []chatMessage
+	prov        *prov
+	model       string
+	tools       []toolSpec
+	maxTokens   int
+	temperature *float64
+	seed        *int
+	messages    []chatMessage
 }
 
 func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Response, error) {
@@ -138,10 +143,12 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 	}
 
 	req := chatRequest{
-		Model:     s.model,
-		Messages:  s.messages,
-		Tools:     s.tools,
-		MaxTokens: s.maxTokens,
+		Model:       s.model,
+		Messages:    s.messages,
+		Tools:       s.tools,
+		MaxTokens:   s.maxTokens,
+		Temperature: s.temperature,
+		Seed:        s.seed,
 	}
 	// Stream when the caller wants to watch. A local model produces tokens for
 	// the whole generation; buffering them meant forty-five seconds of silence

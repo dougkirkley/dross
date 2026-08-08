@@ -102,6 +102,21 @@ type SessionConfig struct {
 	Tools     []ToolDef
 	Model     string
 	MaxTokens int
+
+	// Temperature is the sampling temperature, when the caller has an opinion.
+	//
+	// A pointer because "no opinion" and "zero" are different requests, and only
+	// the first should leave the field off the wire. Nothing set it for a long
+	// time, so every backend's own default applied — around 0.7 on ollama — and
+	// the same task took a different path on every run. That is right for prose
+	// and wrong for a tool-calling loop, where the variation shows up as a
+	// different number of turns rather than a different turn of phrase.
+	Temperature *float64
+
+	// Seed pins the sampler, where the backend supports one (ollama and OpenAI
+	// do; Anthropic does not). It makes a run repeatable, which is what a
+	// benchmark needs to tell a change from a roll of the dice.
+	Seed *int
 }
 
 // ErrMalformedToolCall reports that the backend rejected the model's own

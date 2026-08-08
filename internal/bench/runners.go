@@ -25,6 +25,8 @@ type DrossRunner struct {
 	Model       string
 	Worker      provider.Provider // optional
 	WorkerModel string
+
+	runs int // repeat counter, so each run gets its own reproducible seed
 }
 
 func (h *DrossRunner) Name() string {
@@ -35,12 +37,29 @@ func (h *DrossRunner) Name() string {
 }
 func (h *DrossRunner) Available() bool { return h.Provider != nil }
 
+// seedFor hands out the run's sampler seed and advances the counter.
+//
+// Backends that ignore seed (Anthropic, the Claude Code CLI) are unaffected;
+// this only makes the ones that honour it repeatable.
+func (h *DrossRunner) seedFor(string) *int {
+	h.runs++
+	s := h.runs
+	return &s
+}
+
 func (h *DrossRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics, error) {
 	opts := []agent.Option{}
 	if h.Worker != nil && h.WorkerModel != "" {
 		opts = append(opts, agent.WithWorker(h.Worker, h.WorkerModel))
 	}
-	ag, err := agent.New(agent.Config{Name: "dross", Model: h.Model, Workdir: workdir}, h.Provider, opts...)
+	// A fixed seed per repeat, so run 3 of a task is the same run 3 next time
+	// and a table can be compared with the one before it. Varied across repeats
+	// rather than pinned to one, because five identical runs would measure a
+	// single path very precisely and say nothing about the spread.
+	seed := h.seedFor(prompt)
+	ag, err := agent.New(agent.Config{
+		Name: "dross", Model: h.Model, Workdir: workdir, Seed: seed,
+	}, h.Provider, opts...)
 	if err != nil {
 		return Metrics{}, err
 	}

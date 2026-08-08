@@ -74,6 +74,13 @@ type Config struct {
 	// system prompt describes only web access and context, not the coding tools.
 	// Callers still restrict the actual toolset via WithAllowedTools.
 	Chat bool
+	// Temperature is the sampling temperature for the lead model. Nil takes
+	// codeTemperature; set it explicitly to override, including to leave the
+	// backend's own default alone via WithBackendTemperature.
+	Temperature *float64
+	// Seed pins the sampler where the backend supports one, making a run
+	// repeatable. Used by the benchmark; nil otherwise.
+	Seed *int
 	// Plan starts the session in plan mode: it may read, search and think, but
 	// nothing that changes a file, runs a command or costs money is available
 	// until it has called exit_plan_mode and the user has agreed to the plan.
@@ -654,10 +661,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		sess = a.prov.NewSession(provider.SessionConfig{
 			// Told what it actually has, rather than what this prompt was
 			// written against.
-			System:    systemPrompt(a.cfg, a.worker != nil, a.publish != nil, names),
-			Tools:     tools,
-			Model:     a.cfg.Model,
-			MaxTokens: a.cfg.MaxTokens,
+			System:      systemPrompt(a.cfg, a.worker != nil, a.publish != nil, names),
+			Tools:       tools,
+			Model:       a.cfg.Model,
+			MaxTokens:   a.cfg.MaxTokens,
+			Temperature: a.temperature(),
+			Seed:        a.cfg.Seed,
 		})
 		if a.conv {
 			a.sess = sess
@@ -700,9 +709,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			// cannot edit a file, and pretending otherwise wastes a turn to
 			// find that out.
 			sess = a.prov.NewSession(provider.SessionConfig{
-				System:    systemPrompt(a.cfg, false, false, nil),
-				Model:     a.cfg.Model,
-				MaxTokens: a.cfg.MaxTokens,
+				System:      systemPrompt(a.cfg, false, false, nil),
+				Model:       a.cfg.Model,
+				MaxTokens:   a.cfg.MaxTokens,
+				Temperature: a.temperature(),
+				Seed:        a.cfg.Seed,
 			})
 			if a.conv {
 				a.sess = sess
@@ -2562,4 +2573,34 @@ func (a *Agent) exitPlanMode(plan string) (string, bool) {
 	a.planning = false
 	return "The plan is agreed. The tools that change things are available now — start on the " +
 		"first step.", false
+}
+
+// codeTemperature is what a coding session samples at unless told otherwise.
+//
+// Nothing set a temperature for a long time, so every backend's own default
+// applied — around 0.7 on ollama — and the same task took a different path
+// every run. In a tool-calling loop that variation does not show up as a
+// different turn of phrase, it shows up as a different number of turns: on the
+// benchmark, find-the-bug measured 10.0s, 20.7s and 23.5s on near-identical
+// code, and rename-symbol was bimodal between about seven turns and about
+// twelve. A spread that wide cannot tell an improvement from a roll of the
+// dice, which is the whole job of the measurement.
+//
+// Low rather than zero. Exactly zero makes a small model likelier to get stuck
+// repeating a call it has already made — the failure repeatLimit exists to
+// catch — and buys very little determinism over this on top.
+const codeTemperature = 0.1
+
+// temperature reports what to sample at: the caller's choice, or the coding
+// default. Chat sessions are left alone, because prose is the one thing the
+// variety is good for.
+func (a *Agent) temperature() *float64 {
+	if a.cfg.Temperature != nil {
+		return a.cfg.Temperature
+	}
+	if a.cfg.Chat {
+		return nil
+	}
+	t := codeTemperature
+	return &t
 }
