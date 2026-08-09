@@ -337,8 +337,35 @@ func (s *session) post(ctx context.Context, reqBody []byte) (*http.Response, err
 
 // malformedToolCall spots the server complaining that it could not parse the
 // tool call the model emitted, as opposed to the server itself being unwell.
+// The phrasing differs by backend and by model template, and matching only one
+// of them is worse than matching none: an unrecognised body falls through to
+// retryableStatus, a 500 is retryable, so the identical prompt is sent again
+// and the model produces the same confusion — three times, slowly, before the
+// run dies on an error the model could have fixed in one turn if anyone had
+// told it.
+//
+// That is not hypothetical. qwen3-coder emits its calls in an XML-ish template
+// and ollama rejects a bad one with "XML syntax error on line 8: element
+// <parameter> closed by </function>" — no mention of a tool call anywhere in
+// the string. rename-symbol scored 2/5 on that alone, three runs lost to a
+// repair path that was already written and never reached.
 func malformedToolCall(body []byte) bool {
-	return bytes.Contains(bytes.ToLower(body), []byte("parsing tool call"))
+	b := bytes.ToLower(body)
+	for _, sig := range [][]byte{
+		[]byte("parsing tool call"),
+		// ollama's qwen3-coder / hermes template parsers.
+		[]byte("xml syntax error"),
+		[]byte("invalid tool call"),
+		[]byte("failed to parse tool"),
+		// vLLM and llama.cpp phrase the same rejection their own way.
+		[]byte("tool call parse"),
+		[]byte("error parsing tool"),
+	} {
+		if bytes.Contains(b, sig) {
+			return true
+		}
+	}
+	return false
 }
 
 // retryableStatus reports whether asking again could plausibly answer
