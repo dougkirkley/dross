@@ -203,7 +203,7 @@ func gitState(workdir string) string {
 // makes it improvise.
 func codeToolLines(tools []string) string {
 	desc := map[string]string{
-		"read":         "read(path) or read(paths=[…]): read one file, or several in a single call. Content comes back with line numbers. When you already know which files you want, ask for them all at once.",
+		"read":         "read(path) or read(paths=[…]): read one file, or up to 20 in a single call. Content comes back with line numbers. When you already know which files you want, ask for them all at once — twenty in one call costs one round trip, twenty calls cost twenty. Use it for content you need, not to discover where something is; that is grep's job.",
 		"write":        "write(path, content): create or overwrite a file.",
 		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes in a single call rather than one call each — give an entry its own path and one call changes several files, which is how a rename across a package should be done.",
 		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched. A search that matches nothing is retried ignoring case and tells you so — read what it says before rewriting the pattern.",
@@ -578,8 +578,12 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 		{
 			Name: "read",
 			Description: "Read files from the workspace. Returns line-numbered content. " +
-				"Pass paths (an array) to read SEVERAL files in one call — always prefer that " +
-				"over one call per file when you already know which files you want.",
+				"Pass paths (an array) to read SEVERAL files in one call — up to 20, and always prefer " +
+				"that over one call per file when you already know which files you want. Asking for six " +
+				"when you mean to read twenty-eight costs five extra round trips. " +
+				"read is for content you need; it is not how you find things. To learn WHICH file " +
+				"contains something, grep — one call searches the whole tree, where reading your way " +
+				"to the same answer costs a round trip per batch.",
 			Properties: map[string]any{
 				"path": strProp("File path relative to the workspace root."),
 				"paths": map[string]any{

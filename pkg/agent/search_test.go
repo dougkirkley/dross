@@ -143,3 +143,45 @@ func TestAnyDepth(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchHintFiresOnceForATreeReader is the turn-count gap, reproduced.
+//
+// A traced find-in-a-tree run opened 28 files in eight batched reads to find
+// the one component whose Rate() disagreed with its doc comment. Two greps
+// would have answered it. That run took 15 turns against Claude Code's 7, and
+// almost all of the difference was reading a tree it could have searched.
+func TestSearchHintFiresOnceForATreeReader(t *testing.T) {
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Under the threshold: nothing said, because opening a package to read it
+	// is ordinary and this must not nag.
+	if got := ag.searchHint(6); got != "" {
+		t.Fatalf("hinted at 6 files: %q", got)
+	}
+	// Crossing it: said once, with the count and the alternative.
+	got := ag.searchHint(6)
+	if !strings.Contains(got, "grep") || !strings.Contains(got, "12 files") {
+		t.Fatalf("the hint should name the count and the tool: %q", got)
+	}
+	// And never again — a run already deep in a tree does not need telling
+	// every turn.
+	if again := ag.searchHint(6); again != "" {
+		t.Fatalf("hinted twice: %q", again)
+	}
+}
+
+// A run that has already searched is doing the right thing. Reading the hits a
+// grep returned is not tree-enumeration, and interrupting it would be advice to
+// do what it just did.
+func TestSearchHintStaysQuietOnceARunHasSearched(t *testing.T) {
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag.searched = true
+	if got := ag.searchHint(50); got != "" {
+		t.Fatalf("hinted at a run that had already grepped: %q", got)
+	}
+}

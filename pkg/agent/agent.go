@@ -566,6 +566,9 @@ type Agent struct {
 	spawned       *atomic.Int32       // subagents started by this run, shared by the whole tree
 	failures      map[string]int      // identical failing calls seen, for the no-progress guard
 	singleReads   int                 // consecutive one-file reads, for the batching hint
+	filesRead     int                 // files opened this run, for the search hint
+	searched      bool                // grep or glob has been used, so the search hint is moot
+	hintedSearch  bool                // the search hint has been given once
 	singleTasks   int                 // consecutive one-subtask delegations, for the fan-out hint
 	lastLookups   map[string][32]byte // read-only calls already answered, by tool+args
 	todos         []todoItem          // the run's plan, as the model last wrote it
@@ -1924,6 +1927,24 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 	if hint := a.batchingHint(tc); hint != "" {
 		content += hint
 	}
+	switch a.resolveToolName(tc.Name, tc.Input) {
+	case "grep", "glob":
+		// This run knows how to search; the hint below has nothing to teach it.
+		a.searched = true
+	case "read":
+		var in struct {
+			Path  string   `json:"path"`
+			Paths []string `json:"paths"`
+		}
+		_ = json.Unmarshal(tc.Input, &in)
+		n := len(in.Paths)
+		if n == 0 && in.Path != "" {
+			n = 1
+		}
+		if hint := a.searchHint(n); hint != "" {
+			content += hint
+		}
+	}
 	if hint := a.fanOutHint(tc); hint != "" {
 		content += hint
 	}
@@ -2020,9 +2041,48 @@ func (a *Agent) batchingHint(tc provider.ToolCall) string {
 		return ""
 	}
 	return "\n\n[You have read " + fmt.Sprint(singleReadsBeforeHint) +
-		" files one at a time, which costs a round trip each. read accepts a list: " +
+		" files one at a time, which costs a round trip each. read accepts a list of up to " +
+		fmt.Sprint(maxReadPaths) + ": " +
 		`read(paths=["a.go","b.go","c.go"]) returns all three at once. ` +
 		"Ask for every file you already know you need in one call.]"
+}
+
+// filesReadBeforeSearchHint is how many files a run may open before it is asked
+// whether it meant to search instead.
+//
+// Twenty-eight is what one traced find-in-a-tree run read, in eight batched
+// calls, to find the single component whose Rate() disagreed with its own doc
+// comment. Two greps would have answered it: one for the documented rates, one
+// for the returned ones. That run took 15 turns against Claude Code's 7, and
+// nearly all of the difference was reading a tree it could have searched.
+//
+// Eight, not fifteen. Fifteen was chosen to avoid nagging a run that is
+// legitimately opening a package, and it fires far too late: the traced run was
+// three batched reads and several turns past the decision by then, and the
+// hint's whole value is arriving before the tree has been enumerated. Eight is
+// still more than any single package this has been pointed at.
+const filesReadBeforeSearchHint = 8
+
+// searchHint nudges a run that is reading its way through a tree.
+//
+// Fires once, on the read that crosses the threshold, and never once the run
+// has searched: a model that has already grepped and is now reading the hits is
+// doing exactly the right thing and must not be interrupted.
+func (a *Agent) searchHint(files int) string {
+	if a.searched || a.hintedSearch {
+		return ""
+	}
+	a.filesRead += files
+	if a.filesRead < filesReadBeforeSearchHint {
+		return ""
+	}
+	a.hintedSearch = true
+	return fmt.Sprintf("\n\n[You have opened %d files in this run without searching once. "+
+		"If you are looking for where something is stated, or for the one place that differs, "+
+		"grep answers that in a single call across the whole tree — grep(pattern) returns every "+
+		"match as path:line:text, and grep(pattern, context=N) brings the surrounding lines with "+
+		"it. Reading a tree file by file to find one line is the expensive way to do it.]",
+		a.filesRead)
 }
 
 // singleTasksBeforeHint is how many subtasks a lead may hand over one at a time
