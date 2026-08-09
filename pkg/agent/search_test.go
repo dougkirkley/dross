@@ -185,3 +185,50 @@ func TestSearchHintStaysQuietOnceARunHasSearched(t *testing.T) {
 		t.Fatalf("hinted at a run that had already grepped: %q", got)
 	}
 }
+
+// TestBatchingHintCatchesHandfuls is the bug two screenshots made obvious.
+//
+// The hint required CONSECUTIVE single-file reads and cleared its count the
+// moment a call passed two paths. A traced session read 1, 1, 2, 1, 2, 1, 3, 1
+// files across fifteen turns and was never hinted once: every two-file read
+// counted as batching. Two of a possible twenty is not batching.
+func TestBatchingHintCatchesHandfuls(t *testing.T) {
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := toolCall("1", "read", map[string]any{"path": "a.go"})
+	two := toolCall("2", "read", map[string]any{"paths": []string{"a.go", "b.go"}})
+
+	// The exact pattern from the trace. Under the old rule this hinted never.
+	if got := ag.batchingHint(one); got != "" {
+		t.Fatalf("hinted on the first call: %q", got)
+	}
+	if got := ag.batchingHint(one); got != "" {
+		t.Fatalf("hinted on the second call: %q", got)
+	}
+	got := ag.batchingHint(two)
+	if !strings.Contains(got, "read calls") || !strings.Contains(got, "per call") {
+		t.Fatalf("a run averaging %v files a call should be hinted, got %q", 4.0/3.0, got)
+	}
+	// Once only — nagging every turn teaches nothing the first one did not.
+	if again := ag.batchingHint(one); again != "" {
+		t.Fatalf("hinted twice: %q", again)
+	}
+}
+
+// A run that asks for a real batch is doing the right thing and must not be
+// lectured about it, however many calls it makes.
+func TestBatchingHintLeavesRealBatchesAlone(t *testing.T) {
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: t.TempDir()}, &scriptedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := toolCall("1", "read", map[string]any{
+		"paths": []string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"}})
+	for i := 0; i < 5; i++ {
+		if got := ag.batchingHint(big); got != "" {
+			t.Fatalf("hinted at a run reading six at a time: %q", got)
+		}
+	}
+}

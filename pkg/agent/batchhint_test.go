@@ -52,9 +52,12 @@ func TestHintArrivesWhenItIsActionable(t *testing.T) {
 	if len(results) != 4 {
 		t.Fatalf("got %d results, want 4", len(results))
 	}
-	// Not on the first two — two files one at a time is not yet a habit.
+	// Not on the first two — two single reads is not yet a habit. Matched on
+	// "per call", which only the batching hint says: "one at a time" also
+	// appears in the neighbourhood outline appended to a single-file read, and
+	// matching that made this test fail on a block it was not about.
 	for i := 0; i < 2; i++ {
-		if strings.Contains(results[i], "one at a time") {
+		if strings.Contains(results[i], "per call") {
 			t.Errorf("result %d should not carry the hint yet:\n%s", i+1, results[i])
 		}
 	}
@@ -62,7 +65,7 @@ func TestHintArrivesWhenItIsActionable(t *testing.T) {
 		t.Errorf("the third single read should carry the hint:\n%s", results[2])
 	}
 	// And not again after that: repeating it every turn is nagging.
-	if strings.Contains(results[3], "one at a time") {
+	if strings.Contains(results[3], "per call") {
 		t.Errorf("the hint should be said once, not every turn:\n%s", results[3])
 	}
 }
@@ -97,10 +100,16 @@ func TestBatchedReadIsNotNagged(t *testing.T) {
 	}
 }
 
-// TestTakingTheHintResetsIt: a model that switches to the list form stops being
-// told, and a later single read starts the count again rather than firing at
-// once.
-func TestTakingTheHintResetsIt(t *testing.T) {
+// TestTwoFilesIsNotTakingTheHint overturns what this test used to assert.
+//
+// It required consecutive single reads and treated any call with two paths as
+// batching, which cleared the count. That made the hint unreachable in the case
+// it exists for: a traced session read 1, 1, 2, 1, 2, 1, 3, 1 files across
+// fifteen turns and was never told once, because every two-file read reset it.
+// Two of a possible twenty is not a batch. The rule is now the average size of
+// a fetch, so this sequence — five files across four calls — is still a habit
+// worth naming.
+func TestTwoFilesIsNotTakingTheHint(t *testing.T) {
 	dir := fourFiles(t)
 	prov := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{toolCall("1", "read", map[string]any{"path": "a.go"})}},
@@ -124,16 +133,25 @@ func TestTakingTheHintResetsIt(t *testing.T) {
 	if _, err := ag.Run(context.Background(), "read them"); err != nil {
 		t.Fatal(err)
 	}
-	for i, r := range results {
-		if strings.Contains(r, "one at a time") {
-			t.Errorf("result %d should not carry the hint — the batch reset the count:\n%s", i+1, r)
+	hinted := false
+	for _, r := range results {
+		if strings.Contains(r, "per call") {
+			hinted = true
 		}
+	}
+	if !hinted {
+		t.Errorf("five files across four calls averages 1.25 and should be named:\n%v", results)
 	}
 }
 
-// TestOtherToolsBreakTheRun: reads spread across a session, with work between
-// them, are not the pattern this is for.
-func TestOtherToolsBreakTheRun(t *testing.T) {
+// TestOtherToolsDoNotBreakTheRun is the other rule this change overturned.
+//
+// A glob or a todo between reads used to clear the count, on the reasoning that
+// reads spread across a session are not the pattern. Real sessions are exactly
+// that shape — the traced one interleaved globs and todo writes throughout —
+// so resetting on any other tool was a second way for the hint never to fire.
+// The count is cumulative for the run.
+func TestOtherToolsDoNotBreakTheRun(t *testing.T) {
 	dir := fourFiles(t)
 	prov := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{toolCall("1", "read", map[string]any{"path": "a.go"})}},
@@ -155,9 +173,13 @@ func TestOtherToolsBreakTheRun(t *testing.T) {
 	if _, err := ag.Run(context.Background(), "look around"); err != nil {
 		t.Fatal(err)
 	}
-	for i, r := range results {
-		if strings.Contains(r, "one at a time") {
-			t.Errorf("result %d should not be nudged — the glob broke the run:\n%s", i+1, r)
+	hinted := false
+	for _, r := range results {
+		if strings.Contains(r, "per call") {
+			hinted = true
 		}
+	}
+	if !hinted {
+		t.Errorf("three single reads with a glob between them is still three single reads:\n%v", results)
 	}
 }

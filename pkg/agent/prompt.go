@@ -122,8 +122,11 @@ func projectDocs(workdir string) string {
 // a model to know where things live and what the project is made of, and a
 // monorepo's full file list would crowd out the rest of the prompt for no gain.
 const (
-	mapEntries = 200
-	mapBudget  = 4000
+	// mapWalkLimit bounds the walk itself, for a repository large enough that
+	// counting it is the expensive part. It is not a display limit: everything
+	// walked is counted, and counts are what make an elided directory visible.
+	mapWalkLimit = 20000
+	mapBudget    = 4000
 )
 
 // workspaceMap lists what is in the workspace, and where git thinks it stands.
@@ -141,8 +144,12 @@ func workspaceMap(workdir string) string {
 	if workdir == "" {
 		return ""
 	}
-	var files []string
-	truncated := false
+	// Group by top-level entry, so the budget is shared out between the parts
+	// of the repository rather than spent on whichever the walker reached
+	// first. Root files go under ".".
+	groups := map[string][]string{}
+	var order []string
+	total := 0
 	filepath.WalkDir(workdir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -153,41 +160,76 @@ func workspaceMap(workdir string) string {
 			}
 			return nil
 		}
-		if len(files) >= mapEntries {
-			truncated = true
+		if total >= mapWalkLimit {
 			return filepath.SkipAll
 		}
-		if rel, err := filepath.Rel(workdir, p); err == nil {
-			files = append(files, rel)
+		rel, err := filepath.Rel(workdir, p)
+		if err != nil {
+			return nil
 		}
+		total++
+		top := rel
+		if i := strings.IndexByte(rel, '/'); i >= 0 {
+			top = rel[:i]
+		} else {
+			top = "."
+		}
+		if _, seen := groups[top]; !seen {
+			order = append(order, top)
+		}
+		groups[top] = append(groups[top], rel)
 		return nil
 	})
-	if len(files) == 0 {
+	if total == 0 {
 		return ""
 	}
-	sort.Strings(files)
+	sort.Strings(order)
 
-	list := strings.Join(files, "\n")
-	if len(list) > mapBudget {
-		list = list[:mapBudget]
-		if i := strings.LastIndexByte(list, '\n'); i > 0 {
-			list = list[:i]
-		}
-		truncated = true
-	}
-
-	b := "\n\n## Files here at session start\n\n" +
+	// Every group gets a line naming it and its size, and then as many of its
+	// files as the shared budget allows. A directory can be summarised down to
+	// nothing but it can never disappear, which is the whole point.
+	var b strings.Builder
+	b.WriteString("\n\n## Files here at session start\n\n" +
 		"A snapshot, so you do not have to spend a turn discovering the layout. " +
 		"It says what exists, not what is in it, and it does not reflect anything " +
-		"changed since — use glob and read for that.\n\n```\n" + list + "\n"
-	if truncated {
-		b += "[…truncated. Use glob for the rest.]\n"
+		"changed since — use glob and read for that. Counts are exact; a listing " +
+		"cut short says so, and glob will give you the rest.\n\n```\n")
+	spent := 0
+	for i, top := range order {
+		files := groups[top]
+		sort.Strings(files)
+		label := top + "/"
+		if top == "." {
+			label = "(root)"
+		}
+		fmt.Fprintf(&b, "%s  — %d file(s)\n", label, len(files))
+		// Share what is left between the groups still to come, so an early
+		// directory cannot eat the budget for the ones after it.
+		remaining := len(order) - i
+		quota := (mapBudget - spent) / remaining
+		shown := 0
+		for _, f := range files {
+			line := "  " + f + "\n"
+			if spent+len(line) > mapBudget || len(line) > quota {
+				break
+			}
+			b.WriteString(line)
+			spent += len(line)
+			quota -= len(line)
+			shown++
+		}
+		if shown < len(files) {
+			fmt.Fprintf(&b, "  […%d more, use glob]\n", len(files)-shown)
+		}
 	}
-	b += "```"
+	if total >= mapWalkLimit {
+		fmt.Fprintf(&b, "[stopped counting at %d files]\n", mapWalkLimit)
+	}
+	b.WriteString("```")
 	if st := gitState(workdir); st != "" {
-		b += "\n\n" + st
+		b.WriteString("\n\n" + st)
 	}
-	return b
+	return b.String()
 }
 
 // gitState reports the branch and the working tree's dirtiness, when the
@@ -582,6 +624,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	if cfg.Sandbox {
 		p += sandboxGuidance
 	}
+	p += adrGuidance(findADRs(cfg.Workdir))
 	p += addDirsGuidance(cfg.AddDirs)
 	p += scratchpadGuidance(cfg.Scratchpad)
 	p += workspaceOrientation(cfg.Repo, cfg.Branch)
@@ -599,7 +642,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 // toolDefs is the fixed day-one tool set. The task tool is added only when
 // a worker model is configured. Correctness over breadth; more tools (glob,
 // symbol search, screenshot-publish) come in later phases.
-func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
+func toolDefs(hasWorker, hasPublish, hasAsker, hasADR bool) []provider.ToolDef {
 	strProp := func(desc string) map[string]any {
 		return map[string]any{"type": "string", "description": desc}
 	}
@@ -765,6 +808,27 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 					"description": "Several independent self-contained subtasks to run in parallel.",
 				},
 			},
+		})
+	}
+	if hasADR {
+		defs = append(defs, provider.ToolDef{
+			Name: "decision",
+			Description: "decision: record an architecture decision this session settled, as a " +
+				"numbered ADR in the project's decision directory. Use it when the user chooses " +
+				"between real alternatives and the reasoning is worth having later — not for " +
+				"routine implementation choices, and not for anything the code already says. " +
+				"Write the context as the problem that forced the choice, the decision as what " +
+				"was chosen, and the consequences as what this now commits the project to. " +
+				"op=list shows what is already on record.",
+			Properties: map[string]any{
+				"op": map[string]any{"type": "string", "enum": []string{"record", "list"},
+					"description": "record a new decision, or list the existing ones."},
+				"title":        strProp("One line, the decision itself: \"node2 runs a custom Talos kernel for USB/IP\"."),
+				"context":      strProp("The problem that forced a choice, and the alternatives weighed."),
+				"decision":     strProp("What was decided, stated plainly."),
+				"consequences": strProp("What this commits the project to, including what it gives up."),
+			},
+			Required: []string{"op"},
 		})
 	}
 	if hasPublish {

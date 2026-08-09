@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,15 +69,50 @@ func TestWorkspaceMapSkipsNoise(t *testing.T) {
 // prompt.
 func TestWorkspaceMapIsBounded(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < mapEntries*3; i++ {
+	for i := 0; i < 600; i++ {
 		writeNested(t, dir, filepath.Join("pkg", "f"+strings.Repeat("x", i%40)+string(rune('a'+i%26))+".go"), "x")
 	}
 	got := workspaceMap(dir)
 	if len(got) > mapBudget*2 {
 		t.Fatalf("map is %d bytes, want it bounded near %d", len(got), mapBudget)
 	}
-	if !strings.Contains(got, "truncated") {
-		t.Errorf("a truncated map must say so:\n%s", got)
+	if !strings.Contains(got, "more, use glob") {
+		t.Errorf("an elided listing must say how much it left out:\n%s", got)
+	}
+}
+
+// TestWorkspaceMapNeverLosesADirectory is the bug this replaced.
+//
+// The old map walked until it had 200 files and stopped, in WalkDir order and
+// before sorting, then truncated the result again at 4000 chars. On this
+// repository that hid api/, mobile/ and pkg/ entirely — so asked about "the
+// mobile app", a session was shown a file list with no mobile directory in it
+// and went hunting with five shell commands, each one a permission prompt.
+//
+// A directory may be summarised down to nothing but it must never vanish, and
+// its true file count has to be visible even when its files are not.
+func TestWorkspaceMapNeverLosesADirectory(t *testing.T) {
+	dir := t.TempDir()
+	// alpha sorts first and is huge; zeta sorts last and is small. The old
+	// implementation showed alpha and lost zeta.
+	for i := 0; i < 500; i++ {
+		writeNested(t, dir, filepath.Join("alpha", fmt.Sprintf("f%03d.go", i)), "x")
+	}
+	writeNested(t, dir, filepath.Join("zeta", "only.go"), "x")
+	writeNested(t, dir, filepath.Join("mobile", "app.dart"), "x")
+
+	got := workspaceMap(dir)
+	for _, d := range []string{"alpha/", "zeta/", "mobile/"} {
+		if !strings.Contains(got, d) {
+			t.Errorf("%s vanished from the map:\n%s", d, got)
+		}
+	}
+	// And the size of the big one is stated even though its files are elided.
+	if !strings.Contains(got, "500 file(s)") {
+		t.Errorf("the count of an elided directory should still be exact:\n%s", got)
+	}
+	if !strings.Contains(got, "only.go") {
+		t.Errorf("a small directory should still show its files:\n%s", got)
 	}
 }
 

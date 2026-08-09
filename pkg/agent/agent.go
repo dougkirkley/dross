@@ -566,22 +566,28 @@ type editRec struct {
 type Agent struct {
 	// seedSources are gathered before the turn starts, by a caller that
 	// retrieves rather than waiting to be asked.
-	seedSources   []Source
-	cfg           Config
-	prov          provider.Provider
-	ws            *workspace
-	out           io.Writer
-	hook          func(Event)
-	worker        *worker
-	reviewer      *reviewer
-	compactor     *compactor
-	compactStats  CompactStatsFunc
-	maxParallel   int                 // max concurrent worker subagents (0 = default 2)
-	depth         int                 // 0 for a lead; a worker's distance below it
-	maxDepth      int                 // delegation depth limit (0 = maxTaskDepth)
-	spawned       *atomic.Int32       // subagents started by this run, shared by the whole tree
-	failures      map[string]int      // identical failing calls seen, for the no-progress guard
-	singleReads   int                 // consecutive one-file reads, for the batching hint
+	seedSources  []Source
+	cfg          Config
+	prov         provider.Provider
+	ws           *workspace
+	out          io.Writer
+	hook         func(Event)
+	worker       *worker
+	reviewer     *reviewer
+	compactor    *compactor
+	compactStats CompactStatsFunc
+	maxParallel  int            // max concurrent worker subagents (0 = default 2)
+	depth        int            // 0 for a lead; a worker's distance below it
+	maxDepth     int            // delegation depth limit (0 = maxTaskDepth)
+	spawned      *atomic.Int32  // subagents started by this run, shared by the whole tree
+	failures     map[string]int // identical failing calls seen, for the no-progress guard
+	readCalls    int            // read calls this run, for the batching hint
+	readFiles    int            // files those calls asked for
+	hintedBatch  bool           // the batching hint has been given once
+	// readReturned is every path already handed back by a read, so widening a
+	// later call never re-sends a file the model is already holding. Repeating
+	// content it has is the one way widening could cost more than it saves.
+	readReturned  map[string]bool
 	filesRead     int                 // files opened this run, for the search hint
 	searched      bool                // grep or glob has been used, so the search hint is moot
 	hintedSearch  bool                // the search hint has been given once
@@ -1465,7 +1471,7 @@ func pathArg(tc provider.ToolCall) string {
 // enabledTools returns the offered tool defs (built-ins + plugins) after
 // applying the config filter.
 func (a *Agent) enabledTools() []provider.ToolDef {
-	defs := toolDefs(a.canDelegate(), a.publish != nil, a.asker != nil)
+	defs := toolDefs(a.canDelegate(), a.publish != nil, a.asker != nil, adrLocation(a.cfg.Workdir) != "")
 	for _, p := range a.plugins {
 		defs = append(defs, provider.ToolDef{
 			Name: p.Name, Description: p.Description, Properties: p.Properties, Required: p.Required,
@@ -1982,6 +1988,15 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 		if hint := a.searchHint(n); hint != "" {
 			content += hint
 		}
+		// After compaction, not before. The outline was appended in the
+		// dispatch and a 137 KB read of tui.go was elided on the way back,
+		// taking the outline off the end with it — the function was right and
+		// its output never reached the model.
+		paths := in.Paths
+		if in.Path != "" {
+			paths = append([]string{in.Path}, paths...)
+		}
+		content += a.ws.neighbourhood(paths, a.readReturned)
 	}
 	if hint := a.fanOutHint(tc); hint != "" {
 		content += hint
@@ -2043,62 +2058,81 @@ func (a *Agent) repeatNote(tc provider.ToolCall, content string) string {
 		"again, and if you are stuck, do something different.]"
 }
 
-// singleReadsBeforeHint is how many files a model may fetch one at a time
-// before it is reminded it does not have to.
-const singleReadsBeforeHint = 3
+// readCallsBeforeHint is how many read calls a run may make before its habit
+// is worth commenting on, and batchIsEnough is the average fetch size that
+// counts as having taken the point.
+//
+// Three calls is enough of a pattern to be a habit rather than a coincidence,
+// and four files a call is well short of the twenty available while still
+// being a genuine batch — a run averaging four is exploring in handfuls, not
+// one file at a time.
+const (
+	readCallsBeforeHint = 3
+	batchIsEnough       = 4
+)
 
-// batchingHint nudges a model that is opening files one per round trip.
+// batchingHint nudges a model that is fetching files a few at a time.
 //
-// read takes a list of paths, and the difference is measured: runs that used it
-// finished a rename in seven or eight turns, runs that did not took twelve or
-// thirteen. But the tool description says so, and the system prompt says so,
-// and a small model still reached for the single-file form about half the time
-// — so saying it a third time in the prompt was not going to work either.
+// read takes a list, and the difference is measured: runs that used it finished
+// a rename in seven or eight turns, runs that did not took twelve or thirteen.
+// The tool description says so and the system prompt says so, and a small model
+// still asks for one or two at a time — so saying it a third time in the prompt
+// was not going to work either.
 //
-// This says it at the only moment it is actionable: attached to the result of
-// the third single-file read in a row, when the model is demonstrably in the
-// habit and about to do it again. It is dropped the moment a batch is used, so
-// a model that takes the hint stops being told.
+// This says it at the only moment it is actionable: attached to the result,
+// once a run has spent several calls fetching a handful of files each.
+//
+// It used to require CONSECUTIVE single-file reads, and reset the count the
+// moment a call passed two paths. That made it unreachable in exactly the case
+// it was written for: a traced session read 1, 1, 2, 1, 2, 1, 3, 1 files across
+// fifteen turns and was never hinted once, because every two-file read was
+// counted as batching and cleared the run. Two of a possible twenty is not
+// batching. What matters is the average size of a fetch, not whether the array
+// had more than one element in it.
 func (a *Agent) batchingHint(tc provider.ToolCall) string {
 	if a.resolveToolName(tc.Name, tc.Input) != "read" {
-		a.singleReads = 0 // a different tool ends the run of them
 		return ""
 	}
 	var in struct {
+		Path  string   `json:"path"`
 		Paths []string `json:"paths"`
 	}
 	_ = json.Unmarshal(tc.Input, &in)
-	if len(in.Paths) > 1 {
-		a.singleReads = 0
+	n := len(in.Paths)
+	if n == 0 && in.Path != "" {
+		n = 1
+	}
+	if n == 0 {
 		return ""
 	}
-	a.singleReads++
-	if a.singleReads != singleReadsBeforeHint {
-		// Only on the threshold, not on every read after it: repeating it every
-		// turn is nagging, and the model has either taken the point or has not.
+	a.readCalls++
+	a.readFiles += n
+	// A run that is already asking for a real batch has taken the point.
+	if n >= batchIsEnough {
 		return ""
 	}
-	return "\n\n[You have read " + fmt.Sprint(singleReadsBeforeHint) +
-		" files one at a time, which costs a round trip each. read accepts a list of up to " +
-		fmt.Sprint(maxReadPaths) + ": " +
-		`read(paths=["a.go","b.go","c.go"]) returns all three at once. ` +
-		"Ask for every file you already know you need in one call.]"
+	if a.hintedBatch || a.readCalls < readCallsBeforeHint {
+		return ""
+	}
+	avg := float64(a.readFiles) / float64(a.readCalls)
+	if avg >= batchIsEnough {
+		return ""
+	}
+	a.hintedBatch = true
+	return fmt.Sprintf("\n\n[You have made %d read calls for %d files — about %.1f per call, "+
+		"and each call is a round trip. read takes up to %d paths at once: "+
+		`read(paths=["a.go","b.go","c.go"]). `+
+		"Work out everything you need to look at, then ask for it in one call.]",
+		a.readCalls, a.readFiles, avg, maxReadPaths)
 }
 
 // filesReadBeforeSearchHint is how many files a run may open before it is asked
 // whether it meant to search instead.
 //
-// Twenty-eight is what one traced find-in-a-tree run read, in eight batched
-// calls, to find the single component whose Rate() disagreed with its own doc
-// comment. Two greps would have answered it: one for the documented rates, one
-// for the returned ones. That run took 15 turns against Claude Code's 7, and
-// nearly all of the difference was reading a tree it could have searched.
-//
-// Eight, not fifteen. Fifteen was chosen to avoid nagging a run that is
-// legitimately opening a package, and it fires far too late: the traced run was
-// three batched reads and several turns past the decision by then, and the
-// hint's whole value is arriving before the tree has been enumerated. Eight is
-// still more than any single package this has been pointed at.
+// Eight, because the hint's whole value is arriving before a tree has been
+// enumerated: a traced run was three batched reads and several turns past the
+// decision by fifteen, and eight is still more than any single package this has
+// been pointed at.
 const filesReadBeforeSearchHint = 8
 
 // searchHint nudges a run that is reading its way through a tree.
@@ -2211,6 +2245,14 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			// Both forms together is a model hedging; take them all rather
 			// than picking one and silently dropping the other.
 			paths = append([]string{in.Path}, paths...)
+		}
+		// A one-file request gets its neighbours too. See widenRead: telling a
+		// model to batch does not make it batch, so the tool batches for it.
+		for _, p := range paths {
+			if a.readReturned == nil {
+				a.readReturned = map[string]bool{}
+			}
+			a.readReturned[p] = true
 		}
 		return orErr(a.ws.readFiles(paths))
 	case "write":
@@ -2381,6 +2423,18 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			return a.delegateParallel(ctx, in.Tasks, res)
 		}
 		return a.delegate(ctx, in.Task, res)
+	case "decision":
+		var in struct {
+			Op           string `json:"op"`
+			Title        string `json:"title"`
+			Context      string `json:"context"`
+			Decision     string `json:"decision"`
+			Consequences string `json:"consequences"`
+		}
+		if err := json.Unmarshal(tc.Input, &in); err != nil {
+			return err.Error(), true
+		}
+		return a.recordDecision(in.Op, in.Title, in.Context, in.Decision, in.Consequences)
 	case "publish":
 		var in struct {
 			Path string `json:"path"`

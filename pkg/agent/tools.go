@@ -1939,3 +1939,128 @@ func (t todoItem) normalizedStatus() string {
 		return "pending"
 	}
 }
+
+// Widening a read: the neighbours' shape, not their contents.
+//
+// Two traced sessions and two screenshots say the same thing. Asked to look at
+// the TUI and the mobile app, a model opened one file per turn for six minutes
+// — main.dart, then chat_screen.dart, then tui.go, then theme.go — each one a
+// round trip, each preceded by a sentence announcing it. The tool description
+// says read takes twenty paths. The system prompt says to ask for everything at
+// once. A hint fires at the moment it is actionable and says it again. It read
+// one file per call anyway.
+//
+// The first attempt sent whole sibling files along with the requested one, and
+// it was wrong twice over. Measured against this repository it never fired —
+// an 8 KB per-file ceiling excluded every real neighbour, since Go and Dart
+// files here run 13 to 31 KB — and sizing the caps to fit them would have put
+// ~25k tokens of unrequested content into a context that was already full.
+//
+// So this sends what a neighbour is, not what it says: the top-level
+// declarations, which on ten real files came to 4.3% of the bytes — 90 KB of
+// source, 3.8 KB of outline. That is the part a model actually needs from a
+// package it has not opened. Knowing theme.go defines Palette and lipgloss
+// styles is what stops it guessing; the body can be read if and when it matters.
+//
+// The heuristic is deliberately language-agnostic: a line that starts in column
+// zero, is not blank, and is not a comment or a closing bracket. That is a
+// top-level declaration in Go, Dart, Python, JavaScript and most things shaped
+// like them, and a language it reads badly costs a few useless lines rather
+// than a wrong answer.
+const (
+	neighbourFiles   = 8    // outlines at most
+	neighbourDecls   = 25   // declarations per file
+	neighbourBudget  = 6000 // characters of outline in total
+	neighbourDirMax  = 60   // skip directories bigger than this: not a component
+	neighbourLineMax = 120  // one declaration is a signature, not a paragraph
+)
+
+// declarations returns the top-level lines of a source file.
+func declarations(body string) []string {
+	var out []string
+	for _, ln := range strings.Split(body, "\n") {
+		if ln == "" || ln[0] == ' ' || ln[0] == '\t' {
+			continue
+		}
+		t := strings.TrimRight(ln, " \t")
+		switch {
+		case t == "":
+		case strings.HasPrefix(t, "//"), strings.HasPrefix(t, "/*"),
+			strings.HasPrefix(t, "*"), strings.HasPrefix(t, "#"):
+		case t == "}", t == ")", t == "};", t == "]", strings.HasPrefix(t, "}"):
+		default:
+			if len(t) > neighbourLineMax {
+				t = t[:neighbourLineMax] + "…"
+			}
+			out = append(out, t)
+			if len(out) >= neighbourDecls {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+// neighbourhood outlines the other files in a requested file's directory.
+//
+// Returns "" when there is nothing worth saying: a multi-file request (that
+// model is already batching), a directory too big to be a component, or no
+// unseen siblings of the same type.
+func (w *workspace) neighbourhood(paths []string, seen map[string]bool) string {
+	if len(paths) != 1 {
+		return ""
+	}
+	abs, err := w.resolve(paths[0])
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(abs)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) > neighbourDirMax {
+		return ""
+	}
+	ext := filepath.Ext(abs)
+	if ext == "" {
+		return ""
+	}
+	var b strings.Builder
+	spent, shown := 0, 0
+	for _, e := range entries {
+		if shown >= neighbourFiles || spent >= neighbourBudget {
+			break
+		}
+		if e.IsDir() || filepath.Ext(e.Name()) != ext {
+			continue
+		}
+		sib := filepath.Join(dir, e.Name())
+		if sib == abs {
+			continue
+		}
+		label := w.label(sib)
+		if seen[label] || seen[sib] {
+			continue
+		}
+		body, err := os.ReadFile(sib)
+		if err != nil {
+			continue
+		}
+		decls := declarations(string(body))
+		if len(decls) == 0 {
+			continue
+		}
+		entry := "\n" + label + ":\n  " + strings.Join(decls, "\n  ") + "\n"
+		if spent+len(entry) > neighbourBudget {
+			continue
+		}
+		b.WriteString(entry)
+		spent += len(entry)
+		shown++
+	}
+	if shown == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n\n[The rest of %s, top-level declarations only — you did not ask for "+
+		"these and they are not the files' contents. Read one for its body when you need it, "+
+		"rather than opening them one at a time to find out what they are.]\n%s",
+		w.label(dir), b.String())
+}
