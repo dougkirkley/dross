@@ -65,3 +65,23 @@ func TestFlagsParse(t *testing.T) {
 		t.Fatalf("addr = %q", got)
 	}
 }
+
+// TestVersionFlag: the constant was shown in the TUI but never wired to cobra,
+// so the first command anyone runs after installing — dross --version — failed
+// with "unknown flag".
+func TestVersionFlag(t *testing.T) {
+	root := NewRootCmd()
+	if root.Version == "" {
+		t.Fatal("root.Version unset, so --version will not exist")
+	}
+	var out bytes.Buffer
+	root.SetArgs([]string{"--version"})
+	root.SetOut(&out)
+	root.SetErr(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("--version: %v", err)
+	}
+	if !strings.Contains(out.String(), Version) {
+		t.Fatalf("version output %q does not contain %q", out.String(), Version)
+	}
+}

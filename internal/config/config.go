@@ -91,6 +91,10 @@ type File struct {
 	Worker         *Provider         `json:"worker,omitempty"`
 	Reviewer       *Provider         `json:"reviewer,omitempty"`
 	Review         *bool             `json:"review,omitempty"` // disable the code-review skill (default on when a reviewer is set)
+	// AddDirs are additional working directories the agent may read, write and
+	// search, beyond the workspace. Same access as the workspace; the workspace
+	// stays the primary one.
+	AddDirs []string `json:"add_dirs,omitempty"`
 	// Thinking turns a reasoning model's deliberation on or off, for backends
 	// that expose the switch (ollama, vLLM, SGLang, llama.cpp). Unset sends
 	// nothing and leaves the model as it comes; "thinking": false is the

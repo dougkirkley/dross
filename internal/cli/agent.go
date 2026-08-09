@@ -22,6 +22,7 @@ func newAgentCmd() *cobra.Command {
 		revProv, revModel, revBaseURL, revKey             string
 		compProv, compModel, compBaseURL, compKey         string
 		sessionName                                       string
+		addDirs                                           []string
 		sandbox                                           bool
 		plan                                              bool
 		fresh                                             bool
@@ -131,7 +132,7 @@ func newAgentCmd() *cobra.Command {
 			ag, err := agent.New(agent.Config{
 				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style),
 				MaxTurns: pc.File.MaxTurns, Sandbox: sandbox || pc.File.Sandbox, Plan: plan,
-				Thinking: pc.File.Thinking,
+				Thinking: pc.File.Thinking, AddDirs: append(append([]string{}, pc.File.AddDirs...), addDirs...),
 			}, prov, opts...)
 			if err != nil {
 				return err
@@ -160,6 +161,8 @@ func newAgentCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
+	f.StringArrayVar(&addDirs, "add-dir", nil,
+		"an additional directory the agent may read, write and search; repeatable")
 	f.BoolVar(&sandbox, "sandbox", false,
 		"confine the agent to the workspace: no reading or writing outside it")
 	f.BoolVar(&plan, "plan", false,

@@ -28,6 +28,11 @@ func NewRootCmd() *cobra.Command {
 			"flag in upper case with dashes as underscores: --server reads\n" +
 			"DROSS_SERVER, --auth-client-id reads DROSS_AUTH_CLIENT_ID. A flag\n" +
 			"given on the command line overrides the environment.",
+		// Wires the constant above to cobra, which is what makes `dross --version`
+		// and `dross version` work. The constant existed and was shown in the
+		// TUI, but the flag every CLI has did not exist -- the first thing
+		// anyone runs after installing answered "unknown flag: --version".
+		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// A bare word that names no subcommand is a prompt, not a mistake —

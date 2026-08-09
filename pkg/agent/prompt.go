@@ -12,6 +12,33 @@ import (
 	"github.com/dougkirkley/dross/pkg/provider"
 )
 
+// addDirsGuidance names the other trees this session may work in.
+//
+// A directory the model has not been told about is one it will never look in:
+// the workspace map describes the primary root, so an added tree is invisible
+// until it is written down here. Claude Code lists them the same way, under
+// "Additional working directories", and for the same reason.
+//
+// Paths outside the primary workspace come back from grep and glob as absolute
+// paths, so the two halves agree: what the model is told matches what it will
+// be handed.
+func addDirsGuidance(dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Additional working directories\n\n" +
+		"These are open to you as well as the workspace — read, write, grep and glob all reach " +
+		"them:\n")
+	for _, d := range dirs {
+		b.WriteString("\n- " + d)
+	}
+	b.WriteString("\n\nThe workspace above is still the primary one: it is what the file list and " +
+		"the git state describe, and where work belongs unless the task says otherwise. Files in " +
+		"these directories are named by absolute path.")
+	return b.String()
+}
+
 // workspaceOrientation tells a session what it is sitting in.
 //
 // A session started on a repository used to open blind: the first moves were
@@ -555,6 +582,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	if cfg.Sandbox {
 		p += sandboxGuidance
 	}
+	p += addDirsGuidance(cfg.AddDirs)
 	p += scratchpadGuidance(cfg.Scratchpad)
 	p += workspaceOrientation(cfg.Repo, cfg.Branch)
 	p += projectDocs(cfg.Workdir)

@@ -40,6 +40,7 @@ func newTUICmd() *cobra.Command {
 		baseURL, apiKey, server, resume                    string
 		workerProv, workerModel, workerBU                  string
 		printOnce                                          bool
+		addDirs                                            []string
 	)
 	cmd := &cobra.Command{
 		Use:   "tui [prompt]",
@@ -285,7 +286,8 @@ func newTUICmd() *cobra.Command {
 						opts = append(opts, agent.WithMCPServers(specs))
 					}
 					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity,
-						MaxTurns: res.File.MaxTurns, Thinking: res.File.Thinking},
+						MaxTurns: res.File.MaxTurns, Thinking: res.File.Thinking,
+						AddDirs: append(append([]string{}, res.File.AddDirs...), addDirs...)},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err
@@ -584,6 +586,8 @@ func newTUICmd() *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVarP(&printOnce, "print", "p", false,
 		"run the prompt, print the answer, and exit (implied when stdout is not a terminal)")
+	f.StringArrayVar(&addDirs, "add-dir", nil,
+		"an additional directory the agent may read, write and search; repeatable")
 	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
 	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")

@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -79,6 +80,16 @@ type Config struct {
 	// codeTemperature; set it explicitly to override, including to leave the
 	// backend's own default alone via WithBackendTemperature.
 	Temperature *float64
+
+	// AddDirs are additional working directories, beyond Workdir. They get the
+	// same tool access as the workspace — read, write, grep, glob — because a
+	// directory is either allowed or it is not, and a read-only middle state is
+	// a permission matrix to reason about at every call site.
+	//
+	// Workdir stays primary: it is what the workspace map, the project docs and
+	// the git state describe, because "which project is this" has one answer
+	// however many trees are open.
+	AddDirs []string
 
 	// Scratchpad is where the run should put temporary files. Empty means one
 	// is chosen per session under the OS temp root; set it to pin the location,
@@ -627,6 +638,18 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 		cfg.Scratchpad = newScratchpad(cfg.Workdir)
 	}
 	ws.scratch = cfg.Scratchpad
+	for _, d := range cfg.AddDirs {
+		abs, err := filepath.Abs(d)
+		if err != nil {
+			return nil, fmt.Errorf("add-dir %s: %w", d, err)
+		}
+		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("add-dir %s: not a readable directory", d)
+		}
+		if abs != ws.root {
+			ws.extra = append(ws.extra, abs)
+		}
+	}
 	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{}, 1), planning: cfg.Plan}
 	for _, o := range opts {
 		o(a)

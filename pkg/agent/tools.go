@@ -309,6 +309,15 @@ type workspace struct {
 	// confined session may write to. Empty means no scratchpad was configured
 	// and the exception does not apply.
 	scratch string
+	// extra are additional working directories, absolute. They get the same
+	// tool access as root: readable, writable, searched. Claude Code draws the
+	// line in the same place -- a directory is allowed or it is not, with no
+	// read-only middle state to reason about.
+	//
+	// root stays primary. Git status, the workspace map and the orientation
+	// text all describe root alone, because "which project is this" has one
+	// answer even when three trees are open.
+	extra []string
 }
 
 func newWorkspace(root string, sandbox bool) (*workspace, error) {
@@ -603,84 +612,93 @@ func (w *workspace) grepOnce(pattern string, opts grepOpts) (string, int, error)
 	if opts.Context < 0 {
 		opts.Context = 0
 	}
-	base := w.root
+	bases := w.roots()
 	if opts.Path != "" {
 		abs, err := w.resolve(opts.Path)
 		if err != nil {
 			return "", 0, err
 		}
-		base = abs
+		bases = []string{abs}
 	}
 	const maxMatches = 300
 	var out strings.Builder
 	matches := 0
 	var files []string
-	walkErr := filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if skipDir(d.Name()) && p != base {
-				return filepath.SkipDir
+	walk := func(base string) error {
+		return filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
-			return nil
-		}
-		if matches >= maxMatches {
-			return io.EOF
-		}
-		rel, _ := filepath.Rel(w.root, p)
-		if pathRE != nil && !pathRE.MatchString(rel) {
-			return nil
-		}
-		if info, err := d.Info(); err == nil && info.Size() > 1<<20 {
-			return nil // skip large files
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-		var lines []string
-		binary := false
-		for sc.Scan() {
-			line := sc.Text()
-			if !utf8.ValidString(line) {
-				binary = true
-				break
-			}
-			lines = append(lines, line)
-		}
-		if binary {
-			return nil
-		}
-
-		hits := 0
-		lastPrinted := 0 // 1-based; 0 means nothing printed from this file yet
-		for i, line := range lines {
-			if !re.MatchString(line) {
-				continue
-			}
-			hits++
-			matches++
-			if opts.FilesOnly {
-				break
-			}
-			if opts.Context == 0 {
-				fmt.Fprintf(&out, "%s:%d: %s\n", rel, i+1, truncate(strings.TrimSpace(line), 300))
-			} else {
-				lastPrinted = writeWithContext(&out, rel, lines, i, opts.Context, lastPrinted)
+			if d.IsDir() {
+				if skipDir(d.Name()) && p != base {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			if matches >= maxMatches {
-				break
+				return io.EOF
 			}
+			rel := w.label(p)
+			if pathRE != nil && !pathRE.MatchString(rel) {
+				return nil
+			}
+			if info, err := d.Info(); err == nil && info.Size() > 1<<20 {
+				return nil // skip large files
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				return nil
+			}
+			defer f.Close()
+			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+			var lines []string
+			binary := false
+			for sc.Scan() {
+				line := sc.Text()
+				if !utf8.ValidString(line) {
+					binary = true
+					break
+				}
+				lines = append(lines, line)
+			}
+			if binary {
+				return nil
+			}
+
+			hits := 0
+			lastPrinted := 0 // 1-based; 0 means nothing printed from this file yet
+			for i, line := range lines {
+				if !re.MatchString(line) {
+					continue
+				}
+				hits++
+				matches++
+				if opts.FilesOnly {
+					break
+				}
+				if opts.Context == 0 {
+					fmt.Fprintf(&out, "%s:%d: %s\n", rel, i+1, truncate(strings.TrimSpace(line), 300))
+				} else {
+					lastPrinted = writeWithContext(&out, rel, lines, i, opts.Context, lastPrinted)
+				}
+				if matches >= maxMatches {
+					break
+				}
+			}
+			if hits > 0 && opts.FilesOnly {
+				files = append(files, rel)
+			}
+			return nil
+		})
+	}
+	var walkErr error
+	for _, base := range bases {
+		if err := walk(base); err != nil {
+			walkErr = err
+			break
 		}
-		if hits > 0 && opts.FilesOnly {
-			files = append(files, rel)
-		}
-		return nil
-	})
+	}
 	if walkErr != nil && walkErr != io.EOF {
 		return "", 0, walkErr
 	}
@@ -735,22 +753,27 @@ func (w *workspace) glob(pattern string) (string, error) {
 		return "", err
 	}
 	var out []string
-	filepath.WalkDir(w.root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if skipDir(d.Name()) && p != w.root {
-				return filepath.SkipDir
+	for _, base := range w.roots() {
+		root := base
+		filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if skipDir(d.Name()) && p != root {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Matched on the path as it will be reported, so a pattern that
+			// mentions a directory works the same in an added tree.
+			name := w.label(p)
+			if re.MatchString(name) || re.MatchString(mustRel(root, p)) {
+				out = append(out, name)
 			}
 			return nil
-		}
-		rel, _ := filepath.Rel(w.root, p)
-		if re.MatchString(rel) {
-			out = append(out, rel)
-		}
-		return nil
-	})
+		})
+	}
 	if len(out) == 0 {
 		return fmt.Sprintf("[no files match %q. Patterns are matched against the whole path, "+
 			"so try a bare name like *_test.go, or a fragment of the directory you expect.]", pattern), nil
@@ -801,6 +824,47 @@ func globToRegex(g string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// label names a file the way the model should refer to it: relative inside the
+// primary workspace, which is what every existing prompt and tool result looks
+// like, and absolute anywhere else.
+//
+// A path relative to root would name a different file -- or no file -- once
+// there is a second tree, and the model would spend a turn discovering that.
+func (w *workspace) label(p string) string {
+	if rel, err := filepath.Rel(w.root, p); err == nil &&
+		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rel
+	}
+	return p
+}
+
+func mustRel(base, p string) string {
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		return p
+	}
+	return rel
+}
+
+// roots is every directory this session may work in, primary first.
+func (w *workspace) roots() []string {
+	return append([]string{w.root}, w.extra...)
+}
+
+// underAny reports whether abs sits inside any of dirs.
+func underAny(dirs []string, abs string) bool {
+	for _, d := range dirs {
+		rel, err := filepath.Rel(d, abs)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return true
+		}
+	}
+	return false
+}
+
 // resolve turns a tool-supplied path (relative to the workspace, or absolute)
 // into an absolute path proven to sit inside root. Rejects traversal.
 func (w *workspace) resolve(p string) (string, error) {
@@ -824,6 +888,12 @@ func (w *workspace) resolve(p string) (string, error) {
 	// directory this process was given, under a per-user, per-session path
 	// nothing else writes to. Without it a sandboxed run has nowhere legal to
 	// put a temp file and puts it in the repository instead.
+	// An added working directory is as legitimate as the primary one; the
+	// sandbox is about what this session may touch, not about how many trees
+	// that is.
+	if len(w.extra) > 0 && underAny(w.extra, abs) {
+		return abs, nil
+	}
 	if underScratchpad(w.scratch, abs) {
 		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 			return "", err
