@@ -305,6 +305,10 @@ type workspace struct {
 	// off for a local one, where being unable to read the repository next door
 	// is an obstacle rather than a protection.
 	confined bool
+	// scratch is this run's temp directory, the one path outside root a
+	// confined session may write to. Empty means no scratchpad was configured
+	// and the exception does not apply.
+	scratch string
 }
 
 func newWorkspace(root string, sandbox bool) (*workspace, error) {
@@ -813,6 +817,17 @@ func (w *workspace) resolve(p string) (string, error) {
 		// Unsandboxed: the agent may read and write wherever the person running
 		// it can. Relative paths still resolve against the workspace, so the
 		// common case is unchanged; an absolute one is simply honoured.
+		return abs, nil
+	}
+	// The scratchpad is the one place outside the workspace a sandboxed session
+	// may write, and it is an exception rather than a widening: a single
+	// directory this process was given, under a per-user, per-session path
+	// nothing else writes to. Without it a sandboxed run has nowhere legal to
+	// put a temp file and puts it in the repository instead.
+	if underScratchpad(w.scratch, abs) {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+			return "", err
+		}
 		return abs, nil
 	}
 	// Clean already collapsed .. segments; verify the result is under root.

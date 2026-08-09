@@ -80,6 +80,11 @@ type Config struct {
 	// backend's own default alone via WithBackendTemperature.
 	Temperature *float64
 
+	// Scratchpad is where the run should put temporary files. Empty means one
+	// is chosen per session under the OS temp root; set it to pin the location,
+	// and set it to "-" to run without one at all.
+	Scratchpad string
+
 	// Thinking turns a reasoning model's deliberation on or off, where the
 	// backend has the switch. Nil sends nothing and leaves the model as it
 	// comes. See provider.SessionConfig.Thinking for why it is worth reaching
@@ -612,6 +617,16 @@ func New(cfg Config, p provider.Provider, opts ...Option) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One scratch directory per session unless the caller pinned one. "-"
+	// opts out entirely, for an embedder that does not want this process
+	// writing outside the workspace at all.
+	switch cfg.Scratchpad {
+	case "-":
+		cfg.Scratchpad = ""
+	case "":
+		cfg.Scratchpad = newScratchpad(cfg.Workdir)
+	}
+	ws.scratch = cfg.Scratchpad
 	a := &Agent{cfg: cfg, prov: p, ws: ws, bgReq: make(chan struct{}, 1), planning: cfg.Plan}
 	for _, o := range opts {
 		o(a)

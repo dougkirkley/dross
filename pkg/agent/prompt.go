@@ -555,6 +555,7 @@ func systemPrompt(cfg Config, hasWorker, hasPublish bool, tools []string) string
 	if cfg.Sandbox {
 		p += sandboxGuidance
 	}
+	p += scratchpadGuidance(cfg.Scratchpad)
 	p += workspaceOrientation(cfg.Repo, cfg.Branch)
 	p += projectDocs(cfg.Workdir)
 	p += workspaceMap(cfg.Workdir)
