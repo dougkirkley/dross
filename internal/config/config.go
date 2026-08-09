@@ -90,8 +90,18 @@ type File struct {
 	Models         []string          `json:"models,omitempty"`       // allowed model ids to offer
 	Worker         *Provider         `json:"worker,omitempty"`
 	Reviewer       *Provider         `json:"reviewer,omitempty"`
-	Review         *bool             `json:"review,omitempty"`    // disable the code-review skill (default on when a reviewer is set)
-	Compactor      *Provider         `json:"compactor,omitempty"` // token-efficiency skill
+	Review         *bool             `json:"review,omitempty"` // disable the code-review skill (default on when a reviewer is set)
+	// Thinking turns a reasoning model's deliberation on or off, for backends
+	// that expose the switch (ollama, vLLM, SGLang, llama.cpp). Unset sends
+	// nothing and leaves the model as it comes; "thinking": false is the
+	// setting that makes a reasoning model usable for mechanical work.
+	Thinking *bool `json:"thinking,omitempty"`
+	// Memory turns off durable per-project notes: "memory": false stops them
+	// being loaded into the prompt and takes the memory tool away. Default on.
+	// A pointer for the same reason as Review — absent has to mean "on", and a
+	// plain bool cannot tell absent from false.
+	Memory    *bool     `json:"memory,omitempty"`
+	Compactor *Provider `json:"compactor,omitempty"` // token-efficiency skill
 	// Chat is the backend Chat sessions answer on. Unset runs them on the lead
 	// backend. Reading search results and writing prose about them is a
 	// different job from writing code, so it is worth being able to point it at

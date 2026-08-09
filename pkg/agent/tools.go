@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/format"
 	"html"
 	"io"
 	"io/fs"
@@ -452,26 +454,143 @@ func (w *workspace) blockedCmd(command string) string {
 // the search cost two round trips instead of one. FilesOnly is the opposite
 // need — "which files mention this" — where the lines themselves are noise.
 type grepOpts struct {
-	Path      string
-	Context   int
-	Glob      string
-	FilesOnly bool
+	Path       string
+	Context    int
+	Glob       string
+	FilesOnly  bool
+	IgnoreCase bool
+}
+
+// anyDepth makes a glob with no slash in it mean what people mean by it.
+//
+// "*.go" compiles to ^[^/]*\.go$, which matches main.go and nothing else — in
+// any repository with directories, the answer to `glob("*.go")` was "[no
+// files]". A model reads that as "there are no Go files here" and stops looking,
+// which is one of the ways a run ends up insisting the code it was asked about
+// does not exist.
+//
+// A pattern with a slash in it is a path and is left exactly alone: "cmd/*.go"
+// means that directory, not every directory. "./*.go" is how to say the root
+// and only the root, which is the meaning a bare "*.go" used to carry and the
+// one case this rule would otherwise make unsayable.
+func anyDepth(pattern string) string {
+	if rooted := strings.TrimPrefix(pattern, "./"); rooted != pattern {
+		return rooted
+	}
+	if pattern == "" || strings.Contains(pattern, "/") {
+		return pattern
+	}
+	return "**/" + pattern
+}
+
+// literalOrRegex compiles pattern, falling back to a literal search when it is
+// not valid regular-expression syntax.
+//
+// Searching for "Rate()" or "map[string]any" is an ordinary thing to want, and
+// both are broken regexps. Returning "bad pattern: missing closing )" spends a
+// turn teaching the model to escape things, when what it asked for has an
+// obvious reading. The note says what happened, so a model that did mean the
+// regexp can fix it.
+func literalOrRegex(pattern string, ignoreCase bool) (*regexp.Regexp, string, error) {
+	prefix := ""
+	if ignoreCase {
+		prefix = "(?i)"
+	}
+	re, err := regexp.Compile(prefix + pattern)
+	if err == nil {
+		return re, "", nil
+	}
+	lit, litErr := regexp.Compile(prefix + regexp.QuoteMeta(pattern))
+	if litErr != nil {
+		return nil, "", fmt.Errorf("bad pattern: %w", err)
+	}
+	return lit, fmt.Sprintf("[%q is not valid regexp syntax (%v), so it was searched for literally]\n",
+		pattern, err), nil
 }
 
 // maxGrepContext bounds how much a single search can quote back. Enough to see
 // a function around a match, not enough to return a file a line at a time.
 const maxGrepContext = 20
 
+// grep searches file contents, and when it finds nothing it says what would
+// have found something.
+//
+// A search that comes back "[no matches]" is where a run goes wrong: the model
+// has asked the one question it knows how to ask, been told no, and has nothing
+// to try next. Often the answer was there and the case was different, so the
+// no-match path re-runs case-insensitively and hands over those results rather
+// than the dead end. One extra walk, only on failure, against a turn spent
+// concluding the symbol does not exist.
 func (w *workspace) grep(pattern string, opts grepOpts) (string, error) {
-	re, err := regexp.Compile(pattern)
+	out, matches, err := w.grepOnce(pattern, opts)
+	if err != nil || matches > 0 || opts.IgnoreCase {
+		return out, err
+	}
+	// Nothing, and case was not the thing being tested. Try it.
+	insensitive := opts
+	insensitive.IgnoreCase = true
+	retry, n, retryErr := w.grepOnce(pattern, insensitive)
+	if retryErr != nil || n == 0 {
+		return w.noMatchAdvice(pattern, opts), nil
+	}
+	return fmt.Sprintf("[no matches for %q as written; %d found ignoring case, shown below]\n%s",
+		pattern, n, retry), nil
+}
+
+// noMatchAdvice turns a dead end into a next move.
+//
+// Which move depends on why it failed, and the one that matters is a glob that
+// matched no files at all: the pattern was never the problem, and a model told
+// only "[no matches]" will rewrite the pattern forever.
+func (w *workspace) noMatchAdvice(pattern string, opts grepOpts) string {
+	if opts.Glob != "" {
+		if files, err := w.globCount(opts.Glob); err == nil && files == 0 {
+			return fmt.Sprintf("[no matches: the glob %q matched no files, so nothing was searched. "+
+				"Check the glob before the pattern — glob(%q) lists what it selects.]", opts.Glob, opts.Glob)
+		}
+	}
+	return fmt.Sprintf("[no matches for %q, with or without case. "+
+		"Try a shorter or more distinctive fragment of it, or glob for the file first.]", pattern)
+}
+
+// globCount reports how many files a glob selects, for diagnosing a search that
+// searched nothing.
+func (w *workspace) globCount(pattern string) (int, error) {
+	re, err := globToRegex(anyDepth(pattern))
 	if err != nil {
-		return "", fmt.Errorf("bad pattern: %w", err)
+		return 0, err
+	}
+	n := 0
+	err = filepath.WalkDir(w.root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDir(d.Name()) && p != w.root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if rel, err := filepath.Rel(w.root, p); err == nil && re.MatchString(rel) {
+			n++
+		}
+		return nil
+	})
+	return n, err
+}
+
+// grepOnce is one pass, returning the rendered output and how many matches it
+// found.
+func (w *workspace) grepOnce(pattern string, opts grepOpts) (string, int, error) {
+	re, note, err := literalOrRegex(pattern, opts.IgnoreCase)
+	if err != nil {
+		return "", 0, err
 	}
 	var pathRE *regexp.Regexp
 	if opts.Glob != "" {
-		pathRE, err = globToRegex(opts.Glob)
+		pathRE, err = globToRegex(anyDepth(opts.Glob))
 		if err != nil {
-			return "", fmt.Errorf("bad glob: %w", err)
+			return "", 0, fmt.Errorf("bad glob: %w", err)
 		}
 	}
 	if opts.Context > maxGrepContext {
@@ -484,7 +603,7 @@ func (w *workspace) grep(pattern string, opts grepOpts) (string, error) {
 	if opts.Path != "" {
 		abs, err := w.resolve(opts.Path)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		base = abs
 	}
@@ -559,20 +678,20 @@ func (w *workspace) grep(pattern string, opts grepOpts) (string, error) {
 		return nil
 	})
 	if walkErr != nil && walkErr != io.EOF {
-		return "", walkErr
+		return "", 0, walkErr
 	}
 	if matches == 0 {
-		return "[no matches]", nil
+		return "", 0, nil
 	}
 	if opts.FilesOnly {
 		sort.Strings(files)
-		return strings.Join(files, "\n") + "\n", nil
+		return note + strings.Join(files, "\n") + "\n", matches, nil
 	}
-	res := out.String()
+	res := note + out.String()
 	if matches >= maxMatches {
 		res += fmt.Sprintf("[truncated at %d matches]\n", maxMatches)
 	}
-	return res, nil
+	return res, matches, nil
 }
 
 // writeWithContext prints the lines around a match, numbered, skipping anything
@@ -602,8 +721,12 @@ func writeWithContext(out *strings.Builder, rel string, lines []string, idx, ctx
 }
 
 // glob lists workspace files matching a glob pattern (supports ** ).
+//
+// A pattern with no slash matches at any depth — see anyDepth — because
+// "*.go" meaning "Go files in the root and nowhere else" is a trap rather than
+// a feature.
 func (w *workspace) glob(pattern string) (string, error) {
-	re, err := globToRegex(pattern)
+	re, err := globToRegex(anyDepth(pattern))
 	if err != nil {
 		return "", err
 	}
@@ -625,7 +748,8 @@ func (w *workspace) glob(pattern string) (string, error) {
 		return nil
 	})
 	if len(out) == 0 {
-		return "[no files]", nil
+		return fmt.Sprintf("[no files match %q. Patterns are matched against the whole path, "+
+			"so try a bare name like *_test.go, or a fragment of the directory you expect.]", pattern), nil
 	}
 	sort.Strings(out)
 	if len(out) > 500 {
@@ -846,7 +970,46 @@ func (w *workspace) writeFile(path, content string) (string, error) {
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("wrote %d bytes to %s", len(content), path), nil
+	return fmt.Sprintf("wrote %d bytes to %s", len(content), path) + tidy(abs), nil
+}
+
+// tidy formats a source file the agent just changed, and reports what it found.
+//
+// Two jobs, and the second is the valuable one.
+//
+// Formatting, because a small model writes badly-indented code and then spends
+// turns fixing it. Watched on the ask-for-a-feature task: one run reached
+// correct logic and then took eleven turns and twelve minutes, leaving bodies
+// at three different depths and braces adrift; another produced a function with
+// no indentation at all. Neither is a thinking problem, and neither is worth a
+// model round trip when gofmt is deterministic and takes milliseconds.
+//
+// And a syntax check, free with it. gofmt has to parse, so a file that will not
+// build says so here — one turn after the edit that broke it, rather than
+// whenever the model next thinks to run a build. A parse failure leaves the
+// file exactly as written: the model's text is its own, and silently reverting
+// an edit it believes it made is a worse turn than an unformatted file.
+func tidy(abs string) string {
+	if filepath.Ext(abs) != ".go" {
+		return ""
+	}
+	before, err := os.ReadFile(abs)
+	if err != nil {
+		return ""
+	}
+	after, err := format.Source(before)
+	if err != nil {
+		// Reported as the compiler would put it, minus the absolute path.
+		return fmt.Sprintf("\n[this file does not parse: %s. Fix it before moving on.]",
+			strings.TrimPrefix(err.Error(), abs+":"))
+	}
+	if bytes.Equal(before, after) {
+		return ""
+	}
+	if err := os.WriteFile(abs, after, 0o644); err != nil {
+		return ""
+	}
+	return "\n[reformatted with gofmt]"
 }
 
 // edit is one replacement within a file.
@@ -945,7 +1108,7 @@ func (w *workspace) applyEditsAcross(defaultPath string, edits []edit) (string, 
 		staged[p] = out.text
 		reports = append(reports, out.report)
 	}
-	for _, p := range order {
+	for i, p := range order {
 		abs, err := w.resolve(p)
 		if err != nil {
 			return "", err
@@ -953,6 +1116,9 @@ func (w *workspace) applyEditsAcross(defaultPath string, edits []edit) (string, 
 		if err := os.WriteFile(abs, []byte(staged[p]), 0o644); err != nil {
 			return "", fmt.Errorf("%s: %w", p, err)
 		}
+		// Per file, and attached to that file's own line: a rename across ten
+		// files that broke one of them should say which one.
+		reports[i] += tidy(abs)
 	}
 	return strings.Join(reports, "\n\n"), nil
 }
@@ -969,7 +1135,7 @@ func (w *workspace) applyEdits(path string, edits []edit) (string, error) {
 	if err := os.WriteFile(abs, []byte(out.text), 0o644); err != nil {
 		return "", err
 	}
-	return out.report, nil
+	return out.report + tidy(abs), nil
 }
 
 // staged is one file's edited contents and the line to report for it, computed

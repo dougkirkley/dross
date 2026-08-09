@@ -117,6 +117,21 @@ type SessionConfig struct {
 	// do; Anthropic does not). It makes a run repeatable, which is what a
 	// benchmark needs to tell a change from a roll of the dice.
 	Seed *int
+
+	// Thinking turns a reasoning model's visible deliberation on or off, where
+	// the backend exposes the switch.
+	//
+	// It is the largest lever on wall-clock that is not the choice of model. A
+	// thinking model writes a reasoning trace before every answer, including
+	// the answers that are one edit to one line: measured on qwen3:14b, a turn
+	// costs between thirteen and forty seconds, against tool time in single
+	// milliseconds. For a mechanical task most of that is deliberation about
+	// work that was never in doubt.
+	//
+	// A pointer, and omitted entirely when nil, because the parameter is not
+	// universal — hosted OpenAI rejects unknown fields outright — so the wire
+	// stays exactly as it was unless somebody asks for this.
+	Thinking *bool
 }
 
 // ErrMalformedToolCall reports that the backend rejected the model's own

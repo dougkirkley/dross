@@ -51,15 +51,9 @@ func TestTUIRenderIsHermetic(t *testing.T) {
 	}
 }
 
-func TestUnknownCommand(t *testing.T) {
-	root := NewRootCmd()
-	root.SetArgs([]string{"nope"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-	if err := root.Execute(); err == nil {
-		t.Fatal("unknown command should error")
-	}
-}
+// There is no TestUnknownCommand any more. An unrecognised word at the root is
+// a prompt now, exactly as it is for the Claude Code CLI — see
+// TestRootTakesAnyWordAsAPrompt in prompt_test.go, which pins that.
 
 // TestFlagsParse checks a representative command binds its flags without error.
 func TestFlagsParse(t *testing.T) {

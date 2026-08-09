@@ -126,7 +126,7 @@ func TestNoProgressGuardEscalates(t *testing.T) {
 	if _, err := ag.Run(context.Background(), "edit it"); err != nil {
 		t.Fatal(err)
 	}
-	last := prov.last.lastInput
+	last := prov.last.seen()
 	if !strings.Contains(last, "Retrying it will not work") {
 		t.Fatalf("the third identical failure should be escalated:\n%s", last)
 	}
@@ -152,7 +152,7 @@ func TestNoProgressGuardLeavesOneOffsAlone(t *testing.T) {
 	if _, err := ag.Run(context.Background(), "edit it"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(prov.last.lastInput, "Retrying it will not work") {
+	if strings.Contains(prov.last.seen(), "Retrying it will not work") {
 		t.Fatalf("a single failure should not be escalated:\n%s", prov.last.lastInput)
 	}
 }

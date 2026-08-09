@@ -60,6 +60,170 @@ func TestWorkingSeedIsGreen(t *testing.T) {
 	}
 }
 
+// TestAskTaskGradesTheFeature guards the hidden-acceptance-test task from both
+// sides, which is the only way that kind of task can be trusted.
+//
+// The seed has to start green — it is a feature request, not a bug report, and
+// an agent that arrives to find a failing test will go and fix that instead.
+// The hidden test has to start red, or every runner scores by doing nothing.
+// And the feature has to be reachable from the prompt alone, which is what the
+// reference implementation below demonstrates: it is what a person would write
+// having read only the request, and it passes.
+func TestAskTaskGradesTheFeature(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH")
+	}
+	write := func(dir string, files map[string]string) {
+		t.Helper()
+		for p, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, p), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	test := func(dir string) ([]byte, error) {
+		cmd := exec.Command("go", "test", "-timeout", "60s", "./...")
+		cmd.Dir = dir
+		return cmd.CombinedOutput()
+	}
+
+	dir := t.TempDir()
+	write(dir, askPkg())
+	if out, err := test(dir); err != nil {
+		t.Fatalf("the feature-request seed must start green: %v\n%s", err, out)
+	}
+
+	write(dir, askAcceptance())
+	if out, err := test(dir); err == nil {
+		t.Fatalf("the hidden test passes against the untouched seed, so the task grades nothing:\n%s", out)
+	}
+
+	write(dir, map[string]string{"ask.go": askReference})
+	if out, err := test(dir); err != nil {
+		t.Fatalf("the feature as the prompt describes it should pass: %v\n%s", err, out)
+	}
+}
+
+// askReference is one honest reading of "let people pick more than one, comma
+// separated, and if they type something that isn't on the list just take that
+// as their answer". It exists to prove the prompt is answerable, and is never
+// shown to anything being measured.
+const askReference = `// Package ask puts a question to the person at the terminal.
+package ask
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+)
+
+// Question is one thing to ask.
+type Question struct {
+	Text    string
+	Options []string
+}
+
+// Ask prints q and reads the reply, returning what the user chose: any number
+// of options by number, comma separated, or whatever they typed instead.
+func Ask(in io.Reader, out io.Writer, q Question) []string {
+	lines := bufio.NewScanner(in)
+	fmt.Fprintln(out, q.Text)
+	for i, opt := range q.Options {
+		fmt.Fprintf(out, "  %d) %s\n", i+1, opt)
+	}
+	if !lines.Scan() {
+		return nil
+	}
+	reply := strings.TrimSpace(lines.Text())
+	var picked []string
+	for _, field := range strings.Split(reply, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(field))
+		if err != nil || n < 1 || n > len(q.Options) {
+			return []string{reply}
+		}
+		picked = append(picked, q.Options[n-1])
+	}
+	return picked
+}
+`
+
+// TestTwoPartTaskNeedsBothHalves is the guard that matters for a multi-part
+// request: doing one half must not pass.
+//
+// A request that scores when half-done measures nothing — half is exactly what
+// a distracted agent delivers, and it is the failure the task exists to catch.
+func TestTwoPartTaskNeedsBothHalves(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH")
+	}
+	const stringOnly = "\n\n// String renders the range.\nfunc (c Config) String() string {\n" +
+		"\treturn fmt.Sprintf(\"%d..%d\", c.Lo, c.Hi)\n}\n"
+	// IsSane, not Valid: this is the name the first real run actually chose,
+	// and the grader used to fail it. The request never named the method, so
+	// every reasonable spelling has to pass.
+	const sanityOnly = "\n\n// IsSane reports whether the bounds are the right way round.\n" +
+		"func (c Config) IsSane() bool { return c.Lo <= c.Hi }\n"
+
+	run := func(t *testing.T, extra string) error {
+		t.Helper()
+		dir := t.TempDir()
+		files := workingPkg()
+		if extra != "" {
+			files["config.go"] = "package bench\n\nimport \"fmt\"\n" +
+				strings.TrimPrefix(files["config.go"], "package bench\n") + extra
+		}
+		for p, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, p), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for p, content := range twoPartAcceptance() {
+			if err := os.WriteFile(filepath.Join(dir, p), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command("go", "test", "-timeout", "60s", "./...")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("go test said:\n%s", out)
+		}
+		return err
+	}
+
+	if err := run(t, ""); err == nil {
+		t.Fatal("the untouched seed passes the acceptance test, so the task grades nothing")
+	}
+	if err := run(t, stringOnly); err == nil {
+		t.Fatal("String() alone passed; half a request must not score")
+	}
+	if err := run(t, sanityOnly); err == nil {
+		t.Fatal("the sanity method alone passed; half a request must not score")
+	}
+	if err := run(t, stringOnly+sanityOnly); err != nil {
+		t.Fatalf("both halves together should pass: %v", err)
+	}
+
+	// Whatever the method is called, and whichever receiver it takes. The
+	// prompt asked for a capability, so the grader has to accept every
+	// reasonable way of providing it — a benchmark that fails a correct answer
+	// over a name measures the namer, not the agent.
+	for _, spelling := range []string{
+		"\n\nfunc (c Config) Valid() bool { return c.Lo <= c.Hi }\n",
+		"\n\nfunc (c Config) IsValid() bool { return c.Lo <= c.Hi }\n",
+		"\n\nfunc (c Config) Sane() bool { return c.Lo <= c.Hi }\n",
+		"\n\nfunc (c Config) OK() bool { return c.Lo <= c.Hi }\n",
+		"\n\nfunc (c Config) Sensible() bool { return c.Lo <= c.Hi }\n",
+		"\n\nfunc (c *Config) Valid() bool { return c.Lo <= c.Hi }\n",
+	} {
+		if err := run(t, stringOnly+spelling); err != nil {
+			t.Errorf("a correct answer was failed for its name:%s%v", spelling, err)
+		}
+	}
+}
+
 // TestBigTreeIsBrokenInExactlyOnePlace guards the shape the task depends on:
 // the tree must compile, every package's own test must pass, and the only
 // failure must be the registry total. A seed that failed in several places

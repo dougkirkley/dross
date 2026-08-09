@@ -25,6 +25,10 @@ type DrossRunner struct {
 	Model       string
 	Worker      provider.Provider // optional
 	WorkerModel string
+	// Thinking, when set, turns a reasoning model's deliberation on or off —
+	// the difference between a turn that costs seconds and one that costs most
+	// of a minute.
+	Thinking *bool
 
 	runs int // repeat counter, so each run gets its own reproducible seed
 }
@@ -58,7 +62,7 @@ func (h *DrossRunner) Exec(ctx context.Context, prompt, workdir string) (Metrics
 	// single path very precisely and say nothing about the spread.
 	seed := h.seedFor(prompt)
 	ag, err := agent.New(agent.Config{
-		Name: "dross", Model: h.Model, Workdir: workdir, Seed: seed,
+		Name: "dross", Model: h.Model, Workdir: workdir, Seed: seed, Thinking: h.Thinking,
 	}, h.Provider, opts...)
 	if err != nil {
 		return Metrics{}, err

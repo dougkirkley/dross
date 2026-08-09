@@ -34,6 +34,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dougkirkley/dross/pkg/provider"
@@ -78,6 +79,12 @@ type Config struct {
 	// codeTemperature; set it explicitly to override, including to leave the
 	// backend's own default alone via WithBackendTemperature.
 	Temperature *float64
+
+	// Thinking turns a reasoning model's deliberation on or off, where the
+	// backend has the switch. Nil sends nothing and leaves the model as it
+	// comes. See provider.SessionConfig.Thinking for why it is worth reaching
+	// for and why it is not on by default.
+	Thinking *bool
 	// Seed pins the sampler where the backend supports one, making a run
 	// repeatable. Used by the benchmark; nil otherwise.
 	Seed *int
@@ -103,16 +110,89 @@ func WithOutput(w io.Writer) Option { return func(a *Agent) { a.out = w } }
 // WithEventHook is called for every Event during a run.
 func WithEventHook(fn func(Event)) Option { return func(a *Agent) { a.hook = fn } }
 
-// WithWorker enables cost-saving delegation: the agent gains a `delegate` tool
-// that runs bounded subtasks on p/model (typically a cheaper or local model).
-// A worker never gets its own worker — delegation is one level deep.
+// WithWorker enables cost-saving delegation: the agent gains a `task` tool that
+// runs bounded subtasks on p/model (typically a cheaper or local model).
+//
+// Workers get the same tool, so a subtask that is itself several jobs can be
+// split again. See maxTaskDepth for how far, and why there is a limit.
 func WithWorker(p provider.Provider, model string) Option {
 	return func(a *Agent) { a.worker = &worker{prov: p, model: model} }
 }
 
+// maxTaskDepth and maxSubagents bound delegation.
+//
+// Depth is 1 by default: the lead delegates, and workers do the work. The
+// alternative was tried — every worker holding a task tool of its own, so a
+// subtask that turned out to be several could be split again — and the argument
+// against it is that the lead is the only agent that can see the whole job.
+// Splitting is the part that needs that view. A tree where each level passes
+// the work down pays for a fresh context at every level to move the same work,
+// and the failure it invites is the one where nobody is doing any of it.
+//
+// So the shape is one lead splitting well and fanning out wide, not a hierarchy.
+// WithMaxTaskDepth still opens it up for anyone who wants to measure the other
+// arrangement; the plumbing and its tests are kept for that.
+//
+// maxSubagents is the backstop, and it matters more now rather than less: with
+// one level, the width is the whole risk. A lead that hands over twenty
+// independent pieces is using the tool correctly; one that keeps going past
+// this has stopped splitting a job and started looping. The budget is shared by
+// the run, and exhausting it tells the lead to finish the rest itself.
+const (
+	maxTaskDepth = 1
+	maxSubagents = 24
+)
+
+// WithMaxTaskDepth overrides how deep delegation may recurse. The default,
+// maxTaskDepth, is 1: only the lead delegates. Higher values let a worker split
+// its own task again — see the note on maxTaskDepth for why that is not the
+// default.
+func WithMaxTaskDepth(n int) Option {
+	return func(a *Agent) {
+		if n > 0 {
+			a.maxDepth = n
+		}
+	}
+}
+
+// withDepth places a sub-agent in the delegation tree and hands it the run's
+// shared subagent budget. Internal: depth is not something a caller sets, it is
+// something delegation counts.
+func withDepth(depth int, spawned *atomic.Int32) Option {
+	return func(a *Agent) {
+		a.depth = depth
+		a.spawned = spawned
+	}
+}
+
+// canDelegate reports whether this agent gets a task tool: it needs a worker, it
+// must not already be at the depth limit, and the run must have budget left.
+//
+// The budget is read here as well as spent in delegateOne so that an agent which
+// cannot delegate is never shown the tool. Offering a tool that will refuse is
+// how a model spends three turns discovering it has to do the job itself.
+func (a *Agent) canDelegate() bool {
+	return a.worker != nil && a.depth < a.depthLimit() &&
+		(a.spawned == nil || int(a.spawned.Load()) < maxSubagents)
+}
+
+// depthLimit is the configured delegation depth, or the default.
+func (a *Agent) depthLimit() int {
+	if a.maxDepth > 0 {
+		return a.maxDepth
+	}
+	return maxTaskDepth
+}
+
+// defaultMaxParallel is how many worker subagents run at once when nothing says
+// otherwise. Two, because a worker is usually a local model on one GPU, where
+// the third concurrent request makes the first two slower rather than adding
+// anything. Raise it when the worker is a hosted model.
+const defaultMaxParallel = 2
+
 // WithMaxParallel caps how many worker subagents run concurrently when the lead
-// delegates a batch of tasks (default 2). Only independent tasks should be run
-// in parallel — workers share the workspace.
+// delegates a batch of tasks (default defaultMaxParallel). Only independent
+// tasks should be run in parallel — workers share the workspace.
 func WithMaxParallel(n int) Option {
 	return func(a *Agent) {
 		if n > 0 {
@@ -481,8 +561,12 @@ type Agent struct {
 	compactor     *compactor
 	compactStats  CompactStatsFunc
 	maxParallel   int                 // max concurrent worker subagents (0 = default 2)
+	depth         int                 // 0 for a lead; a worker's distance below it
+	maxDepth      int                 // delegation depth limit (0 = maxTaskDepth)
+	spawned       *atomic.Int32       // subagents started by this run, shared by the whole tree
 	failures      map[string]int      // identical failing calls seen, for the no-progress guard
 	singleReads   int                 // consecutive one-file reads, for the batching hint
+	singleTasks   int                 // consecutive one-subtask delegations, for the fan-out hint
 	lastLookups   map[string][32]byte // read-only calls already answered, by tool+args
 	todos         []todoItem          // the run's plan, as the model last wrote it
 	planning      bool                // plan mode: nothing may be changed until the plan is agreed
@@ -661,11 +745,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		sess = a.prov.NewSession(provider.SessionConfig{
 			// Told what it actually has, rather than what this prompt was
 			// written against.
-			System:      systemPrompt(a.cfg, a.worker != nil, a.publish != nil, names),
+			System:      systemPrompt(a.cfg, a.canDelegate(), a.publish != nil, names),
 			Tools:       tools,
 			Model:       a.cfg.Model,
 			MaxTokens:   a.cfg.MaxTokens,
 			Temperature: a.temperature(),
+			Thinking:    a.cfg.Thinking,
 			Seed:        a.cfg.Seed,
 		})
 		if a.conv {
@@ -692,6 +777,19 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	in.OnText = func(chunk string) { a.emit("text-delta", chunk) }
 
 	done, nudged, malformed := false, false, 0
+	// toolCalls counts every call the run has made, so "this run did no work" is
+	// something the loop knows rather than infers. pushedBack keeps that
+	// challenge to one per run: twice is an argument, not a nudge.
+	toolCalls, pushedBack := 0, false
+	// Edits are counted from where this run started, not from zero.
+	//
+	// The agent is reused across prompts in a conversation, and a.edits keeps
+	// growing, so "has this run changed anything" is a comparison against the
+	// mark and never a test for empty. Read as len(a.edits) == 0 it would be
+	// true only for the first prompt of a session and false forever after —
+	// which is to say the guard would quietly stop working the moment it was
+	// most needed, in a long interactive session.
+	editsAtStart := len(a.edits)
 	limit := a.maxTurns()
 	for res.Turns < limit && !done {
 		sendStart := time.Now()
@@ -713,6 +811,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 				Model:       a.cfg.Model,
 				MaxTokens:   a.cfg.MaxTokens,
 				Temperature: a.temperature(),
+				Thinking:    a.cfg.Thinking,
 				Seed:        a.cfg.Seed,
 			})
 			if a.conv {
@@ -761,12 +860,37 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 				in = provider.Input{Text: emptyTurnNudge, OnText: in.OnText}
 				continue
 			}
+			// Words, but never an action — see noWorkNudge. Asked once, at the
+			// only point where "this run did nothing" is a fact rather than a
+			// guess.
+			// Not when the empty-turn nudge already spoke for this run: a turn
+			// with nothing in it is also a turn that used no tool, and being
+			// challenged twice over the same silence is an argument rather than
+			// a nudge.
+			if !pushedBack && !nudged && a.expectsWork() {
+				switch {
+				case toolCalls == 0:
+					pushedBack = true
+					a.emit("text", "(no tool was used; asking it to do the work)")
+					in = provider.Input{Text: noWorkNudge, OnText: in.OnText}
+					continue
+				case len(a.edits) == editsAtStart:
+					// It looked, and changed nothing. See noEditsNudge — this
+					// is the shape the zero-tool check missed, and the more
+					// common one.
+					pushedBack = true
+					a.emit("text", "(nothing was changed; asking it to do the work)")
+					in = provider.Input{Text: noEditsNudge, OnText: in.OnText}
+					continue
+				}
+			}
 			done = true
 			continue
 		}
 		nudged = false // it is answering again; a later silence is new
 
 		toolStart := time.Now()
+		toolCalls += len(resp.ToolCalls)
 		results := a.execBatch(ctx, resp.ToolCalls, res)
 		res.ToolTime += time.Since(toolStart)
 		in = provider.Input{ToolResults: results}
@@ -797,6 +921,62 @@ func closeSession(sess provider.Session) {
 // is done can still stop.
 const emptyTurnNudge = "That reply was empty. Continue the task: either call a tool to make " +
 	"progress, or say in words what you did and why you are stopping."
+
+// expectsWork reports whether a run that touched nothing is suspicious.
+//
+// A chat session has no filesystem and answers from the conversation, so a
+// toolless reply is the only kind it can give. A planning session is asked for
+// a plan and produces one through exit_plan_mode, which is itself a tool, but
+// the gate refuses everything else and a plan argued in prose is a legitimate
+// intermediate step. Neither should be pushed back on.
+//
+// What is left is a coding session with tools in its hand, which is where the
+// failure lives.
+func (a *Agent) expectsWork() bool { return !a.cfg.Chat && !a.planning }
+
+// noWorkNudge is sent when a run is about to end having called no tool at all.
+//
+// This is the failure the empty-turn guard above does not catch, and it is the
+// more common one by far: the model answers in words — "I'll change the
+// comparison in util.go so values below the range clamp to the low bound" —
+// with no tool call attached. It reads like work. It is a description of work.
+// The loop sees prose and a stop reason, believes the task is finished, and the
+// session ends with the file untouched.
+//
+// A stronger prompt does not fix it; the prompt already says to act rather than
+// narrate, and a model that was going to obey that would not be here. What
+// fixes it is noticing at the one moment it is checkable — the run is ending,
+// and nothing was ever opened, searched or written — and saying so.
+//
+// It is deliberately not an accusation that the answer was wrong. A question
+// genuinely can be answered without touching anything, so the nudge offers that
+// door explicitly and takes "no, that was the answer" for an answer.
+// noEditsNudge is sent when a run looked at the workspace, found what it was
+// looking for, and then stopped without changing anything.
+//
+// This is the failure that the zero-tool check missed, and watching it happen
+// is what made the case. Given "one of these components reports a rate that
+// doesn't match its docs, track it down and fix it", a model grepped once,
+// answered "the internal/reporting package seems to be reporting a rate that
+// doesn't match what its own docs say — let's check the documentation and code
+// for discrepancies", and ended the turn. It had the right answer. The file was
+// never touched. Two turns, and a run that reads like success.
+//
+// The tell is always the same: a sentence about what will be done next, in a
+// reply that is the last one. So the challenge names the gap between having
+// found the thing and having fixed it, and — as with noWorkNudge — leaves the
+// door open for the run where looking really was the whole job.
+const noEditsNudge = "You are about to finish having read or searched but without changing " +
+	"anything: no file in the workspace is different from when you started. If you found what " +
+	"you were looking for and described what you would do about it, do it now — make the edit " +
+	"and verify it. If the task genuinely only asked you to find or explain something, say so " +
+	"plainly and stop."
+
+const noWorkNudge = "You are about to finish this task without having used a single tool: " +
+	"nothing was read, searched, edited or run, so nothing in the workspace has changed. " +
+	"If that message described work you intended to do, do it now — read the files, make " +
+	"the edit, and verify it. If the request really was answered in words alone and needs " +
+	"no change, say so plainly and stop."
 
 // malformedToolCallNudge is sent when the backend refused to parse a tool call.
 // It asks for one clean call and nothing else, because the rejected output was
@@ -1244,7 +1424,7 @@ func pathArg(tc provider.ToolCall) string {
 // enabledTools returns the offered tool defs (built-ins + plugins) after
 // applying the config filter.
 func (a *Agent) enabledTools() []provider.ToolDef {
-	defs := toolDefs(a.worker != nil, a.publish != nil, a.asker != nil)
+	defs := toolDefs(a.canDelegate(), a.publish != nil, a.asker != nil)
 	for _, p := range a.plugins {
 		defs = append(defs, provider.ToolDef{
 			Name: p.Name, Description: p.Description, Properties: p.Properties, Required: p.Required,
@@ -1744,6 +1924,9 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 	if hint := a.batchingHint(tc); hint != "" {
 		content += hint
 	}
+	if hint := a.fanOutHint(tc); hint != "" {
+		content += hint
+	}
 	if note := a.repeatNote(tc, content); note != "" {
 		// In front of the output, not after it. Appended to the end of a
 		// file-sized result it sat past everything the model was reading for,
@@ -1840,6 +2023,51 @@ func (a *Agent) batchingHint(tc provider.ToolCall) string {
 		" files one at a time, which costs a round trip each. read accepts a list: " +
 		`read(paths=["a.go","b.go","c.go"]) returns all three at once. ` +
 		"Ask for every file you already know you need in one call.]"
+}
+
+// singleTasksBeforeHint is how many subtasks a lead may hand over one at a time
+// before it is reminded the tool takes a list.
+const singleTasksBeforeHint = 2
+
+// fanOutHint nudges a lead that is delegating serially.
+//
+// It is the batching hint's argument applied to the other tool that takes an
+// array, and it matters more, because the round trip it wastes is not a file
+// read but a whole sub-agent run: three subtasks handed over one after another
+// are three worker runs end to end, where one call with three tasks is three
+// workers at once, bounded by maxParallel. The wall-clock difference is the
+// difference between the sum and the maximum.
+//
+// Two in a row rather than three. A delegation costs far more than a read, so
+// the evidence needed before saying something is correspondingly less — and a
+// lead that has just delegated twice in a row is one that has a list in mind
+// and is spending it an item at a time.
+func (a *Agent) fanOutHint(tc provider.ToolCall) string {
+	if a.resolveToolName(tc.Name, tc.Input) != "task" {
+		a.singleTasks = 0 // a different tool ends the run of them
+		return ""
+	}
+	var in struct {
+		Tasks []string `json:"tasks"`
+	}
+	_ = json.Unmarshal(tc.Input, &in)
+	if len(in.Tasks) > 1 {
+		a.singleTasks = 0
+		return ""
+	}
+	a.singleTasks++
+	if a.singleTasks != singleTasksBeforeHint {
+		return ""
+	}
+	max := a.maxParallel
+	if max < 1 {
+		max = defaultMaxParallel
+	}
+	return "\n\n[You have delegated " + fmt.Sprint(singleTasksBeforeHint) +
+		" subtasks one at a time, and waited for each. task accepts a list: " +
+		`task(tasks=["…","…","…"]) runs them at once, up to ` + fmt.Sprint(max) +
+		" in parallel. Hand over every independent piece you already know about in one call. " +
+		"Only pieces that do not need each other's results, and do not touch the same files.]"
 }
 
 // execTool dispatches a tool call. Delegation merges the worker's usage into res
@@ -2021,17 +2249,19 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 		return orErr(webFetch(ctx, in.URL))
 	case "grep":
 		var in struct {
-			Pattern   string `json:"pattern"`
-			Path      string `json:"path"`
-			Context   int    `json:"context"`
-			Glob      string `json:"glob"`
-			FilesOnly bool   `json:"files_only"`
+			Pattern    string `json:"pattern"`
+			Path       string `json:"path"`
+			Context    int    `json:"context"`
+			Glob       string `json:"glob"`
+			FilesOnly  bool   `json:"files_only"`
+			IgnoreCase bool   `json:"ignore_case"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
 		}
 		return orErr(a.ws.grep(in.Pattern, grepOpts{
-			Path: in.Path, Context: in.Context, Glob: in.Glob, FilesOnly: in.FilesOnly,
+			Path: in.Path, Context: in.Context, Glob: in.Glob,
+			FilesOnly: in.FilesOnly, IgnoreCase: in.IgnoreCase,
 		}))
 	case "glob":
 		var in struct {
@@ -2302,8 +2532,10 @@ func (a *Agent) hasTool(name string) bool {
 }
 
 // delegate runs a bounded subtask on the worker model and returns its
-// conclusion. The worker shares the workspace but has no delegate tool of its
-// own (one level deep). Its usage is merged into res for correct cost.
+// conclusion. The worker shares the workspace, and gets a task tool of its own
+// until the tree reaches maxTaskDepth. Its usage — and that of anything it
+// delegated to in turn — is merged into res, so the cost of a whole subtree is
+// charged to the run that asked for it.
 func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string, bool) {
 	sr, concl, isErr := a.delegateOne(ctx, task, workerName(task, 0))
 	if sr != nil {
@@ -2315,6 +2547,25 @@ func (a *Agent) delegate(ctx context.Context, task string, res *Result) (string,
 // workerTagSep separates a worker's name from its event payload, so a name may
 // contain spaces without confusing the client that renders the subagent tree.
 const workerTagSep = "\x1f"
+
+// nestWorker relabels a sub-agent's event for the level above it.
+//
+// A child's own events get the prefix and the child's name. A grandchild's
+// arrive here already carrying both, and stacking them again would hand the
+// client the kind "worker:worker:text" and two separators in one payload —
+// neither of which it knows. So depth is carried in the name instead:
+// "port the loader/rewrite the tests", one prefix, one separator, and a tree
+// that renders itself.
+func nestWorker(name, kind, data string) (string, string) {
+	if !strings.HasPrefix(kind, "worker:") {
+		return "worker:" + kind, name + workerTagSep + data
+	}
+	child, rest, found := strings.Cut(data, workerTagSep)
+	if !found {
+		return kind, name + workerTagSep + data
+	}
+	return kind, name + "/" + child + workerTagSep + rest
+}
 
 // workerName derives a short, human label for a subagent from its task, e.g.
 // "migrate the application chart" -> "migrate the application". Falls back to
@@ -2349,23 +2600,63 @@ func (a *Agent) delegateOne(ctx context.Context, task, name string) (*Result, st
 	if a.worker == nil {
 		return nil, "delegation is not configured for this agent", true
 	}
+	// Enforced here and not only by hiding the tool: a model will call a tool it
+	// was never given, and the bottom of the tree is exactly where one is most
+	// tempted to pass the work on again.
+	if a.depth >= a.depthLimit() {
+		return nil, "you are the last level of delegation available; do this task yourself", true
+	}
+	// The run's budget, claimed before the agent exists so that concurrent
+	// delegations cannot each see the last slot. A tree that has spent it is
+	// told plainly, because the useful reply to "no more workers" is to do the
+	// work, and a model only does that if it knows.
+	if a.spawned == nil {
+		a.spawned = &atomic.Int32{}
+	}
+	if n := a.spawned.Add(1); int(n) > maxSubagents {
+		a.spawned.Add(-1)
+		return nil, fmt.Sprintf("this run has already started %d sub-agents, which is the limit. "+
+			"Do this part yourself.", maxSubagents), true
+	}
 	// A worker must not be able to do what its lead cannot. Previously only
 	// Sandbox was passed, so the sub-agent came up with no permission mode, no
 	// tool filter and no asker — delegate("...run bash...") escaped plan mode
 	// and every deny rule.
+	//
+	// It does get the worker model, so a subtask that turns out to be several
+	// jobs can be split again; canDelegate stops that at maxTaskDepth.
+	opts := []Option{
+		WithEventHook(func(e Event) { a.emit(nestWorker(name, e.Kind, e.Data)) }),
+		withInheritedGating(a),
+		withDepth(a.depth+1, a.spawned),
+		WithWorker(a.worker.prov, a.worker.model),
+		WithMaxTaskDepth(a.maxDepth),
+		WithMaxParallel(a.maxParallel),
+	}
 	sub, err := New(Config{
 		Name:     a.cfg.Name + "/" + name,
-		Identity: workerIdentity,
+		Identity: workerIdentityFor(a.depth+1, a.maxDepth),
 		Model:    a.worker.model,
 		Workdir:  a.ws.root,
 		Sandbox:  a.cfg.Sandbox, // share the parent's sandboxed env
-	}, a.worker.prov, WithEventHook(func(e Event) {
-		a.emit("worker:"+e.Kind, name+workerTagSep+e.Data)
-	}), withInheritedGating(a))
+	}, a.worker.prov, opts...)
 	if err != nil {
 		return nil, err.Error(), true
 	}
 	sr, err := sub.Run(ctx, task)
+	// A worker's changes are changes to the lead's workspace, so they count as
+	// the lead's for the purpose of "did this run alter anything" (noEditsNudge)
+	// and for the reviewer, which would otherwise see a delegated rename as no
+	// diff at all. Without this a lead that delegated the whole job was told
+	// nothing had changed and asked to do it again.
+	//
+	// Under the same lock as emit, because delegateParallel appends from several
+	// goroutines at once.
+	if len(sub.edits) > 0 {
+		a.emitMu.Lock()
+		a.edits = append(a.edits, sub.edits...)
+		a.emitMu.Unlock()
+	}
 	if err != nil {
 		return sr, fmt.Sprintf("worker failed: %v", err), true
 	}
@@ -2381,7 +2672,7 @@ func (a *Agent) delegateParallel(ctx context.Context, tasks []string, res *Resul
 	}
 	max := a.maxParallel
 	if max < 1 {
-		max = 2
+		max = defaultMaxParallel
 	}
 	sem := make(chan struct{}, max)
 	var wg sync.WaitGroup

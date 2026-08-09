@@ -14,12 +14,40 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/dougkirkley/dross/pkg/provider"
 )
+
+// NormalizeBase fills in the /v1 an OpenAI-compatible base URL needs when it
+// was given as a bare host.
+//
+// Every request here is base + "/chat/completions", so a base of
+// "https://ollama.example" asks for a path that does not exist, and the failure
+// is a 404 with no hint in it. Both spellings of OPENAI_BASE_URL are in
+// circulation — Ollama's own documentation uses the /v1 form, plenty of
+// shell profiles do not — and a bare host cannot mean anything else in this
+// protocol, so it is filled in rather than refused.
+//
+// Only when the URL has no path of its own. A gateway mounted at
+// "https://host/openai" or "https://host/v1" means what it says.
+func NormalizeBase(base string) string {
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		return "https://api.openai.com/v1"
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return base // not something to reason about; hand it back untouched
+	}
+	if u.Path == "" {
+		return base + "/v1"
+	}
+	return base
+}
 
 func init() {
 	provider.Register("openai", func(cfg provider.Config) (provider.Provider, error) {
@@ -28,7 +56,7 @@ func init() {
 			base = "https://api.openai.com/v1"
 		}
 		return &prov{
-			base:   strings.TrimRight(base, "/"),
+			base:   NormalizeBase(base),
 			apiKey: cfg.APIKey,
 			hc:     &http.Client{}, // no timeout: generations are long
 		}, nil
@@ -51,7 +79,7 @@ func (p *prov) NewSession(cfg provider.SessionConfig) provider.Session {
 		maxTok = defaultMaxTokens
 	}
 	s := &session{prov: p, model: cfg.Model, tools: convertTools(cfg.Tools), maxTokens: maxTok,
-		temperature: cfg.Temperature, seed: cfg.Seed}
+		temperature: cfg.Temperature, seed: cfg.Seed, thinking: cfg.Thinking}
 	if cfg.System != "" {
 		s.messages = append(s.messages, chatMessage{Role: "system", Content: cfg.System})
 	}
@@ -98,6 +126,15 @@ type chatRequest struct {
 	Stream      bool          `json:"stream,omitempty"`
 	Temperature *float64      `json:"temperature,omitempty"`
 	Seed        *int          `json:"seed,omitempty"`
+	// Think is ollama's switch for a reasoning model's deliberation.
+	Think *bool `json:"think,omitempty"`
+	// ChatTemplateKwargs is how everyone else spells the same thing — vLLM,
+	// SGLang and llama.cpp all pass template arguments through this — and
+	// qwen3's chat template reads enable_thinking from it. Both are sent
+	// because one server understands one of them and there is no reliable way
+	// to ask which; both are omitted unless thinking was configured, so a
+	// backend that would reject an unknown field never sees one.
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 	// StreamOptions asks for the usage numbers a streaming response otherwise
 	// omits; ollama and OpenAI both honour it.
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
@@ -130,6 +167,7 @@ type session struct {
 	maxTokens   int
 	temperature *float64
 	seed        *int
+	thinking    *bool
 	messages    []chatMessage
 }
 
@@ -149,6 +187,10 @@ func (s *session) Send(ctx context.Context, in provider.Input) (*provider.Respon
 		MaxTokens:   s.maxTokens,
 		Temperature: s.temperature,
 		Seed:        s.seed,
+	}
+	if s.thinking != nil {
+		req.Think = s.thinking
+		req.ChatTemplateKwargs = map[string]any{"enable_thinking": *s.thinking}
 	}
 	// Stream when the caller wants to watch. A local model produces tokens for
 	// the whole generation; buffering them meant forty-five seconds of silence

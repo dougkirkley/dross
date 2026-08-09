@@ -11,10 +11,12 @@ package bench
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -24,6 +26,15 @@ type Task struct {
 	Name   string
 	Files  map[string]string // path → content, written before the run
 	Prompt string
+	// Verify is written after the agent has stopped and before Check runs: an
+	// acceptance test the agent never sees, and so cannot read the answer out
+	// of, weaken, or delete.
+	//
+	// It is what lets a task be asked the way a person would ask it. A prompt
+	// that has to name the test it will be graded by is not a request, it is a
+	// specification, and an agent that is handed the specification is being
+	// measured on something easier than the job.
+	Verify map[string]string
 	Check  []string // shell argv run in the workspace; exit 0 = pass
 }
 
@@ -53,18 +64,37 @@ type Runner interface {
 
 // Result is one (runner, task) outcome.
 type Result struct {
-	Runner   string
-	Task     string
-	Success  bool
-	Duration time.Duration
-	Metrics  Metrics
-	Err      string
+	Runner    string
+	Task      string
+	Success   bool
+	Duration  time.Duration
+	Metrics   Metrics
+	Err       string
+	Workspace string // where the run happened, when KeepWorkspaces is set
 }
 
-// TaskTimeout bounds a single (runner, task) run. An agent that has gone in
-// circles for ten minutes has already lost the comparison; without this one
-// stuck run holds the whole table hostage.
+// TaskTimeout bounds a single (runner, task) run, unless a caller overrides it.
+// An agent that has gone in circles for ten minutes has already lost the
+// comparison; without a bound, one stuck run holds the whole table hostage.
+//
+// Ten minutes stopped being a safe default the moment a thinking model was in
+// the table. ask-for-a-feature has finished at 8m51s and been killed at 10m00s
+// on the same model — so the ceiling was deciding the result, and a row that
+// says FAIL because the stopwatch ran out is indistinguishable in the table
+// from a row that says FAIL because the agent could not do it. Raise it with
+// --timeout when the model is slow rather than reading the difference as
+// capability.
 const TaskTimeout = 10 * time.Minute
+
+// Timeout is the effective per-run bound. Zero means TaskTimeout.
+var Timeout time.Duration
+
+func taskTimeout() time.Duration {
+	if Timeout > 0 {
+		return Timeout
+	}
+	return TaskTimeout
+}
 
 // DefaultRepeat is how many times each (runner, task) pair runs.
 //
@@ -74,31 +104,138 @@ const TaskTimeout = 10 * time.Minute
 // Three is the smallest number with a meaningful median.
 const DefaultRepeat = 3
 
+// Only returns the named tasks, in the order DefaultTasks gives them, and
+// reports any name that matched nothing.
+//
+// Iterating on one task is the common case — a task that fails, or a task being
+// written — and running the other six to get at it costs a quarter of an hour
+// on a local model.
+func Only(tasks []Task, names []string) ([]Task, error) {
+	if len(names) == 0 {
+		return tasks, nil
+	}
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[strings.TrimSpace(n)] = true
+	}
+	var out []Task
+	for _, t := range tasks {
+		if want[t.Name] {
+			out = append(out, t)
+			delete(want, t.Name)
+		}
+	}
+	if len(want) > 0 {
+		unknown := make([]string, 0, len(want))
+		for n := range want {
+			unknown = append(unknown, n)
+		}
+		sort.Strings(unknown)
+		all := make([]string, len(tasks))
+		for i, t := range tasks {
+			all[i] = t.Name
+		}
+		return nil, fmt.Errorf("no such task: %s (have: %s)",
+			strings.Join(unknown, ", "), strings.Join(all, ", "))
+	}
+	return out, nil
+}
+
+// Hooks report progress while a run is in flight. Both are optional.
+//
+// A full pass is tens of minutes on a local model, and the table cannot be
+// printed until the last run finishes — so without these the terminal sits
+// blank from the first task to the last, and there is no way to tell working
+// from wedged. Start fires before a run begins, because the useful moment to
+// learn that find-in-a-tree takes nine minutes is while it is taking them.
+type Hooks struct {
+	Start func(runner, task string, i, of int)
+	Done  func(Result)
+}
+
 // Run executes every available runner over every task and returns every
 // individual run. Each (runner, task, repeat) gets its own fresh, isolated
 // workspace. repeat < 1 means DefaultRepeat.
 func Run(ctx context.Context, tasks []Task, runners []Runner, repeat int) []Result {
+	return RunWith(ctx, tasks, runners, repeat, Hooks{})
+}
+
+// RunWith is Run with progress reporting.
+func RunWith(ctx context.Context, tasks []Task, runners []Runner, repeat int, h Hooks) []Result {
 	if repeat < 1 {
 		repeat = DefaultRepeat
 	}
 	var out []Result
 	for _, r := range runners {
 		if !r.Available() {
-			out = append(out, Result{Runner: r.Name(), Task: "(all)", Err: "not installed"})
+			missing := Result{Runner: r.Name(), Task: "(all)", Err: "not installed"}
+			if h.Done != nil {
+				h.Done(missing)
+			}
+			out = append(out, missing)
 			continue
 		}
 		for _, task := range tasks {
 			for i := 0; i < repeat; i++ {
-				out = append(out, runOne(ctx, r, task))
+				if h.Start != nil {
+					h.Start(r.Name(), task.Name, i+1, repeat)
+				}
+				res := runOne(ctx, r, task)
+				if h.Done != nil {
+					h.Done(res)
+				}
+				out = append(out, res)
 			}
 		}
 	}
 	return out
 }
 
+// StreamHooks writes one line per run to w as it happens: the task and runner
+// when it starts, the verdict and timing when it ends.
+//
+// Deliberately not the report's format. This is a progress log — read once,
+// while waiting — and aligning it with the summary table would invite reading
+// the two as one thing, when only the table has the medians that make a number
+// mean anything.
+func StreamHooks(w io.Writer) Hooks {
+	return Hooks{
+		Start: func(runner, task string, i, of int) {
+			rep := ""
+			if of > 1 {
+				rep = fmt.Sprintf(" (%d/%d)", i, of)
+			}
+			fmt.Fprintf(w, "  → %-18s %s%s\n", task, runner, rep)
+		},
+		Done: func(r Result) {
+			verdict := "ok  "
+			if !r.Success {
+				verdict = "FAIL"
+			}
+			turns := ""
+			if r.Metrics.Turns > 0 {
+				turns = fmt.Sprintf("  %d turns", r.Metrics.Turns)
+			}
+			note := ""
+			if r.Err != "" {
+				note = "  " + firstLine(r.Err)
+			}
+			fmt.Fprintf(w, "    %s %s%s%s\n", verdict, dur(r.Duration), turns, note)
+		},
+	}
+}
+
+// KeepWorkspaces leaves each run's workspace on disk and reports where.
+//
+// A failing row says a check exited non-zero and nothing else, which is enough
+// to know something is wrong and never enough to know what. The workspace is
+// the evidence — what the agent actually wrote, and what the hidden acceptance
+// test made of it — and it is deleted a microsecond after the verdict.
+var KeepWorkspaces bool
+
 func runOne(ctx context.Context, r Runner, task Task) Result {
 	res := Result{Runner: r.Name(), Task: task.Name}
-	ctx, cancel := context.WithTimeout(ctx, TaskTimeout)
+	ctx, cancel := context.WithTimeout(ctx, taskTimeout())
 	defer cancel()
 
 	wd, err := os.MkdirTemp("", "holobench-")
@@ -106,7 +243,11 @@ func runOne(ctx context.Context, r Runner, task Task) Result {
 		res.Err = err.Error()
 		return res
 	}
-	defer os.RemoveAll(wd)
+	if KeepWorkspaces {
+		res.Workspace = wd
+	} else {
+		defer os.RemoveAll(wd)
+	}
 	if err := seed(wd, task.Files); err != nil {
 		res.Err = "seed: " + err.Error()
 		return res
@@ -118,6 +259,10 @@ func runOne(ctx context.Context, r Runner, task Task) Result {
 	res.Metrics = m
 	if err != nil {
 		res.Err = err.Error()
+		return res
+	}
+	if err := seed(wd, task.Verify); err != nil {
+		res.Err = "verify: " + err.Error()
 		return res
 	}
 	res.Success = check(wd, task.Check)
@@ -201,6 +346,164 @@ func Report(results []Result) string {
 	return string(b)
 }
 
+// Parity renders one line per task comparing a dross runner against a baseline
+// — normally the Claude Code CLI — on the identical prompt.
+//
+// The main table has both runners in it already, and reading parity off it
+// means holding two rows apart in your head across seven tasks. What matters is
+// a single question per task, asked the same way every time: given the same
+// words, did they end up in the same place. A task both fail is not a parity
+// problem; a task only one passes is the whole point, and which one it is says
+// which direction the gap runs.
+//
+// Turns sit beside the verdict because a task both pass is not necessarily a
+// task both did well: the same outcome in twice as many turns is the finding
+// that started this benchmark.
+func Parity(results []Result, subject, baseline string) string {
+	type pair struct{ subj, base []Result }
+	byTask := map[string]*pair{}
+	var order []string
+	for _, r := range results {
+		if r.Runner != subject && r.Runner != baseline {
+			continue
+		}
+		p, seen := byTask[r.Task]
+		if !seen {
+			p = &pair{}
+			byTask[r.Task] = p
+			order = append(order, r.Task)
+		}
+		if r.Runner == subject {
+			p.subj = append(p.subj, r)
+		} else {
+			p.base = append(p.base, r)
+		}
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	sort.Strings(order)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nparity: %s vs %s, same prompt\n\n", subject, baseline)
+	const row = "%-18s %-9s %-9s %-8s %-8s %s\n"
+	fmt.Fprintf(&b, row, "TASK", subject, baseline, "TURNS", "TURNS", "VERDICT")
+	agreed, compared := 0, 0
+	for _, task := range order {
+		p := byTask[task]
+		// Runs that never reached a model are not evidence about anything, and
+		// counting them would turn a spent session limit into "both failed" —
+		// which is what happened, and what this drops.
+		subj, subjDropped := usableRuns(p.subj)
+		base, baseDropped := usableRuns(p.base)
+		if len(subj) == 0 || len(base) == 0 {
+			why := "not compared"
+			if subjDropped > 0 || baseDropped > 0 {
+				why = "not compared — no run reached a model"
+			}
+			fmt.Fprintf(&b, row, task, passRate(p.subj), passRate(p.base), "-", "-", why)
+			continue
+		}
+		compared++
+		sOK, bOK := mostlyPassed(subj), mostlyPassed(base)
+		verdict := "both failed"
+		switch {
+		case sOK && bOK:
+			verdict, agreed = "both passed", agreed+1
+		case sOK:
+			verdict = "only " + subject
+		case bOK:
+			verdict = "only " + baseline + "  <- gap"
+		default:
+			agreed++ // agreeing that it is too hard is still agreement
+		}
+		if n := subjDropped + baseDropped; n > 0 {
+			verdict += fmt.Sprintf(" (%d run(s) never reached a model, ignored)", n)
+		}
+		fmt.Fprintf(&b, row, task, passRate(subj), passRate(base),
+			turnsOf(subj), turnsOf(base), verdict)
+	}
+	if compared > 0 {
+		fmt.Fprintf(&b, "\nsame outcome on %d of %d tasks compared\n", agreed, compared)
+	}
+	return b.String()
+}
+
+// neverRanUnder is how quickly a "failure" becomes suspicious.
+//
+// Every runner here has to start a process, reach a model and do some work, so
+// nothing genuine finishes in under a few seconds. A row that failed that fast,
+// with no turns to show for it, did not attempt the task.
+const neverRanUnder = 5 * time.Second
+
+// neverRan reports a run that never reached a model.
+//
+// The case that matters is the Claude Code CLI meeting its subscription session
+// limit: it exits 1 in about a second and a half, and the JSON gives no reason
+// at that layer. In a table that is indistinguishable from an agent that tried
+// and failed — five of those rows appeared in a real run and were reported as
+// 0/5, which reads as "cannot do this task" and means "was never asked".
+//
+// Three signals together, because any one alone has honest explanations: it
+// errored, it reported no turns, and it was too quick to have done anything.
+func neverRan(r Result) bool {
+	return r.Err != "" && r.Metrics.Turns == 0 && r.Duration < neverRanUnder
+}
+
+// usableRuns drops the runs that never happened, and says how many went.
+func usableRuns(runs []Result) (kept []Result, dropped int) {
+	for _, r := range runs {
+		if neverRan(r) {
+			dropped++
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept, dropped
+}
+
+// mostlyPassed reports whether a runner passed a task more often than not.
+//
+// The median of the repeats rather than any-pass or all-pass. One lucky run out
+// of five is not a capability, and one unlucky run out of five is not a failure
+// — this benchmark's own variance is wide enough that both happen.
+func mostlyPassed(runs []Result) bool {
+	passed := 0
+	for _, r := range runs {
+		if r.Success {
+			passed++
+		}
+	}
+	return passed*2 > len(runs)
+}
+
+func passRate(runs []Result) string {
+	if len(runs) == 0 {
+		return "-"
+	}
+	passed := 0
+	for _, r := range runs {
+		if r.Success {
+			passed++
+		}
+	}
+	return fmt.Sprintf("%d/%d", passed, len(runs))
+}
+
+// turnsOf is the median turn count, or "-" when the runner did not report one.
+func turnsOf(runs []Result) string {
+	var turns []time.Duration
+	for _, r := range runs {
+		if r.Metrics.Turns > 0 {
+			turns = append(turns, time.Duration(r.Metrics.Turns))
+		}
+	}
+	if len(turns) == 0 {
+		return "-"
+	}
+	return fmt.Sprint(int(median(turns)))
+}
+
 // reportRow renders one (task, runner) pair's repeats as a single line.
 func reportRow(format string, runs []Result) string {
 	var walls, models, tools, agents []time.Duration
@@ -232,6 +535,45 @@ func reportRow(format string, runs []Result) string {
 		}
 		if r.Metrics.Turns > 0 {
 			turns = append(turns, time.Duration(r.Metrics.Turns))
+		}
+	}
+
+	// A kept workspace is named alongside whatever else the row has to say,
+	// never instead of it. Replacing the note lost the error that explained the
+	// failure and left a path to an empty directory in its place — the one
+	// column that said why, overwritten by the flag added to find out why.
+	//
+	// The failing run's workspace wins: a passing one has nothing to look at.
+	workspace := ""
+	for _, r := range runs {
+		if r.Workspace == "" {
+			continue
+		}
+		if workspace == "" || !r.Success {
+			workspace = r.Workspace
+		}
+		if !r.Success {
+			break
+		}
+	}
+	if workspace != "" {
+		if notes == "" {
+			notes = workspace
+		} else {
+			notes += "; " + workspace
+		}
+	}
+
+	// A row where nothing reached a model is not a score. Said plainly, because
+	// "0/5" next to a 1.5s wall is the shape a spent Claude session limit takes,
+	// and it reads exactly like an agent that cannot do the task.
+	if _, dropped := usableRuns(runs); dropped > 0 {
+		what := fmt.Sprintf("%d/%d runs never reached a model (too fast to have tried — "+
+			"check for a session limit or a bad flag)", dropped, len(runs))
+		if notes == "" {
+			notes = what
+		} else {
+			notes = what + "; " + notes
 		}
 	}
 

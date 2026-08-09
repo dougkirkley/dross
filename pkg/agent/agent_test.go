@@ -35,7 +35,8 @@ type scriptedSession struct {
 	steps      []provider.Response
 	i          int
 	firstInput string
-	lastInput  string // text of the most recent Send (tool results serialized)
+	lastInput  string   // text of the most recent Send (tool results serialized)
+	inputs     []string // every Send, in order
 }
 
 func (s *scriptedSession) Send(_ context.Context, in provider.Input) (*provider.Response, error) {
@@ -46,10 +47,35 @@ func (s *scriptedSession) Send(_ context.Context, in provider.Input) (*provider.
 	for _, tr := range in.ToolResults {
 		s.lastInput += tr.Content
 	}
+	// Every input, not just the most recent: a test about what the loop said to
+	// the model mid-run cannot use lastInput, which by the end holds whatever
+	// tool result came after it.
+	s.inputs = append(s.inputs, s.lastInput)
+	// Past the end of the script, the model keeps saying what it said last.
+	//
+	// Scripts describe what a model does, not how many times the loop asks. The
+	// loop legitimately asks again in more places than it used to — an empty
+	// turn, an unparseable tool call, and now a run that is ending having used
+	// no tool at all — so a fixed-length script made every one of those an index
+	// panic in a test that was not about it. Repeating the last response keeps
+	// the run terminating on the same answer, and leaves the turn counts the
+	// tests that care about them assert.
+	if s.i >= len(s.steps) {
+		last := s.steps[len(s.steps)-1]
+		return &last, nil
+	}
 	r := s.steps[s.i]
 	s.i++
 	return &r, nil
 }
+
+// seen is everything the model was sent this run, joined.
+//
+// Assertions used to read lastInput, which is fine only while the tool result
+// is the final thing the loop says. It is not: a run that ends without changing
+// anything now gets one challenge after it (see noEditsNudge), so "the model
+// received X" has to be asked of the whole run rather than of its last message.
+func (s *scriptedSession) seen() string { return strings.Join(s.inputs, "\n") }
 
 func toolCall(id, name string, input any) provider.ToolCall {
 	b, _ := json.Marshal(input)
@@ -112,6 +138,8 @@ func TestDelegateParallel(t *testing.T) {
 		},
 		{StopReason: provider.StopEndTurn, Text: "combined"},
 	}}
+	// A sub-agent that ends a task having called no tool is challenged once like
+	// any other run (see noWorkNudge), so this worker answers twice.
 	work := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopEndTurn, Text: "did it", Usage: provider.Usage{OutputTokens: 5}},
 	}}
@@ -189,6 +217,10 @@ func TestReviewSkill(t *testing.T) {
 // reviewer is never invoked and Review stays empty.
 func TestReviewSkillNoEdits(t *testing.T) {
 	dir := t.TempDir()
+	// A run that ends without having used a tool is asked once whether it meant
+	// to (noWorkNudge), and standing by the answer is one of the two ways out.
+	// This is the false positive that guard accepts — a question really can be
+	// answered in words — and it costs exactly one extra turn.
 	lead := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopEndTurn, Text: "nothing to change"},
 	}}
@@ -248,11 +280,11 @@ func TestCompactor(t *testing.T) {
 	}
 	// The compacted result the lead saw on turn 2 must be far smaller than raw.
 	sess := lead.last
-	if !strings.Contains(sess.lastInput, "SUMMARY") {
-		t.Fatalf("lead did not receive compacted result; got %q", sess.lastInput)
+	if !strings.Contains(sess.seen(), "SUMMARY") {
+		t.Fatalf("lead did not receive compacted result; got %q", sess.seen())
 	}
-	if len(sess.lastInput) >= len(big) {
-		t.Fatalf("result not compacted: %d >= %d", len(sess.lastInput), len(big))
+	if len(sess.seen()) >= len(big) {
+		t.Fatalf("result not compacted: %d >= %d", len(sess.seen()), len(big))
 	}
 	if _, ok := res.ByModel["compactor-model"]; !ok {
 		t.Fatalf("compactor usage not tracked: %v", res.ByModel)
@@ -382,8 +414,12 @@ func TestDelegate(t *testing.T) {
 // TestCheckpoint proves a run produces a handoff brief and hands it to the save
 // callback (an extra model turn after the loop).
 func TestCheckpoint(t *testing.T) {
+	// Three sends, not two: the run answers without touching anything, so it is
+	// challenged once (noWorkNudge), stands by the answer, and only then is the
+	// brief asked for.
 	prov := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopEndTurn, Text: "task done"},
+		{StopReason: provider.StopEndTurn, Text: "task done; it needed no change"},
 		{StopReason: provider.StopEndTurn, Text: "BRIEF: did the thing"}, // brief turn
 	}}
 
@@ -401,8 +437,8 @@ func TestCheckpoint(t *testing.T) {
 	if saved != "BRIEF: did the thing" || res.Brief != saved {
 		t.Fatalf("brief not saved: saved=%q res.Brief=%q", saved, res.Brief)
 	}
-	if res.Turns != 2 {
-		t.Fatalf("turns = %d, want 2 (main + brief)", res.Turns)
+	if res.Turns != 3 {
+		t.Fatalf("turns = %d, want 3 (main + the no-work challenge + brief)", res.Turns)
 	}
 }
 
@@ -504,8 +540,8 @@ func TestPermission_PlanBlocksWrites(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "x.go")); !os.IsNotExist(err) {
 		t.Fatalf("plan mode must not write the file (err=%v)", err)
 	}
-	if !strings.Contains(prov.last.lastInput, "blocked") {
-		t.Fatalf("model should get a blocked result, got %q", prov.last.lastInput)
+	if !strings.Contains(prov.last.seen(), "blocked") {
+		t.Fatalf("model should get a blocked result, got %q", prov.last.seen())
 	}
 }
 
@@ -535,8 +571,13 @@ func TestPermission_ManualDeny(t *testing.T) {
 // calls (the second Run continues where the first left off), while the default
 // starts fresh each time.
 func TestConversationMemory(t *testing.T) {
+	// Each answer appears twice: these runs use no tool, so each is challenged
+	// once (noWorkNudge) and repeats itself. What the test is about — whether
+	// the second Run continues the same script or restarts it — is unaffected.
 	steps := []provider.Response{
 		{StopReason: provider.StopEndTurn, Text: "first"},
+		{StopReason: provider.StopEndTurn, Text: "first"},
+		{StopReason: provider.StopEndTurn, Text: "second"},
 		{StopReason: provider.StopEndTurn, Text: "second"},
 	}
 	// With memory: second Run advances to the second scripted response.
@@ -590,7 +631,7 @@ func TestToolFilterAndPermissions(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir2, "z.go")); !os.IsNotExist(err) {
 		t.Fatal("denied write must not run")
 	}
-	if !strings.Contains(prov.last.lastInput, "denied by configuration") {
-		t.Fatalf("model should see denial, got %q", prov.last.lastInput)
+	if !strings.Contains(prov.last.seen(), "denied by configuration") {
+		t.Fatalf("model should see denial, got %q", prov.last.seen())
 	}
 }

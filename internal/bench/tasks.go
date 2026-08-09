@@ -46,7 +46,52 @@ func DefaultTasks() []Task {
 				`including its uses and its doc comments. Nothing may still refer to Clamp.`,
 			Check: []string{"sh", "-c", "! grep -rq Clamp . && go test ./..."},
 		},
-		// The four above all fit in one screen, so no navigation strategy can
+		// The two above are written the way a task is written, not the way a
+		// person talks. Real prompts arrive lowercase and unpunctuated, describe
+		// a symptom rather than name a file, and never say "run the tests" —
+		// they assume you know that. The two below are the same work asked the
+		// way it actually gets asked, so the pair isolates prompt shape from
+		// difficulty: a runner that scores well on one and badly on its twin is
+		// being beaten by the wording, not by the code.
+		{
+			Name:  "report-a-bug",
+			Files: multiFilePkg(),
+			Prompt: `the limiter hands back the top of the range for anything under the bottom of it ` +
+				`— 0 with the default config comes out as 10 when it should be 1. can you sort that out`,
+			Check: []string{"go", "test", "./..."},
+		},
+		{
+			Name:   "ask-for-a-feature",
+			Files:  askPkg(),
+			Verify: askAcceptance(),
+			Prompt: `the picker only lets you pick one thing. let people pick more than one, ` +
+				`comma separated, and if they type something that isn't on the list just take that ` +
+				`as their answer`,
+			// -timeout guards the likeliest wrong turn: a read loop that no
+			// longer terminates leaves go test wedged for ten minutes and eats
+			// the whole task budget rather than failing.
+			Check: []string{"go", "test", "-timeout", "60s", "./..."},
+		},
+		{
+			Name:   "two-part-request",
+			Files:  workingPkg(),
+			Verify: twoPartAcceptance(),
+			Prompt: `couple of things — Config needs a String method so it prints like "lo..hi", ` +
+				`and something to tell me whether a config is sane, i.e. its low bound isn't above its high one`,
+			// Two independent edits in one sentence, which is how requests
+			// actually arrive. Half-doing it is the failure being watched for:
+			// the check fails if either half is missing, and neither half
+			// depends on the other, so there is no order to get wrong.
+			//
+			// Both halves are additions. The first draft asked for the default
+			// low bound to move to 0, which limiter_test.go already pins at 1 —
+			// a request the seed contradicts, so an agent would have been graded
+			// on which of two conflicting instructions it guessed at. That is
+			// the seed-does-not-match-the-task mistake, and it invalidates the
+			// measurement rather than making it harder.
+			Check: []string{"go", "test", "-timeout", "60s", "./..."},
+		},
+		// The seven above all fit in one screen, so no navigation strategy can
 		// distinguish itself: reading every file is a perfectly good plan. This
 		// one is forty-odd files across fourteen packages, where it is not.
 		{
@@ -57,6 +102,79 @@ func DefaultTasks() []Task {
 				`documentation. Do not change any documentation or any test.`,
 			Check: []string{"go", "test", "./..."},
 		},
+		{
+			Name:  "hunt-in-a-tree",
+			Files: bigTree(),
+			Prompt: `one of these components is reporting a rate that doesn't match what its own ` +
+				`docs say. can you track down which one and make the code agree with the docs`,
+			// find-in-a-tree's twin, asked the way it would actually be asked:
+			// no mention of the failing test, no "exactly one", no instruction
+			// about what not to change. This is the pair that exercises search
+			// rather than reading — forty files, and the prompt names none of
+			// them — so it is where a weak grep shows up as a wrong answer.
+			Check: []string{"go", "test", "./..."},
+		},
+	}
+}
+
+// twoPartAcceptance grades both halves of the two-part request separately, so a
+// run that did one of them scores zero rather than half.
+//
+// Written as one file the agent never sees, for the same reason as
+// askAcceptance: a request with the test attached is a specification.
+func twoPartAcceptance() map[string]string {
+	return map[string]string{
+		"twopart_test.go": `package bench
+
+import "testing"
+
+func TestConfigStringed(t *testing.T) {
+	if got := (Config{Lo: 2, Hi: 9}).String(); got != "2..9" {
+		t.Fatalf("String() = %q, want \"2..9\"", got)
+	}
+}
+
+// The second half. Only the two answers the request actually determines are
+// checked — a sane config and an inverted one — and the method may be called
+// anything, so long as exactly one bool method exists to call. What it is
+// named is the agent's choice, and grading a choice the prompt left open would
+// be grading a guess.
+func TestConfigSanityReported(t *testing.T) {
+	if !configSane(Config{Lo: 1, Hi: 10}) {
+		t.Fatal("a config with lo below hi should report sane")
+	}
+	if configSane(Config{Lo: 10, Hi: 1}) {
+		t.Fatal("a config with lo above hi should not report sane")
+	}
+}
+`,
+		// The name the agent chose, found rather than guessed at.
+		//
+		// This was a list of the names it might have picked — Valid, IsValid,
+		// Sane, OK — and the first real run wrote IsSane and was marked wrong
+		// for it. The method was correct, the request did not name it, and the
+		// grader failed an answer for spelling. Any list will be missing the
+		// fifth name, so there is no list: the prompt asked for something that
+		// reports whether a config is sane, and a niladic bool method on Config
+		// is exactly that, whatever it is called.
+		"twopart_shim_test.go": `package bench
+
+import "reflect"
+
+// configSane calls whatever niladic bool method the agent added to Config.
+func configSane(c Config) bool {
+	for _, v := range []reflect.Value{reflect.ValueOf(c), reflect.ValueOf(&c)} {
+		t := v.Type()
+		for i := 0; i < t.NumMethod(); i++ {
+			mt := t.Method(i).Type
+			if mt.NumIn() == 1 && mt.NumOut() == 1 && mt.Out(0).Kind() == reflect.Bool {
+				return v.Method(i).Call(nil)[0].Bool()
+			}
+		}
+	}
+	panic("Config has no bool method reporting whether it is sane")
+}
+`,
 	}
 }
 
@@ -128,6 +246,156 @@ func bigTree() map[string]string {
 			"\t\tt.Fatalf(\"Total() = %%d, want %%d\", got, %d)\n\t}\n}\n",
 		total, total)
 	return files
+}
+
+// askPkg seeds a one-answer picker: a question, numbered options, and a caller
+// that prints what came back. Nothing in it is broken.
+//
+// The task on top of it is a feature request in the shape people write them —
+// no file named, no API given, no test mentioned. What keeps that gradable is
+// that the shape of the answer is already pinned by the code: Ask returns a
+// slice, its one caller joins that slice, and the seed's own test fixes the
+// signature. So "let people pick more than one" has exactly one sensible
+// landing place, and askAcceptance can check it without having guessed at
+// names the agent was free to choose.
+func askPkg() map[string]string {
+	return map[string]string{
+		"go.mod": "module bench\n\ngo 1.21\n",
+		"ask.go": `// Package ask puts a question to the person at the terminal.
+package ask
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+)
+
+// Question is one thing to ask.
+type Question struct {
+	Text    string
+	Options []string
+}
+
+// Ask prints q and reads the reply, returning what the user chose.
+//
+// One option, given by its number. Anything else is not an answer, so the
+// question goes again — until it gets one, or the input runs out.
+func Ask(in io.Reader, out io.Writer, q Question) []string {
+	lines := bufio.NewScanner(in)
+	for {
+		fmt.Fprintln(out, q.Text)
+		for i, opt := range q.Options {
+			fmt.Fprintf(out, "  %d) %s\n", i+1, opt)
+		}
+		if !lines.Scan() {
+			return nil
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(lines.Text()))
+		if err != nil || n < 1 || n > len(q.Options) {
+			fmt.Fprintln(out, "pick one of the numbers")
+			continue
+		}
+		return []string{q.Options[n-1]}
+	}
+}
+`,
+		"report.go": `package ask
+
+import "strings"
+
+// Answer renders what Ask returned, for a transcript the user can read back.
+func Answer(picked []string) string {
+	if len(picked) == 0 {
+		return "(no answer)"
+	}
+	return strings.Join(picked, ", ")
+}
+`,
+		"ask_test.go": `package ask
+
+import (
+	"io"
+	"strings"
+	"testing"
+)
+
+func TestPicksByNumber(t *testing.T) {
+	got := Ask(strings.NewReader("2\n"), io.Discard, Question{
+		Text:    "which one",
+		Options: []string{"alpha", "beta", "gamma"},
+	})
+	if len(got) != 1 || got[0] != "beta" {
+		t.Fatalf("Ask = %v, want [beta]", got)
+	}
+}
+
+func TestAnswerJoins(t *testing.T) {
+	if got := Answer([]string{"alpha", "gamma"}); got != "alpha, gamma" {
+		t.Fatalf("Answer = %q", got)
+	}
+}
+`,
+	}
+}
+
+// askAcceptance is the test the agent never sees, written into the workspace
+// once it has stopped. It grades the three things the prompt asked for and
+// nothing else — one pick still works, several picks work, and something that
+// is not on the list is taken at its word.
+//
+// Deliberately not in the seed. A visible acceptance test turns a request into
+// a specification, and every agent then scores the same: read the test, satisfy
+// the test. What is being measured here is what happens without one.
+func askAcceptance() map[string]string {
+	return map[string]string{
+		"acceptance_test.go": `package ask
+
+import (
+	"io"
+	"strings"
+	"testing"
+)
+
+func ask(input string, options ...string) []string {
+	return Ask(strings.NewReader(input), io.Discard, Question{Text: "which one", Options: options})
+}
+
+func eq(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestStillTakesOne(t *testing.T) {
+	if got := ask("2\n", "alpha", "beta", "gamma"); !eq(got, []string{"beta"}) {
+		t.Fatalf("one pick: got %v, want [beta]", got)
+	}
+}
+
+func TestTakesSeveral(t *testing.T) {
+	if got := ask("1,3\n", "alpha", "beta", "gamma"); !eq(got, []string{"alpha", "gamma"}) {
+		t.Fatalf("several picks: got %v, want [alpha gamma]", got)
+	}
+}
+
+// The write-in carries no comma on purpose. "comma separated" is the rule the
+// prompt gave, so a write-in containing one is a question the task never
+// answered, and grading an agent on it would be grading a coin toss.
+func TestTakesAWriteIn(t *testing.T) {
+	if got := ask("neither of those\n", "alpha", "beta"); !eq(got, []string{"neither of those"}) {
+		t.Fatalf("write-in: got %v, want [neither of those]", got)
+	}
+}
+`,
+	}
 }
 
 // workingPkg is multiFilePkg with the bug fixed: the same shape, spread over

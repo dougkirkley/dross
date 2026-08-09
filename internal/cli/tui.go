@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -38,12 +39,15 @@ func newTUICmd() *cobra.Command {
 		workdir, model, provName                           string
 		baseURL, apiKey, server, resume                    string
 		workerProv, workerModel, workerBU                  string
+		printOnce                                          bool
 	)
 	cmd := &cobra.Command{
-		Use:   "tui",
+		Use:   "tui [prompt]",
 		Short: "Interactive terminal client",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		// One prompt, quoted, as Claude Code takes it — see prompt.go for the
+		// composition rules and rootArgs for why extra words are refused.
+		Args: rootArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if theme != "" {
 				tui.SetTheme(theme) // flag overrides the config theme
 			}
@@ -93,6 +97,32 @@ func newTUICmd() *cobra.Command {
 				return nil
 			}
 
+			// Prompt intake, Claude-Code-shaped: the argument, then anything
+			// piped in. --once and --render carry their own input and their own
+			// output, so neither takes part in it.
+			initialPrompt := ""
+			printMode := false
+			if once == "" {
+				piped, err := pipedStdin(cmd)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+				initialPrompt = composePrompt(promptArg(args), piped)
+				printMode = wantsPrint(printOnce, os.Stdout, os.Stdin)
+				if printMode && initialPrompt == "" {
+					return errNoPrompt
+				}
+				// Answered here, before a provider is resolved or a model is
+				// reached: a slash command is not a prompt, and the only correct
+				// reply to one costs nothing.
+				if printMode {
+					if reply, ok := slashReply(initialPrompt); ok {
+						fmt.Fprintln(cmd.OutOrStdout(), reply)
+						return nil
+					}
+				}
+			}
+
 			res, err := resolveProviders(cmd, provName, model)
 			if err != nil {
 				return err
@@ -121,6 +151,14 @@ func newTUICmd() *cobra.Command {
 			// Agent identity: the configured identity prompt, then project context
 			// files (AGENTS.md / CLAUDE.md).
 			identity := loadProjectContext(workdir)
+			// Durable notes from earlier sessions here, unless the config says
+			// no. Appended to the identity rather than plumbed through the
+			// agent: it is context about this project, which is exactly what
+			// the identity addendum already carries.
+			mem := openMemory(res.File, workdir)
+			if mem != nil {
+				identity += mem.Prompt()
+			}
 			if ip := res.File.IdentityPrompt; ip != "" {
 				if identity != "" {
 					identity = ip + "\n\n" + identity
@@ -211,6 +249,9 @@ func newTUICmd() *cobra.Command {
 					retire() // the old agent is about to be replaced, not reused
 					opts := []agent.Option{agent.WithConversation()}
 					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+					if mem != nil {
+						opts = append(opts, agent.WithTool(memoryToolDef(), memoryToolHandler(mem)))
+					}
 					if store != nil {
 						opts = append(opts, agent.WithCheckpointSaver(func(brief string) error {
 							return session.Save(store, sessionID, brief)
@@ -243,7 +284,8 @@ func newTUICmd() *cobra.Command {
 					if specs := mergedMCP(res.File, workdir); len(specs) > 0 {
 						opts = append(opts, agent.WithMCPServers(specs))
 					}
-					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity, MaxTurns: res.File.MaxTurns},
+					a, err := agent.New(agent.Config{Name: "dross", Model: st.model, Workdir: workdir, Identity: identity,
+						MaxTurns: res.File.MaxTurns, Thinking: res.File.Thinking},
 						st.prov, opts...)
 					if err != nil {
 						return nil, err
@@ -255,6 +297,26 @@ func newTUICmd() *cobra.Command {
 				return conv.Run(ctx, expandMentions(workdir, prompt))
 			}
 
+			// --print: one prompt in, the answer on stdout, no interface. It runs
+			// through the same conversation agent the TUI drives, so a piped run
+			// and a typed one differ only in who reads the result. Permission
+			// gating stays off, as in `dross agent`: there is nobody here to ask,
+			// and a mode that can only auto-deny would make every run a refusal.
+			if printMode {
+				// Synchronously, not through retire: the process is about to
+				// exit, and a goroutine would be a way of never doing it.
+				defer func() {
+					if conv != nil {
+						conv.Close()
+					}
+				}()
+				out, err := run(cmd.Context(), initialPrompt, string(agent.PermAuto), func(agent.Event) {})
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), strings.TrimRight(out.Text, "\n"))
+				return nil
+			}
 			if once != "" {
 				fmt.Fprint(cmd.OutOrStdout(), tui.RenderRun(context.Background(), width, height, "dross", st.model, st.name, run, once))
 				return nil
@@ -265,6 +327,7 @@ func newTUICmd() *cobra.Command {
 			}
 			tui.SetLogoWord(appName)
 			mdl := tui.New(appName, st.model, st.name, run)
+			mdl.SetInitialPrompt(initialPrompt)
 			absWd, _ := filepath.Abs(workdir)
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
@@ -519,6 +582,8 @@ func newTUICmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
+	f.BoolVarP(&printOnce, "print", "p", false,
+		"run the prompt, print the answer, and exit (implied when stdout is not a terminal)")
 	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
 	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")

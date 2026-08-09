@@ -55,8 +55,8 @@ func TestEmptyTurnNudgeSaysWhatToDo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prov.last.lastInput, "empty") {
-		t.Errorf("the model was not told its reply was empty: %q", prov.last.lastInput)
+	if !strings.Contains(prov.last.seen(), "empty") {
+		t.Errorf("the model was not told its reply was empty: %q", prov.last.seen())
 	}
 	if res.Text == "" {
 		t.Error("a model that answers in words after the nudge should be believed")
@@ -167,9 +167,23 @@ func TestMalformedToolCallGivesUpEventually(t *testing.T) {
 	}
 }
 
-// TestWordsWithoutToolsAreStillAnAnswer: a model that explains itself has
-// finished, and must not be nudged.
-func TestWordsWithoutToolsAreStillAnAnswer(t *testing.T) {
+// TestWordsWithoutToolsSurviveTheChallenge: a model that explains itself is
+// asked once whether it meant to do the work, and standing by the answer ends
+// the run.
+//
+// This test used to assert one turn, on the reasoning that a model which
+// explains itself has finished. Reported use says otherwise, and often: the
+// reply is not a conclusion but an intention — "I'll change the comparison in
+// util.go" — and taking it at face value ends the session with the file
+// untouched and an answer that reads as though the work was done. See
+// noWorkNudge and TestNarratedWorkIsPushedBackOn.
+//
+// So a toolless answer now costs one extra turn. That is the price of the
+// guard, paid here on the case where the answer was genuine — and it is the
+// smaller of the two errors, because the other one wastes the whole run. Note
+// that even this reply is a claim about a workspace nothing in the run ever
+// opened.
+func TestWordsWithoutToolsSurviveTheChallenge(t *testing.T) {
 	_, dir := ws(t, map[string]string{})
 	prov := &scriptedProvider{steps: []provider.Response{
 		{StopReason: provider.StopEndTurn, Text: "The test already passes; nothing to change."},
@@ -182,7 +196,7 @@ func TestWordsWithoutToolsAreStillAnAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Turns != 1 {
-		t.Fatalf("turns = %d, want 1 — an answer in words needs no nudge", res.Turns)
+	if res.Turns != 2 {
+		t.Fatalf("turns = %d, want 2 — the answer, and one challenge it stands by", res.Turns)
 	}
 }

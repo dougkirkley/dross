@@ -97,8 +97,8 @@ func TestCompactionOfATestLogCostsNoModelCall(t *testing.T) {
 	if _, used := res.ByModel["compactor-model"]; used {
 		t.Fatal("a failing test log should be trimmed without asking a model")
 	}
-	if !strings.Contains(lead.last.lastInput, "--- FAIL: TestApply") {
-		t.Fatalf("the failure did not survive compaction:\n%s", truncate(lead.last.lastInput, 800))
+	if !strings.Contains(lead.last.seen(), "--- FAIL: TestApply") {
+		t.Fatalf("the failure did not survive compaction:\n%s", truncate(lead.last.seen(), 800))
 	}
 }
 

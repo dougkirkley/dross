@@ -133,6 +133,8 @@ func configSchemaHelp() string {
 		"  colors {role:hex}, gradient [hex...], provider, model, base_url, api_key, style,\n" +
 		"  max_tokens, max_parallel, models [ids], worker {provider,model,base_url,api_key},\n" +
 		"  reviewer {...}, review (bool), compactor {...}, compact_at, phrases [strings],\n" +
+		"  thinking (bool — a reasoning model's deliberation; false makes qwen3-class models far faster for mechanical work, unset leaves the model as it comes),\n" +
+		"  memory (bool, default true — durable per-project notes; false stops them loading and removes the memory tool),\n" +
 		"  tools [ids], permission {tool:allow|ask|deny}, plugins [...]"
 }
 

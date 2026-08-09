@@ -115,6 +115,15 @@ func newAgentCmd() *cobra.Command {
 			}
 			cfgPath, _ := cmd.Flags().GetString("config")
 			opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+			// Same memories as an interactive session in this workspace: a note
+			// worth keeping does not stop being true because the next run was
+			// headless.
+			if mem := openMemory(pc.File, workdir); mem != nil {
+				opts = append(opts, agent.WithTool(memoryToolDef(), memoryToolHandler(mem)))
+				if p := mem.Prompt(); p != "" {
+					identity += p
+				}
+			}
 			if specs := mergedMCP(pc.File, workdir); len(specs) > 0 {
 				opts = append(opts, agent.WithMCPServers(specs))
 			}
@@ -122,6 +131,7 @@ func newAgentCmd() *cobra.Command {
 			ag, err := agent.New(agent.Config{
 				Name: name, Identity: identity, Model: model, Workdir: workdir, Style: agent.Style(style),
 				MaxTurns: pc.File.MaxTurns, Sandbox: sandbox || pc.File.Sandbox, Plan: plan,
+				Thinking: pc.File.Thinking,
 			}, prov, opts...)
 			if err != nil {
 				return err

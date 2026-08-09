@@ -33,17 +33,25 @@ func TestWorkspaceGrepGlob(t *testing.T) {
 	if !strings.Contains(out, "main.go:2:") {
 		t.Fatalf("grep missed match:\n%s", out)
 	}
-	if empty, _ := w.grep("zzz-nope", grepOpts{}); empty != "[no matches]" {
-		t.Fatalf("expected no matches, got %q", empty)
+	// A search with nothing to find says what to try instead of just "no".
+	empty, _ := w.grep("zzz-nope", grepOpts{})
+	if !strings.Contains(empty, "no matches") || !strings.Contains(empty, "zzz-nope") {
+		t.Fatalf("a dead end should name what was searched for, got %q", empty)
 	}
 
-	// glob **/*.go finds both mains; *.go finds only the root one.
+	// glob **/*.go finds both mains, and so does a bare *.go — a slash-less
+	// pattern matches at any depth, which is what people mean by it and what
+	// Claude Code's equivalent does. "./*.go" is how to ask for the root alone.
 	all, _ := w.glob("**/*.go")
 	if !strings.Contains(all, "main.go") || !strings.Contains(all, "cmd/tool/main.go") {
 		t.Fatalf("glob **/*.go missing files:\n%s", all)
 	}
-	root, _ := w.glob("*.go")
-	if strings.Contains(root, "cmd/tool/main.go") {
-		t.Fatalf("*.go should not cross directories:\n%s", root)
+	bare, _ := w.glob("*.go")
+	if !strings.Contains(bare, "cmd/tool/main.go") {
+		t.Fatalf("a bare *.go should match at any depth:\n%s", bare)
+	}
+	root, _ := w.glob("./*.go")
+	if strings.Contains(root, "cmd/tool/main.go") || !strings.Contains(root, "main.go") {
+		t.Fatalf("./*.go should be the root alone:\n%s", root)
 	}
 }

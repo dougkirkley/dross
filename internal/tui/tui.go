@@ -360,6 +360,23 @@ var slashCommands = []slashCmd{
 	{"/remote-control", "link this machine to the server", ""},
 }
 
+// SlashCommandNames is the set of "/command" names this client understands.
+//
+// Exported for the non-interactive path, which has none of them and has to say
+// so: a slash command typed at `dross -p` is not a prompt, and sending it to a
+// model as though it were spends a turn to be told that a machine already knew.
+func SlashCommandNames() []string {
+	out := make([]string, 0, len(slashCommands))
+	for _, c := range slashCommands {
+		out = append(out, c.name)
+	}
+	return out
+}
+
+// LooksLikeSlashCommand reports whether text is a "/command" rather than a path
+// that happens to start with a slash. Exported for the same reason.
+func LooksLikeSlashCommand(text string) bool { return looksLikeSlashCommand(text) }
+
 // SkillItem is a discovered skill surfaced in the TUI (for /skills, /plugin, and
 // user-invocable /name commands).
 type SkillItem struct {
@@ -479,6 +496,8 @@ type Model struct {
 	// the foreground bash command currently executing (blank when none)
 	bashCmd   string
 	bashStart time.Time
+
+	initialPrompt string
 
 	// live subagent tree, shown under the prompt while workers run
 	workerOrder []string            // worker tags, in first-seen order
@@ -796,6 +815,14 @@ func (m *Model) SetMeta(version, workdir string) { m.version, m.workdir = versio
 
 // SetConfigPath sets the config file /config opens in $EDITOR.
 func (m *Model) SetConfigPath(path string) { m.configPath = path }
+
+func (m *Model) SetInitialPrompt(prompt string) {
+	m.initialPrompt = prompt
+	if prompt != "" {
+		m.input.SetValue(prompt)
+		m.input.CursorEnd()
+	}
+}
 
 // SetThemeSaver wires a callback that persists the theme chosen via /theme.
 func (m *Model) SetThemeSaver(fn func(string)) { m.onTheme = fn }
@@ -1455,7 +1482,15 @@ func (m Model) phrase() string {
 	return m.phrases[m.phraseIdx%len(m.phrases)]
 }
 
-func (m Model) Init() tea.Cmd { return tea.Batch(textinput.Blink, shimmerTick()) }
+func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{textinput.Blink, shimmerTick()}
+	if m.initialPrompt != "" {
+		cmds = append(cmds, func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		})
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd

@@ -21,7 +21,7 @@ const Version = "v0.4.0"
 // is no separate `tui` subcommand).
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "dross",
+		Use:   "dross [prompt]",
 		Short: "Cost-aware multi-model coding agent",
 		Long: "Cost-aware multi-model coding agent.\n\n" +
 			"Every flag can also be set from the environment, as DROSS_ plus the\n" +
@@ -30,7 +30,11 @@ func NewRootCmd() *cobra.Command {
 			"given on the command line overrides the environment.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.NoArgs,
+		// A bare word that names no subcommand is a prompt, not a mistake —
+		// `dross "fix the build"` has to work, and that is also how the Claude
+		// Code CLI reads its argument. Cobra dispatches real subcommands before
+		// this runs, so only the leftovers arrive here.
+		Args: rootArgs,
 		// Runs for the root and for every subcommand, against whichever command
 		// is actually executing, so its own flags and any inherited ones are
 		// covered.
@@ -58,6 +62,17 @@ func NewRootCmd() *cobra.Command {
 	)
 	return root
 }
+
+// rootArgs takes the positional prompt the way the Claude Code CLI takes it,
+// which is to say it takes anything.
+//
+// A word naming no subcommand is a prompt, not a mistake — `dross "fix the
+// build"` has to reach the agent — and that costs the unknown-command error,
+// since cobra only raises one exactly where the prompt now goes. Extra words
+// are promptArg's business rather than this validator's: `claude -p fix the
+// bug` answers "fix" and drops the rest, and dross does the same, so the two
+// agree on the prompts nobody meant to write as well as on the ones they did.
+func rootArgs(_ *cobra.Command, _ []string) error { return nil }
 
 // Execute runs the CLI.
 //

@@ -116,7 +116,7 @@ func TestReadAcceptsBothForms(t *testing.T) {
 	if _, err := ag.Run(context.Background(), "read both"); err != nil {
 		t.Fatal(err)
 	}
-	last := prov.last.lastInput
+	last := prov.last.seen()
 	if !strings.Contains(last, "package a") || !strings.Contains(last, "package b") {
 		t.Fatalf("both forms should be honoured:\n%s", last)
 	}

@@ -206,8 +206,8 @@ func codeToolLines(tools []string) string {
 		"read":         "read(path) or read(paths=[…]): read one file, or several in a single call. Content comes back with line numbers. When you already know which files you want, ask for them all at once.",
 		"write":        "write(path, content): create or overwrite a file.",
 		"edit":         "edit(path, old_str, new_str): replace an exact substring in a file. old_str must match the file exactly, including whitespace. Pass replace_all for a rename that touches every occurrence, and edits=[…] to make several changes in a single call rather than one call each — give an entry its own path and one call changes several files, which is how a rename across a package should be done.",
-		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched.",
-		"glob":         "glob(pattern): list files whose paths match a glob (**/*.go). Use this to find files, not `bash find` or `ls -R`.",
+		"grep":         "grep(pattern, path?): search file contents for a regular expression. Use this to search the workspace, not `bash grep`. Pass context=N to get the surrounding lines in the same call instead of a follow-up read, files_only for just the file names, and glob to restrict which files are searched. A search that matches nothing is retried ignoring case and tells you so — read what it says before rewriting the pattern.",
+		"glob":         "glob(pattern): list files whose paths match a glob. A bare name like *.go matches at any depth. Use this to find files, not `bash find` or `ls -R`.",
 		"todo":         "todo(items): keep the plan for a multi-step job. Send the whole list each time; it comes back to you, so it is also how you remember what is left. Not for one-step tasks.",
 		"bash":         "bash(command): run a shell command with the workspace as the working directory. Set background=true for anything long-lived.",
 		"shell_output": "shell_output(id): read (or kill) a background shell started by bash.",
@@ -260,11 +260,46 @@ Working style:
   executed at the same time. Batch every look-up whose target you already know —
   waiting for one file before naming the next is the slowest way to work.
 - Verify your work: after editing code, build or run the relevant tests via bash.
+- A tool call that comes back denied was refused by the user, not broken. Take the
+  refusal as an answer and find another way; do not send the same call again.
 - Keep responses concise. Lead with the outcome.
 - Report completion only when the task is actually done. If something is blocked, say so plainly.
 - Plain markdown only, and no HTML: a <br> is printed as those four characters, not as a line break.
-- Prefer prose, short lists and code blocks to tables. This is often read on a phone, where a three-column table is three words wide.`
+- Prefer prose, short lists and code blocks to tables. This is often read on a phone, where a three-column table is three words wide.
+` + deliveringWork + correctionsGuidance
 }
+
+// deliveringWork is the scope contract: how much of the job to do, and when a
+// question is worth stopping for.
+//
+// It is here because of the difference between the two halves of the benchmark.
+// The same work asked as a specification — "Rename Clamp to Bound everywhere,
+// including doc comments" — and asked the way people actually ask — "the picker
+// only lets you pick one thing, let people pick more than one" — are not the
+// same task for a model. The second one has to be read for intent, and without
+// anything telling it how much to deliver, a model does one of two things: it
+// stops to ask about a choice it could have made, or it does the smallest thing
+// the words permit and reports success.
+//
+// The shape is borrowed from what the Claude Code CLI puts in front of its own
+// model — read off the wire from a local session, not copied — and the parts
+// worth borrowing were the ones about scope, not the ones about tools.
+const deliveringWork = `
+Delivering work:
+- The request is the deliverable. Do not quietly narrow it, widen it, or turn it into a neighbouring job that was easier.
+- Read an ambiguous request the way a careful colleague would. Routine choices are yours to make; ask only when two readings lead to genuinely different work.
+- If the request looks wrong, say so in a sentence and keep going: deliver the whole thing under a stated assumption rather than stopping for permission.
+- Do every part of it. If one part is blocked, finish the rest and say plainly what you left and why — cutting the scope down is the user's call, not yours.
+- Uncertain half way through? Do everything the answer does not affect first, then ask. Stopping with nothing delivered is only right when a guess would be unsafe, or would waste the work if wrong.
+- Asked again for something you have already raised a concern about: that is the decision. Proceed with it.`
+
+// correctionsGuidance keeps a run from spending its output on its own conduct,
+// and keeps a lead honest about what its workers hand back.
+const correctionsGuidance = `
+Corrections:
+- Correct an earlier statement when the mistake changes what the user should do. Say it once, plainly, and carry on: no apology, no post-mortem, no running tally.
+- A follow-up question is not a report of a mistake. Answer what was asked.
+- What a worker or another agent reports is a claim, not a result. Check the ones the answer rests on.`
 
 // chatBasePrompt documents the working style for a chat session: no filesystem,
 // shell, or codebase — just conversation, provided context, and the web.
@@ -367,7 +402,14 @@ save cost and context:
   contents. Treat its output as a draft — verify load-bearing results (compile,
   run tests) before trusting them.
 - Keep judgment, planning, and cross-file reasoning for yourself. Hand over the
-  hands, not the head.`
+  hands, not the head.
+- A request that is really several jobs is a todo list first and delegation
+  second: write the plan down, then hand over every part that stands alone in
+  ONE call — task(tasks=[...]) runs them at once, where one call per subtask
+  runs them end to end. Splitting the job well is your work and nobody else's;
+  the workers only have hands.
+- Parallel means independent. Two subtasks that edit the same file, or where one
+  needs what the other found, go in separate calls or in none.`
 
 // planGuidance frames a session that has been asked to plan before it acts.
 //
@@ -409,6 +451,41 @@ Do exactly that task using your tools, then stop. Return a short, factual
 summary of what you did and the concrete result (file paths changed, the value
 produced, or the command output that matters) — not a narration of your steps.
 Do not expand the scope beyond the task as given.`
+
+// splittingWorker is added for a worker that still has depth beneath it: it may
+// split its task again rather than carry the whole thing alone.
+//
+// The warning is the important half. A model handed both a job and the means to
+// pass it on will pass it on, and a tree in which every level delegates and no
+// level works is slower and more expensive than one agent doing the job — it
+// pays for a full context per level to move the same work down. Splitting has
+// to earn itself: the parts must be genuinely separable, and the leaf must be
+// something the worker could not simply have done in the turn it spent
+// describing it.
+const splittingWorker = `
+
+Your task may itself be several jobs. If it is — separate pieces, touching
+different files, that do not need each other's results — you may hand them to
+your own task tool and assemble what comes back.
+
+Only if it genuinely is. A task you could finish in the time it takes to write
+it out for someone else is a task to do yourself, and a chain of agents each
+passing the work down finishes nothing. When you do split, check what comes
+back: a worker's summary is a claim about the workspace, and the files are the
+workspace.`
+
+// workerIdentityFor frames a sub-agent according to where it sits: one that can
+// still delegate is told it may split, the last level is told nothing about a
+// tool it does not have.
+func workerIdentityFor(depth, maxDepth int) string {
+	if maxDepth < 1 {
+		maxDepth = maxTaskDepth
+	}
+	if depth < maxDepth {
+		return workerIdentity + splittingWorker
+	}
+	return workerIdentity
+}
 
 // styleDirective returns the output-verbosity instruction for a style. Terser
 // styles cut output tokens; all keep code, commands, and errors verbatim.
@@ -596,7 +673,9 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 			Name: "grep",
 			Description: "grep: search the contents of files in the workspace for a regular expression. This is the workspace search; " +
 				"to search the web use web_search instead. Returns matching lines as path:line:text. Pass context to get the " +
-				"surrounding lines back in the same call, which usually saves a follow-up read.",
+				"surrounding lines back in the same call, which usually saves a follow-up read. A pattern that is not valid " +
+				"regexp is searched for literally, and a search with no matches is retried ignoring case before it reports " +
+				"nothing, so a failed search tells you what to do next rather than just no.",
 			Properties: map[string]any{
 				"pattern": strProp("Regular expression to search for."),
 				"path":    strProp("Optional file or directory to search (relative to the workspace root; default whole workspace)."),
@@ -604,14 +683,18 @@ func toolDefs(hasWorker, hasPublish, hasAsker bool) []provider.ToolDef {
 				"glob":    strProp("Optional glob restricting which files are searched (e.g. **/*.go)."),
 				"files_only": map[string]any{"type": "boolean",
 					"description": "Return only the names of files that match, not the matching lines. Use when you want to know where something lives."},
+				"ignore_case": map[string]any{"type": "boolean",
+					"description": "Match without regard to case. A search that finds nothing is retried this way automatically, so set it only when you want case ignored from the start."},
 			},
 			Required: []string{"pattern"},
 		},
 		{
-			Name:        "glob",
-			Description: "glob: list the files in the workspace whose paths match a glob pattern (e.g. **/*.go, cmd/*/main.go). This is how to find files by name; to search their contents use grep.",
-			Properties:  map[string]any{"pattern": strProp("Glob pattern relative to the workspace root.")},
-			Required:    []string{"pattern"},
+			Name: "glob",
+			Description: "glob: list the files in the workspace whose paths match a glob pattern (e.g. **/*.go, cmd/*/main.go). " +
+				"A pattern with no slash in it matches at any depth, so *.go finds every Go file, not only the ones in the root. " +
+				"This is how to find files by name; to search their contents use grep.",
+			Properties: map[string]any{"pattern": strProp("Glob pattern relative to the workspace root.")},
+			Required:   []string{"pattern"},
 		},
 		{
 			Name: "todo",

@@ -68,7 +68,7 @@ func TestReadOnlyToolsRunConcurrently(t *testing.T) {
 
 	// Every page came back, and each landed against its own call — order is what
 	// pairs a result with the tool_use id the model is waiting on.
-	last := prov.last.lastInput
+	last := prov.last.seen()
 	for i := 0; i < n; i++ {
 		if want := fmt.Sprintf("page %d", i); !strings.Contains(last, want) {
 			t.Fatalf("missing %q in tool results: %q", want, last)
@@ -102,7 +102,7 @@ func TestBatchKeepsOrderAroundWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last := prov.last.lastInput
+	last := prov.last.seen()
 	if !strings.Contains(last, "before") {
 		t.Fatalf("first read should predate the edit: %q", last)
 	}
@@ -175,8 +175,12 @@ func TestProviderOverheadIsChargedToTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ModelTime != prov.api {
-		t.Fatalf("model time = %v, want the reported %v", res.ModelTime, prov.api)
+	// Per turn, rather than a fixed total: this provider never calls a tool, so
+	// the run is challenged once (noWorkNudge) and takes two turns. What is
+	// being tested is that the reported API time is what lands in ModelTime,
+	// which is a claim about each turn, not about how many there are.
+	if want := time.Duration(res.Turns) * prov.api; res.ModelTime != want {
+		t.Fatalf("model time = %v over %d turns, want the reported %v", res.ModelTime, res.Turns, want)
 	}
 	if overhead := wall - res.ModelTime - res.ToolTime; overhead < 200*time.Millisecond {
 		t.Fatalf("overhead = %v, want the provider's own wait to land here", overhead)

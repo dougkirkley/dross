@@ -15,6 +15,7 @@ import (
 	"github.com/dougkirkley/dross/internal/config"
 	"github.com/dougkirkley/dross/pkg/provider"
 	"github.com/dougkirkley/dross/pkg/provider/bedrock"
+	"github.com/dougkirkley/dross/pkg/provider/openai"
 )
 
 var mentionRE = regexp.MustCompile(`@([^\s@]+)`)
@@ -186,10 +187,11 @@ func fetchModelIDs(provName, baseURL, apiKey string) []string {
 		// Azure model ids are user-defined deployment names; show common defaults.
 		return catalogModels("azure")
 	}
-	base := strings.TrimRight(baseURL, "/")
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
+	// Through the same normalization the provider uses, or the picker and the
+	// session disagree about where the models are: a bare-host OPENAI_BASE_URL
+	// listed nothing here while the agent talked to it fine, which reads as an
+	// endpoint with no models rather than a URL missing its /v1.
+	base := openai.NormalizeBase(baseURL)
 	req, err := http.NewRequest(http.MethodGet, base+"/models", nil)
 	if err != nil {
 		return nil
