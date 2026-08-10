@@ -13,9 +13,6 @@ import (
 
 const defaultModel = "claude-opus-5"
 
-// Version is the dross version shown in the TUI and `dross --version`.
-const Version = "v0.4.0"
-
 // NewRootCmd builds the root command. Running dross with no subcommand launches
 // the interactive TUI (the TUI's RunE + flags are attached to the root, so there
 // is no separate `tui` subcommand).
@@ -32,7 +29,7 @@ func NewRootCmd() *cobra.Command {
 		// and `dross version` work. The constant existed and was shown in the
 		// TUI, but the flag every CLI has did not exist -- the first thing
 		// anyone runs after installing answered "unknown flag: --version".
-		Version:       Version,
+		Version:       FullVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// A bare word that names no subcommand is a prompt, not a mistake —

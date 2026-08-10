@@ -39,6 +39,10 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
+          # The context excludes .git, so the commit has to be handed in or the
+          # image can only name its release, not its build.
+          build-args: |
+            REVISION=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository }}-web:latest
             ghcr.io/${{ github.repository }}-web:${{ github.sha }}

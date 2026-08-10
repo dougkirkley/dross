@@ -5,9 +5,33 @@
 FROM golang:1.26.5-alpine AS builder
 WORKDIR /app
 COPY . .
+
+# The commit, because .dockerignore excludes .git — deliberately, it is large
+# and nothing here needs it — so the toolchain has no VCS information to stamp
+# and `dross --version` in a pod would name a release and no build.
+ARG REVISION=""
+
 # Replace the committed placeholder with the real web build, then compile.
+#
+# The bundle is built outside the image so no Flutter SDK is needed here, which
+# means a build can pair a month-old client with a current server and look
+# entirely healthy — cp is happy either way. The published images are safe
+# because CI runs `flutter build web --release` immediately before this; a local
+# `docker build` embeds whatever is on disk, so run it there too.
+#
+# Checking that here by comparing mtimes does not work, which is worth writing
+# down: BuildKit normalises timestamps in the build context, so every file
+# arrives the same age and `find -newer` never matches. It was tried, it passed
+# a deliberately stale bundle, and a guard that cannot fire is worse than none.
+# Only the bundle's absence is detectable, so only that is checked.
 RUN rm -rf internal/web/dist && cp -r mobile/build/web internal/web/dist \
-    && CGO_ENABLED=0 GOOS=linux go build -o dross ./cmd/dross
+    && if [ ! -f internal/web/dist/main.dart.js ]; then \
+         echo "no web bundle to embed — run 'flutter build web --release' in mobile/" >&2; \
+         exit 1; \
+       fi \
+    && CGO_ENABLED=0 GOOS=linux go build \
+       -ldflags "-X github.com/dougkirkley/dross/internal/cli.revision=${REVISION}" \
+       -o dross ./cmd/dross
 
 FROM alpine:latest
 # Sandboxed Code sessions run shell commands via the bash tool, so the runtime
