@@ -134,3 +134,65 @@ func TestScratchpadIsInThePrompt(t *testing.T) {
 		t.Error("the prompt should say why not to use the workspace")
 	}
 }
+
+// TestRelativeScratchpadPathLandsInTheScratchpad is the bug a live run left in
+// the repository.
+//
+// Told to put a mockup in the scratchpad and given its absolute path, the model
+// wrote "scratchpad/dross_ui_designs.html". Relative, so it resolved against
+// the workspace and created a directory in the user's checkout — exactly what
+// the scratchpad exists to prevent, and exactly what the prompt told it not to
+// do. Wording was already the fix that had failed, so the path resolves to what
+// was meant.
+func TestRelativeScratchpadPathLandsInTheScratchpad(t *testing.T) {
+	dir := t.TempDir()
+	scratch := filepath.Join(t.TempDir(), "scratchpad")
+	w, err := newWorkspace(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.scratch = scratch
+
+	if _, err := w.writeFile("scratchpad/mockup.html", "<h1>hi</h1>"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "scratchpad")); !os.IsNotExist(err) {
+		t.Fatal("a scratchpad/ directory was created in the workspace")
+	}
+	body, err := os.ReadFile(filepath.Join(scratch, "mockup.html"))
+	if err != nil {
+		t.Fatalf("the file did not land in the scratchpad: %v", err)
+	}
+	if string(body) != "<h1>hi</h1>" {
+		t.Fatalf("content = %q", body)
+	}
+	// Nested paths too, since a session may organise its own scratch work.
+	if _, err := w.writeFile("scratchpad/designs/two.html", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "designs", "two.html")); err != nil {
+		t.Errorf("nested scratchpad path: %v", err)
+	}
+}
+
+// A project that really keeps a scratchpad/ owns the name. Redirecting reads of
+// it would be a worse bug than the litter this avoids.
+func TestAProjectsOwnScratchpadDirectoryWins(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scratchpad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scratchpad", "real.txt"), []byte("theirs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w, err := newWorkspace(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.scratch = filepath.Join(t.TempDir(), "scratchpad")
+
+	got, err := w.readFile("scratchpad/real.txt")
+	if err != nil || !strings.Contains(got, "theirs") {
+		t.Fatalf("the project's own scratchpad/ should be read: %v %q", err, got)
+	}
+}

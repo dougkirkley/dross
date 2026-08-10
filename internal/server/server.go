@@ -142,6 +142,7 @@ func (s *Server) apiMux() *http.ServeMux {
 
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/artifacts", s.handleArtifactPublish)
+	mux.HandleFunc("POST /api/artifacts/blob", s.handleArtifactUpload)
 	mux.HandleFunc("POST /api/artifacts/{id}/share", s.handleArtifactShare)
 	mux.HandleFunc("DELETE /api/artifacts/{id}/share", s.handleArtifactUnshare)
 

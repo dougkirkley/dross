@@ -416,6 +416,55 @@ func (s *Server) handleArtifactPublish(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleArtifactUpload stores a blob sent by a linked machine.
+//
+// handleArtifactPublish above reads a path on the server's own filesystem,
+// which is right for a session the server is running and useless for one it is
+// not. A laptop driving a session over remote control has the file locally and
+// the operator is somewhere else entirely — a link to loopback on the laptop is
+// no use to a phone — so the bytes have to come up.
+//
+// The body is the file. Name and type ride in headers rather than a multipart
+// envelope: there is exactly one part, and a 20 MB mockup should not be
+// base64'd into JSON to get here.
+func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
+	if s.arts == nil {
+		http.Error(w, "artifacts not configured", http.StatusNotImplemented)
+		return
+	}
+	name := r.Header.Get("X-Artifact-Filename")
+	if name == "" {
+		http.Error(w, "need X-Artifact-Filename", http.StatusBadRequest)
+		return
+	}
+	// Bounded: this is an authenticated endpoint, but an authenticated client
+	// with a bug can still fill a disk.
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxArtifactUpload))
+	if err != nil {
+		http.Error(w, "body too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if len(data) == 0 {
+		http.Error(w, "empty body", http.StatusBadRequest)
+		return
+	}
+	mime := r.Header.Get("Content-Type")
+	if mime == "" || mime == "application/octet-stream" {
+		mime = detectMime(name, data)
+	}
+	m, err := s.arts.Put(data, mime, filepath.Base(name))
+	if err != nil {
+		http.Error(w, "store failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"url": s.arts.URL(m.ID), "id": m.ID, "mime": m.Mime, "filename": m.Filename,
+	})
+}
+
+// maxArtifactUpload bounds one uploaded artifact.
+const maxArtifactUpload = 32 << 20
+
 // handleArtifactGet serves a published blob to a signed-in user. This route is
 // behind the normal auth middleware; the public path is handleArtifactShared.
 func (s *Server) handleArtifactGet(w http.ResponseWriter, r *http.Request) {

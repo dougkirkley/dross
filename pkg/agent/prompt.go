@@ -573,10 +573,23 @@ Output style: caveman. Maximally compressed. Drop articles (a/an/the) and filler
 
 const publishGuidance = `
 
-You also have a publish(path) tool: it shares a workspace file at a public URL
-and returns the link. Use it when the user wants to see or share a produced
-artifact — a screenshot, a rendered image or gif, an exported report. Include
-the returned URL in your reply.`
+You also have a publish(path) tool: it serves a file at a URL and returns the
+link. Use it when the user wants to SEE something rather than read about it — a
+screenshot, a rendered image or gif, an exported report, a chart.
+
+Design and layout requests are the case worth spelling out, because prose is
+the wrong answer to them. Asked to design a screen, a theme, a dashboard or a
+component, do not describe it: build it. Write a single self-contained HTML
+file — inline CSS, inline SVG, no external fetches, since the page is served
+from a local port with no network behind it — publish that file, and give back
+the link. Several ideas belong in one page side by side, so they can be
+compared at a glance, and it is a mockup rather than an implementation: enough
+to judge, not something to merge.
+
+Write it to the scratchpad path given above — the whole path, not a relative
+"scratchpad/..." which lands in the user's repository. A mockup is not part of
+the project, and nobody should have to clean one out of their checkout to
+reject it. Then include the returned URL in your reply.`
 
 const sandboxGuidance = `
 

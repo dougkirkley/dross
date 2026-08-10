@@ -865,6 +865,36 @@ func underAny(dirs []string, abs string) bool {
 	return false
 }
 
+// scratchRelative reads "scratchpad/x.html" as the session scratchpad rather
+// than a directory of that name in the repository.
+//
+// Told to put a mockup in the scratchpad and given its absolute path, a model
+// wrote "scratchpad/dross_ui_designs.html" — a relative path, which landed in
+// the user's checkout and left a directory they would have had to clean out.
+// The prompt said not to. Saying it more firmly is the fix that has failed
+// repeatedly here, so the path resolves to what was meant instead.
+//
+// Only when the workspace has no such directory of its own: a project that
+// really keeps a scratchpad/ owns that name, and redirecting reads of it would
+// be worse than the litter this avoids.
+func (w *workspace) scratchRelative(p string) (string, bool) {
+	if w.scratch == "" {
+		return "", false
+	}
+	first, rest, ok := strings.Cut(filepath.ToSlash(filepath.Clean(p)), "/")
+	if !ok || first != "scratchpad" || rest == "" {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(w.root, "scratchpad")); err == nil {
+		return "", false // the project owns the name
+	}
+	abs := filepath.Join(w.scratch, filepath.FromSlash(rest))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return "", false
+	}
+	return abs, true
+}
+
 // resolve turns a tool-supplied path (relative to the workspace, or absolute)
 // into an absolute path proven to sit inside root. Rejects traversal.
 func (w *workspace) resolve(p string) (string, error) {
@@ -874,6 +904,8 @@ func (w *workspace) resolve(p string) (string, error) {
 	var abs string
 	if filepath.IsAbs(p) {
 		abs = filepath.Clean(p)
+	} else if rel, ok := w.scratchRelative(p); ok {
+		abs = rel
 	} else {
 		abs = filepath.Join(w.root, p)
 	}

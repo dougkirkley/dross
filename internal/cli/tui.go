@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -168,6 +169,12 @@ func newTUICmd() *cobra.Command {
 				}
 			}
 
+			// Artifacts: served from here unless a remote operator is driving,
+			// in which case a loopback link is no use to them. See artifacts.go.
+			arts := newLocalArtifacts()
+			defer arts.Close()
+			var remoteLinked atomic.Bool
+
 			var prog *tea.Program
 			// Where a permission gate gets answered: here, or on the device
 			// that sent the prompt. The model keeps it current.
@@ -250,6 +257,9 @@ func newTUICmd() *cobra.Command {
 					retire() // the old agent is about to be replaced, not reused
 					opts := []agent.Option{agent.WithConversation()}
 					opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+					opts = append(opts, agent.WithPublish(publisherFor(
+						arts, remoteLinked.Load,
+						serverPublisher(server, func() string { return relay.LoadToken(server) }))))
 					if mem != nil {
 						opts = append(opts, agent.WithTool(memoryToolDef(), memoryToolHandler(mem)))
 					}
@@ -334,6 +344,7 @@ func newTUICmd() *cobra.Command {
 			mdl.SetMeta(Version, absWd)
 			mdl.SetConfigPath(configFilePath(cfgPath))
 			mdl.SetAskRouter(askRouter)
+			mdl.SetRemoteLinkHook(remoteLinked.Store)
 			// Apply a mode switch to the live agent right away (not just next run).
 			mdl.SetModeSaver(func(mode string) {
 				if conv != nil {

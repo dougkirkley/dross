@@ -550,6 +550,11 @@ type Model struct {
 	remoteLogin  func(ctx context.Context) error                    // SSO sign-in, stores token
 	remoteLink   func(ctx context.Context, hooks RemoteHooks) error // advertise this machine
 	remoteLinked bool
+	// onRemoteLink reports the linked state outwards. A callback rather than a
+	// field the caller reads, because bubbletea copies the Model on every
+	// Update: the pointer handed back by New is the initial one and never sees
+	// remoteLinked change.
+	onRemoteLink func(bool)
 	// remotePublish streams locally-driven work up to the linked session, so
 	// the phone sees what is typed here. Nil until /rc links.
 	remotePublish func(kind, data string)
@@ -786,6 +791,11 @@ func (m *Model) SetPhrases(p []string) {
 		m.phrases = p
 	}
 }
+
+// SetRemoteLinkHook reports when /rc links or drops, so a caller can route work
+// that depends on where the operator is — publishing an artifact to a loopback
+// port is no use to somebody driving this from a phone.
+func (m *Model) SetRemoteLinkHook(fn func(bool)) { m.onRemoteLink = fn }
 
 // SetRemote wires the /login and /rc slash commands. login signs the user in
 // via SSO (storing a session token); link advertises this machine to the server
@@ -1448,6 +1458,9 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			return true, nil
 		}
 		m.remoteLinked = true
+		if m.onRemoteLink != nil {
+			m.onRemoteLink(true)
+		}
 		m.append(metaStyle.Render("linking this machine to " + m.remoteServer + " …"))
 		go func() {
 			err := m.remoteLink(context.Background(), RemoteHooks{
@@ -2208,6 +2221,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case remoteStatusMsg:
 		if strings.HasPrefix(msg.text, "link ended") || msg.text == "link closed" {
 			m.remoteLinked, m.remotePublish, m.remoteAsk = false, nil, nil
+			if m.onRemoteLink != nil {
+				m.onRemoteLink(false)
+			}
 		}
 		m.append(metaStyle.Render(msg.text))
 		cmds = append(cmds, m.pump())

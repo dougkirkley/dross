@@ -23,6 +23,7 @@ func newAgentCmd() *cobra.Command {
 		compProv, compModel, compBaseURL, compKey         string
 		sessionName                                       string
 		addDirs                                           []string
+		serveArtifacts                                    bool
 		sandbox                                           bool
 		plan                                              bool
 		fresh                                             bool
@@ -116,6 +117,13 @@ func newAgentCmd() *cobra.Command {
 			}
 			cfgPath, _ := cmd.Flags().GetString("config")
 			opts = append(opts, agent.WithTool(configToolDef(), configToolHandler(cfgPath)))
+			// Artifacts, served from here. A one-shot run has no session to
+			// outlive, so the listener is kept up after the answer when
+			// anything was published — a link to a process that has already
+			// exited is not a link.
+			arts := newLocalArtifacts()
+			defer arts.Close()
+			opts = append(opts, agent.WithPublish(arts.Publish))
 			// Same memories as an interactive session in this workspace: a note
 			// worth keeping does not stop being true because the next run was
 			// headless.
@@ -157,10 +165,19 @@ func newAgentCmd() *cobra.Command {
 			if res.Review != "" {
 				fmt.Fprintf(out, "\n--- code review (%s) ---\n%s\n", pc.Reviewer.Model, res.Review)
 			}
+			if n := arts.Published(); n > 0 && !serveArtifacts {
+				fmt.Fprintf(out, "\n%d artifact(s) published to %s — they die with this process. "+
+					"Pass --serve-artifacts to keep serving them.\n", n, arts.Base())
+			} else if n > 0 {
+				fmt.Fprintf(out, "\nserving %d artifact(s) at %s — ctrl-c to stop\n", n, arts.Base())
+				<-cmd.Context().Done()
+			}
 			return nil
 		},
 	}
 	f := cmd.Flags()
+	f.BoolVar(&serveArtifacts, "serve-artifacts", false,
+		"after the run, keep serving anything the agent published so it can be opened in a browser")
 	f.StringArrayVar(&addDirs, "add-dir", nil,
 		"an additional directory the agent may read, write and search; repeatable")
 	f.BoolVar(&sandbox, "sandbox", false,
