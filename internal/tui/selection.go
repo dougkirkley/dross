@@ -236,13 +236,14 @@ func (m Model) selectionText() string {
 // active selection highlighted. Selected lines drop their per-token color (they
 // render in the selection style over plain text), which is fine for a highlight.
 func (m Model) transcriptContent() string {
+	lines := m.visibleLines()
 	if !m.hasSel {
-		return strings.Join(m.lines, "\n")
+		return strings.Join(lines, "\n")
 	}
 	a, b := m.selBounds()
 	sel := lipgloss.NewStyle().Reverse(true)
-	out := make([]string, len(m.lines))
-	for i, line := range m.lines {
+	out := make([]string, len(lines))
+	for i, line := range lines {
 		if i < a.line || i > b.line {
 			out[i] = line
 			continue

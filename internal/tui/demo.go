@@ -41,7 +41,9 @@ func DemoView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 
-	m.append(youLabel.Render("you") + "  add a --json flag to the CLI and delegate the boilerplate")
+	// Through appendTurn, as a real session does, so the demo shows the
+	// same gutter a person's turn actually gets.
+	m.appendTurn(youGutter, youLabel.Render("you"), " add a --json flag to the CLI and delegate the boilerplate")
 
 	events := []agent.Event{
 		{Kind: "text", Data: "Plan: add the flag, delegate the struct + marshalling to the worker, then wire and verify."},
@@ -216,7 +218,9 @@ func DemoRunningView(width, height int) string {
 	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
 	m.width, m.height = width, height
 	m.layout()
-	m.append(youLabel.Render("you") + "  add a --json flag to the CLI and delegate the boilerplate")
+	// Through appendTurn, as a real session does, so the demo shows the
+	// same gutter a person's turn actually gets.
+	m.appendTurn(youGutter, youLabel.Render("you"), " add a --json flag to the CLI and delegate the boilerplate")
 	for _, e := range []agent.Event{
 		{Kind: "text", Data: "Plan: add the flag, delegate the boilerplate, then wire and verify."},
 		{Kind: "tool", Data: `read {"path":"cmd/dross/main.go"}`},

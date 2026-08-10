@@ -411,15 +411,21 @@ func Ask(p *tea.Program, req agent.AskRequest) (string, error) {
 // session is a saved conversation, so the TUI can hold several and switch
 // between them (← opens the switcher). Snapshot of the swappable Model fields.
 type session struct {
-	title   string
-	model   string // model active when this session was last saved (for /usage)
-	lines   []string
-	turns   int
-	cost    float64
-	inTok   int64
-	outTok  int64
-	summary string    // last agent line, for the switcher
-	updated time.Time // last activity, for the age column
+	title string
+	model string // model active when this session was last saved (for /usage)
+	lines []string
+	// The gutter index travels with the lines it describes. Left behind, a
+	// switch would keep the previous session's block map over this one's text.
+	lineTurn []int
+	blocks   int
+	curTurn  int
+	mine     map[int]bool
+	turns    int
+	cost     float64
+	inTok    int64
+	outTok   int64
+	summary  string    // last agent line, for the switcher
+	updated  time.Time // last activity, for the age column
 }
 
 // Model is the TUI state.
@@ -555,6 +561,18 @@ type Model struct {
 	// Update: the pointer handed back by New is the initial one and never sees
 	// remoteLinked change.
 	onRemoteLink func(bool)
+
+	// Which turn each rendered line belongs to, and which turn has the bar.
+	//
+	// The transcript is a flat []string with the gutter baked into every line,
+	// so every message wore one at once and the eye had nothing to follow. A
+	// parallel slice is the cheapest way to make a line addressable without
+	// restructuring thirty-four call sites: it is spliced wherever lines are,
+	// and the bar is composed at render time rather than stored.
+	lineTurn []int
+	curTurn  int
+	blocks   int
+	mine     map[int]bool // blocks that are a person's turn, not the agent's
 	// remotePublish streams locally-driven work up to the linked session, so
 	// the phone sees what is typed here. Nil until /rc links.
 	remotePublish func(kind, data string)
@@ -685,6 +703,7 @@ func (m *Model) saveCurrent() {
 		}
 		m.sessions[m.cur] = session{
 			title: m.title, model: m.model, lines: m.lines, turns: m.turns,
+			lineTurn: m.lineTurn, blocks: m.blocks, curTurn: m.curTurn, mine: m.mine,
 			cost: m.cost, inTok: m.inTok, outTok: m.outTok,
 			summary: m.lastText, updated: up,
 		}
@@ -732,8 +751,9 @@ func (m *Model) loadSession(i int) {
 	s := m.sessions[i]
 	m.cur = i
 	m.title, m.lines, m.turns = s.title, s.lines, s.turns
+	m.lineTurn, m.blocks, m.curTurn, m.mine = s.lineTurn, s.blocks, s.curTurn, s.mine
 	m.cost, m.inTok, m.outTok = s.cost, s.inTok, s.outTok
-	m.vp.SetContent(strings.Join(m.lines, "\n"))
+	m.setBody()
 	m.vp.GotoBottom()
 }
 
@@ -1349,7 +1369,7 @@ func (m *Model) handleSlash(text string) (bool, tea.Cmd) {
 			m.append(metaStyle.Render("busy — wait for the current run to finish"))
 			return true, nil
 		}
-		m.lines = nil
+		m.lines, m.lineTurn, m.blocks, m.curTurn, m.mine = nil, nil, 0, 0, nil
 		m.title, m.lastText = "", ""
 		m.turns, m.cost, m.inTok, m.outTok = 0, 0, 0, 0
 		m.changed = nil
@@ -2157,6 +2177,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Action {
 			case tea.MouseActionPress:
 				if pt, ok := m.mouseToContent(msg.X, msg.Y); ok {
+					// Clicking a block moves the bar to it, so the transcript
+					// can be walked back through without scrolling by eye.
+					m.focusBlockAt(pt.line)
 					m.selA, m.selB = pt, pt
 					m.selecting, m.selMoved, m.hasSel = true, false, false
 				}
@@ -3561,7 +3584,7 @@ func (m *Model) applyEvent(e agent.Event) {
 		// If we were streaming this reply, drop the raw growing block; the final
 		// text is re-rendered with markdown just below.
 		if m.streamStart >= 0 {
-			m.lines = m.lines[:m.streamStart]
+			m.truncate(m.streamStart)
 			m.streamStart, m.streamBuf = -1, ""
 		}
 		if !worker {
@@ -3589,6 +3612,9 @@ func (m *Model) applyEvent(e agent.Event) {
 			lines = []string{""}
 		}
 		bar := agentGutter.Render(gutterMark)
+		if !worker {
+			m.newTurn()
+		}
 		m.append(indent + bar + " " + drossBullet.Render(drossOrbGlyph) + " " + lines[0])
 		for _, l := range lines[1:] {
 			m.append(indent + bar + "   " + l)
@@ -3841,7 +3867,16 @@ func (m *Model) turnGap() {
 }
 
 // gutterMark is the rule drawn down the left of a person's turn.
-const gutterMark = "▌"
+const (
+	gutterMark = "▌" // the block in focus
+	gutterRail = "│" // your own turns, out of focus: findable, not shouting
+	// How far into a line the gutter may sit. A subagent's lines are indented
+	// and labelled before theirs; nothing legitimate is further in than this.
+	gutterSearchCols = 12
+)
+
+// visibleWidth is what a styled string occupies on screen.
+func visibleWidth(s string) int { return len([]rune(stripANSI(s))) }
 
 // gutterFor picks the rule colour, and the label worth keeping beside it, for a
 // turn's origin.
@@ -3864,6 +3899,8 @@ func gutterFor(label string) (lipgloss.Style, string) {
 // the click-to-expand bookkeeping indexes m.lines and a wrapped block would put
 // its arithmetic out.
 func (m *Model) appendTurn(bar lipgloss.Style, label, text string) {
+	m.newTurn()
+	m.mine[m.blocks] = true
 	mark := bar.Render(gutterMark)
 	for i, line := range strings.Split(text, "\n") {
 		if i == 0 && label != "" {
@@ -3875,8 +3912,119 @@ func (m *Model) appendTurn(bar lipgloss.Style, label, text string) {
 
 func (m *Model) append(line string) {
 	m.lines = append(m.lines, line)
-	m.vp.SetContent(strings.Join(m.lines, "\n"))
+	m.lineTurn = append(m.lineTurn, m.blocks)
+	m.setBody()
 	m.vp.GotoBottom()
+}
+
+// truncate cuts the feed back to n lines, keeping the turn index in step.
+//
+// Streaming rewrites its own block on every token, so this runs constantly. Cut
+// one slice and not the other and lineTurn grows past lines, which does not
+// crash — it silently misattributes every line after the drift, and the gutter
+// lands on the wrong block.
+func (m *Model) truncate(n int) {
+	if n < 0 || n > len(m.lines) {
+		return
+	}
+	m.lines = m.lines[:n]
+	m.lineTurn = m.lineTurn[:min(len(m.lineTurn), n)]
+}
+
+// focusBlockAt moves the gutter to whichever block owns a rendered line.
+func (m *Model) focusBlockAt(line int) {
+	if line < 0 || line >= len(m.lineTurn) {
+		return
+	}
+	if t := m.lineTurn[line]; t != m.curTurn {
+		m.curTurn = t
+		m.setBody()
+	}
+}
+
+// newTurn starts a block and focuses it, so the bar follows the newest thing
+// said rather than staying where a click left it.
+func (m *Model) newTurn() {
+	m.blocks++
+	m.curTurn = m.blocks
+	if m.mine == nil {
+		m.mine = map[int]bool{}
+	}
+}
+
+// setBody composes the viewport from the raw lines, drawing the gutter only on
+// the turn in focus.
+//
+// The mark is replaced by spaces of the same width rather than removed, or
+// every unfocused line would shift left by two columns and the transcript would
+// ripple every time focus moved.
+func (m *Model) setBody() { m.vp.SetContent(m.transcriptContent()) }
+
+func (m *Model) body() string { return strings.Join(m.visibleLines(), "\n") }
+
+// visibleLines is the transcript as it should be read: every line, but with the
+// gutter mark left on only the block in focus.
+//
+// Everything that fills the viewport goes through here. Two composers over the
+// same slice is how the bar came back on resize and on session switch — one of
+// them still joined m.lines raw.
+func (m Model) visibleLines() []string {
+	marks := gutterMarks()
+	out := make([]string, len(m.lines))
+	for i, ln := range m.lines {
+		if i < len(m.lineTurn) && m.lineTurn[i] == m.curTurn {
+			out[i] = ln
+			continue
+		}
+		out[i] = dimGutter(ln, marks, m.blurFor(i))
+	}
+	return out
+}
+
+// blurFor is what a line's gutter becomes out of focus.
+//
+// Crush's split, which is worth copying: your own turns keep a thin rail when
+// blurred, the agent's go blank. The transcript is mostly the agent talking, so
+// blanking those is what clears the noise; keeping a hairline on yours leaves
+// the questions findable when scrolling back without competing with the bar.
+//
+// Which is which comes from the block, not from the glyph's colour. Styles all
+// render bare with no TTY, so sniffing the escape sequence agrees with itself
+// in a terminal and gets every line wrong anywhere else.
+func (m Model) blurFor(line int) string {
+	if line >= len(m.lineTurn) || !m.mine[m.lineTurn[line]] {
+		return " "
+	}
+	return youGutter.Render(gutterRail)
+}
+
+// gutterMarks is every rendering of the bar, for locating it in a line.
+func gutterMarks() []string {
+	return []string{
+		youGutter.Render(gutterMark), remoteGutter.Render(gutterMark),
+		agentGutter.Render(gutterMark), gutterMark,
+	}
+}
+
+// dimGutter blanks a leading gutter mark, keeping the column alignment.
+func dimGutter(line string, marks []string, blur string) string {
+	for _, bar := range marks {
+		if bar == "" {
+			continue
+		}
+		if strings.HasPrefix(line, bar) {
+			return blur + line[len(bar):]
+		}
+		// A subagent's lines carry an indent and a "worker" label before their
+		// bar, so the mark is not at the start. Judge by how far in it is on
+		// screen, not by byte offset — styling puts escape sequences in front of
+		// it — and cap it well short of any column prose reaches, so a "▌" that
+		// is really part of the text is left alone.
+		if i := strings.Index(line, bar); i > 0 && visibleWidth(line[:i]) <= gutterSearchCols {
+			return line[:i] + blur + line[i+len(bar):]
+		}
+	}
+	return line
 }
 
 // renderStream re-renders the live streaming prose block (plain, growing) under
@@ -3886,7 +4034,7 @@ func (m *Model) renderStream() {
 	if m.streamStart < 0 {
 		return
 	}
-	m.lines = m.lines[:m.streamStart]
+	m.truncate(m.streamStart)
 	width := m.width - 4
 	var wrapped []string
 	for _, para := range strings.Split(m.streamBuf, "\n") {
@@ -3909,7 +4057,7 @@ func (m *Model) renderStream() {
 func (m *Model) layout() {
 	headerH, footerH := 2, 4 // header is a bar + a gradient hairline
 	m.vp = viewport.New(m.width, m.height-headerH-footerH)
-	m.vp.SetContent(strings.Join(m.lines, "\n"))
+	m.setBody() // not strings.Join(m.lines) — that would restore every gutter until the next append
 	m.vp.GotoBottom()
 	m.input.Width = m.width - 6
 }
@@ -4099,10 +4247,11 @@ func (m *Model) toggleInlineTool(line int) {
 			end = len(m.lines)
 		}
 		m.lines = append(m.lines[:line+1], m.lines[end:]...)
+		m.lineTurn = append(m.lineTurn[:line+1], m.lineTurn[end:]...)
 		delete(m.expandedLen, line)
 		m.dropExpandedAt(line)
 		m.shiftLineIndexes(line+1, -n)
-		m.vp.SetContent(strings.Join(m.lines, "\n"))
+		m.setBody()
 		return
 	}
 	detail := m.toolDetailLines(rec)
@@ -4110,15 +4259,22 @@ func (m *Model) toggleInlineTool(line int) {
 		return
 	}
 	rest := append([]string(nil), m.lines[line+1:]...)
+	restTurn := append([]int(nil), m.lineTurn[line+1:]...)
+	own := m.lineTurn[line]
 	m.lines = append(m.lines[:line+1], detail...)
 	m.lines = append(m.lines, rest...)
+	m.lineTurn = m.lineTurn[:line+1]
+	for range detail {
+		m.lineTurn = append(m.lineTurn, own)
+	}
+	m.lineTurn = append(m.lineTurn, restTurn...)
 	if m.expandedLen == nil {
 		m.expandedLen = map[int]int{}
 	}
 	m.shiftLineIndexes(line+1, len(detail))
 	m.expandedLen[line] = len(detail)
 	m.expandedAt = append(m.expandedAt, line)
-	m.vp.SetContent(strings.Join(m.lines, "\n"))
+	m.setBody()
 }
 
 func (m *Model) dropExpandedAt(line int) {
