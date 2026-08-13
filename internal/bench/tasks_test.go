@@ -291,6 +291,72 @@ func TestBigTreeIsBrokenInExactlyOnePlace(t *testing.T) {
 	}
 }
 
+// TestBigLogTaskIsGradable guards the task from all three sides it can rot on.
+//
+// The seed has to start green, or the agent arrives to a failing test and fixes
+// that instead of reading the log. The hidden test has to start red, or every
+// runner scores by doing nothing. And the log has to stay bigger than a single
+// read returns — the day it slips under that, the task is just another edit and
+// the navigation it was written to measure has quietly stopped happening.
+func TestBigLogTaskIsGradable(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH")
+	}
+	dir := t.TempDir()
+	files := bigLogPkg()
+	// pkg/agent's read limit, restated rather than imported: it is unexported,
+	// and a copy that has to be kept in step is better than a task that silently
+	// stops testing anything.
+	const singleReadLimit = 256 * 1024
+	if n := len(files["run.log"]); n <= singleReadLimit {
+		t.Fatalf("run.log is %d bytes, which one read returns whole; the task needs it bigger than %d",
+			n, singleReadLimit)
+	}
+	write := func(fs map[string]string) {
+		for p, content := range fs {
+			if err := os.WriteFile(filepath.Join(dir, p), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	write(files)
+	run := func(args ...string) ([]byte, error) {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		return cmd.CombinedOutput()
+	}
+	if out, err := run("go", "test", "./..."); err != nil {
+		t.Fatalf("the seed must start green, or the agent fixes the test instead of reading the log: %v\n%s", err, out)
+	}
+
+	// The log states the number it wants, and states it once — a task graded on
+	// a figure the log only implies is graded on a guess.
+	log := files["run.log"]
+	if n := strings.Count(log, "at least 5 attempts"); n != 1 {
+		t.Fatalf("the log should ask for the budget exactly once, found %d", n)
+	}
+	if tail := log[len(log)-600:]; !strings.Contains(tail, "FATAL") {
+		t.Fatalf("the answer should be at the end of the log, where reading the first page will not find it:\n%s", tail)
+	}
+
+	write(bigLogAcceptance())
+	if out, err := run("go", "test", "./..."); err == nil {
+		t.Fatalf("the hidden test passes on the seed, so the task grades nothing:\n%s", out)
+	}
+
+	// And doing what the log asks passes it, which is the claim the task makes.
+	raised := strings.Replace(files["retry.go"], "return 3", "return 5", 1)
+	if raised == files["retry.go"] {
+		t.Fatal("could not apply the intended fix")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "retry.go"), []byte(raised), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("go", "test", "./..."); err != nil {
+		t.Fatalf("raising the budget to what the log asked for should pass: %v\n%s", err, out)
+	}
+}
+
 // docRate pulls the number out of a package's "Rate is N." comment.
 func docRate(src string) string {
 	const marker = "// Rate is "

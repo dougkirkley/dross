@@ -102,6 +102,21 @@ func DefaultTasks() []Task {
 				`documentation. Do not change any documentation or any test.`,
 			Check: []string{"go", "test", "./..."},
 		},
+		// The tasks above all fit in files small enough to read whole. This one
+		// does not: its answer is in a 300 KB log, which read refuses to hand
+		// over in one piece. What is being watched is what the run does about
+		// that — tail it with a slice, grep it for the word that matters, or
+		// discover the refusal and go round it with bash. All three are fine
+		// answers; flailing at the refusal is not, and that is the failure this
+		// exists to catch.
+		{
+			Name:   "read-a-big-log",
+			Files:  bigLogPkg(),
+			Verify: bigLogAcceptance(),
+			Prompt: `last night's run died and left run.log behind. work out what it was ` +
+				`complaining about and change the code so it wouldn't happen again`,
+			Check: []string{"go", "test", "-timeout", "60s", "./..."},
+		},
 		{
 			Name:  "hunt-in-a-tree",
 			Files: bigTree(),
@@ -173,6 +188,83 @@ func configSane(c Config) bool {
 		}
 	}
 	panic("Config has no bool method reporting whether it is sane")
+}
+`,
+	}
+}
+
+// logBytes is how big run.log is made. Over the 256 KB a single read returns,
+// so the file cannot be taken in one piece and the run has to decide how to
+// approach it — which is the whole point of the task.
+const logBytes = 300 * 1024
+
+// bigLogPkg seeds a small, working package next to the log that says what is
+// wrong with it.
+//
+// The code is green and stays green: the seed's own test only checks that the
+// knobs are positive, so nothing in the workspace states the answer. The answer
+// is one line near the end of a file too long to read — which is the shape of
+// the problem this task is for, and the reason the interesting part is not the
+// edit but the navigation.
+func bigLogPkg() map[string]string {
+	return map[string]string{
+		"go.mod": "module bench\n\ngo 1.21\n",
+		"retry.go": "// Package bench retries requests against a backend.\npackage bench\n\n" +
+			"// MaxRetries is how many times a request is tried before it is given up on.\n" +
+			"func MaxRetries() int {\n\treturn 3\n}\n\n" +
+			"// Backoff is the pause between attempts, in milliseconds.\n" +
+			"func Backoff() int {\n\treturn 250\n}\n",
+		"retry_test.go": "package bench\n\nimport \"testing\"\n\n" +
+			"func TestKnobsArePositive(t *testing.T) {\n" +
+			"\tif MaxRetries() <= 0 {\n\t\tt.Fatal(\"retries must be positive\")\n\t}\n" +
+			"\tif Backoff() <= 0 {\n\t\tt.Fatal(\"backoff must be positive\")\n\t}\n}\n",
+		"run.log": bigLog(),
+	}
+}
+
+// bigLog is a night of uneventful logging with the reason for the crash in the
+// last few lines.
+//
+// Boring on purpose. A log whose every line is interesting can be sampled
+// anywhere; this one answers only at the end, so a run that reads the first
+// page and stops has read nothing. The FATAL line names the number it wants,
+// because a task graded on a number the log never states is graded on a guess.
+func bigLog() string {
+	var b strings.Builder
+	for i := 1; b.Len() < logBytes; i++ {
+		fmt.Fprintf(&b, "2026-08-12T03:%02d:%02dZ INFO  request %d ok in %dms (attempt 1/3, backend fast-path)\n",
+			(i/60)%60, i%60, i, 20+i%80)
+		if i%97 == 0 {
+			fmt.Fprintf(&b, "2026-08-12T03:%02d:%02dZ WARN  request %d retried once and recovered\n",
+				(i/60)%60, i%60, i)
+		}
+	}
+	b.WriteString(`2026-08-12T04:11:57Z ERROR request 90210 failed (attempt 1/3): slow backend timed out after 2000ms
+2026-08-12T04:11:57Z ERROR request 90210 failed (attempt 2/3): slow backend timed out after 2000ms
+2026-08-12T04:11:58Z ERROR request 90210 failed (attempt 3/3): slow backend timed out after 2000ms
+2026-08-12T04:11:58Z FATAL giving up on request 90210: the slow backend needs a retry budget of at least 5 attempts, and MaxRetries is 3
+2026-08-12T04:11:58Z INFO  draining in-flight requests
+2026-08-12T04:11:58Z INFO  shutdown complete
+`)
+	return b.String()
+}
+
+// bigLogAcceptance grades the one thing the log determines and nothing else.
+//
+// Written after the run, like askAcceptance: a visible test would name the
+// number and turn the log into decoration. How the retry loop is arranged, and
+// whether the backoff moved with it, is the agent's business — the log asked
+// for a budget of at least five, and that is what is checked.
+func bigLogAcceptance() map[string]string {
+	return map[string]string{
+		"acceptance_test.go": `package bench
+
+import "testing"
+
+func TestRetryBudgetRaised(t *testing.T) {
+	if got := MaxRetries(); got < 5 {
+		t.Fatalf("MaxRetries() = %d; the log asked for a budget of at least 5", got)
+	}
 }
 `,
 	}
