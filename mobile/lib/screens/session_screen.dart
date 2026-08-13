@@ -97,7 +97,6 @@ class _SessionScreenState extends State<SessionScreen> {
         // Same signal at the top of the window the session owns, so a run
         // is visible without going back to the list to see its card.
         if (sess?.isRunning ?? false) const RunningBar(),
-        _changedStrip(context, s),
         if (_starting(sess))
           // In the same column the transcript reads in. Left to itself it
           // stretched the full width of a desktop window while every line
@@ -128,6 +127,12 @@ class _SessionScreenState extends State<SessionScreen> {
               if (sess?.isRunning ?? false) _runningRow(s),
               if (runningShells > 0) _tasksLink(context, shells, runningShells),
             ];
+            // What the session has touched, at the head of the conversation
+            // rather than pinned above it.
+            final changed = changedFiles(s.events);
+            final leading = <Widget>[
+              if (changed.isNotEmpty) _changedStrip(context, changed),
+            ];
             return RefreshIndicator(
               onRefresh: () => context.read<AppState>().reloadCurrent(),
               color: T.accent,
@@ -136,12 +141,15 @@ class _SessionScreenState extends State<SessionScreen> {
                 child: ListView.builder(
                   controller: _follow.controller,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  itemCount: timeline.length + trailing.length,
+                  itemCount:
+                      leading.length + timeline.length + trailing.length,
                   itemBuilder: (_, i) {
-                    if (i >= timeline.length) {
-                      return trailing[i - timeline.length];
+                    if (i < leading.length) return leading[i];
+                    final j = i - leading.length;
+                    if (j >= timeline.length) {
+                      return trailing[j - timeline.length];
                     }
-                    final item = timeline[i];
+                    final item = timeline[j];
                     if (item is Activity) return ActivityBlock(item);
                     return _eventRow(item as Event);
                   },
@@ -175,19 +183,24 @@ class _SessionScreenState extends State<SessionScreen> {
     ));
   }
 
-  /// What the session has touched, under the header: "3 files +81 −12".
+  /// What the session has touched, at the head of the transcript:
+  /// "3 files +81 −12".
   ///
-  /// The terminal keeps this in its bottom bar, and it earns the space there
-  /// for the same reason it earns it here — how much is uncommitted is the one
-  /// thing about a working session you want to see without asking for it. The
-  /// list itself is a tap away, because that is the detail you want
-  /// occasionally rather than continuously.
-  Widget _changedStrip(BuildContext context, AppState s) {
-    final files = changedFiles(s.events);
-    if (files.isEmpty) return const SizedBox.shrink();
-    return Readable(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+  /// It used to be pinned between the header and the transcript, on the
+  /// argument that how much is uncommitted is worth seeing without asking —
+  /// which the terminal's bottom bar gets right and this did not. A pinned
+  /// strip with no band behind it is a pill the conversation slides under, and
+  /// the line passing beneath it is clipped mid-glyph: correct layout that
+  /// reads as a broken one, every time you scroll.
+  ///
+  /// So it scrolls with the conversation, at the top of it. The list itself is
+  /// still a tap away, which is the detail wanted occasionally rather than
+  /// continuously — and a run that wants the number back has it in the sheet.
+  Widget _changedStrip(BuildContext context, List<ChangedFile> files) =>
+      Padding(
+        // No Readable and no horizontal padding: it is a row of the transcript
+        // now, and the list is already inside both.
+        padding: const EdgeInsets.only(bottom: 10),
         child: Align(
           alignment: Alignment.centerLeft,
           child: ChangedFilesChip(
@@ -195,9 +208,7 @@ class _SessionScreenState extends State<SessionScreen> {
             onTap: () => showChangedFilesSheet(context, files),
           ),
         ),
-      ),
-    );
-  }
+      );
 
   /// The session's own menu, top right of the page it belongs to.
   Widget _sessionMenu(BuildContext context, Session sess) =>
