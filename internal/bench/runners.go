@@ -43,8 +43,19 @@ func (h *DrossRunner) Available() bool { return h.Provider != nil }
 
 // seedFor hands out the run's sampler seed and advances the counter.
 //
-// Backends that ignore seed (Anthropic, the Claude Code CLI) are unaffected;
-// this only makes the ones that honour it repeatable.
+// Backends that ignore seed (Anthropic, the Claude Code CLI) are unaffected.
+//
+// What this does NOT buy is a repeatable run, and it is worth being exact about
+// that because the claim used to be here. The seed reaches the wire — the
+// openai provider sends it, and temperature is pinned at 0.1 — and two passes
+// over read-a-big-log still disagreed on seed 1: one graded pass at 37s, one
+// graded failure at 43s, same prompt and same workspace. A server batching
+// requests reduces in whatever order the batch arrives, and the arithmetic
+// moves under you regardless of the seed.
+//
+// So the seed makes runs comparable, not identical: it removes one source of
+// variance and leaves the rest. Read the OK column across a whole pass, and do
+// not treat "seed 3 failed" as a reproducer.
 func (h *DrossRunner) seedFor(string) *int {
 	h.runs++
 	s := h.runs
@@ -176,16 +187,23 @@ func firstLine(s string) string {
 // DefaultExternalRunners are the comparison targets: Claude Code and Codex, in
 // their non-interactive modes.
 //
-// permission is Claude Code's --permission-mode. It has to be at least
-// acceptEdits or the comparison is meaningless: headless Claude cannot prompt,
-// so under the default mode every edit is refused and the run finishes fast and
-// wrong — a benchmark dross wins by default. "bypassPermissions" additionally
-// lets it build and test, which is what dross's runner does, so it is the
-// like-for-like setting; it is not the default here because it lets a model run
-// arbitrary commands unattended, and that should be a deliberate choice.
+// permission is Claude Code's --permission-mode, and it defaults to
+// bypassPermissions because anything less is not the same job.
+//
+// Headless Claude cannot prompt, so under the default mode every edit is
+// refused and the run finishes fast and wrong. acceptEdits fixes that half and
+// leaves the other: it lets Claude edit but not run commands, so on any task
+// whose prompt says the tests fail it cannot run the test that defines the
+// work, while dross's runner can. That is a standing bias in dross's favour in
+// every row, not a one-off — its permission_denials for `go build` are visible
+// in the CLI's own JSON.
+//
+// The cost of the default is real and worth stating: it lets a model run
+// arbitrary commands unattended. It runs in a throwaway workspace, and a
+// benchmark that flatters the tool that wrote it is worth less than that risk.
 func DefaultExternalRunners(permission string) []Runner {
 	if permission == "" {
-		permission = "acceptEdits"
+		permission = "bypassPermissions"
 	}
 	return []Runner{
 		&CLIRunner{
@@ -194,6 +212,16 @@ func DefaultExternalRunners(permission string) []Runner {
 			Args:  []string{"-p", "--output-format", "json", "--permission-mode", permission, "{prompt}"},
 			JSON:  true,
 		},
-		&CLIRunner{Label: "codex", Bin: "codex", Args: []string{"exec", "--full-auto", "{prompt}"}},
+		// --sandbox workspace-write is what --full-auto used to mean: edit and
+		// run inside the workspace, no approval prompts. The old flag was
+		// removed, and the row it produced was five failures in ten
+		// milliseconds — "unexpected argument '--full-auto' found", a harness
+		// defect wearing a benchmark result's clothes. The report's
+		// never-reached-a-model note is what caught it, twice: the first repair
+		// still failed in twenty, on "Not inside a trusted directory", because
+		// a bench workspace is a bare temp directory and not a git repository.
+		// Hence --skip-git-repo-check, which is exactly that condition waived.
+		&CLIRunner{Label: "codex", Bin: "codex",
+			Args: []string{"exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "{prompt}"}},
 	}
 }

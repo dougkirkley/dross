@@ -199,7 +199,7 @@ func newBenchCmd() *cobra.Command {
 		"give up on a single run after this long; raise it for a slow local model, where a kill at the ceiling reads as a failure the agent did not have")
 	f.BoolVar(&keep, "keep", false,
 		"leave each run's workspace on disk and print its path, to see what the agent actually did")
-	f.StringVar(&claudePerm, "claude-permission", "acceptEdits",
-		"Claude Code --permission-mode for the comparison run; bypassPermissions also lets it build and test, like dross does")
+	f.StringVar(&claudePerm, "claude-permission", "bypassPermissions",
+		"Claude Code --permission-mode for the comparison run; the default lets it build and test, like dross does, so the two are doing the same job")
 	return cmd
 }
