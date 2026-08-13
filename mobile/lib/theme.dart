@@ -106,11 +106,17 @@ class T {
 
   /// Assistant prose on a phone: a reading face, because a phone conversation
   /// is read like a message thread and has no terminal beside it to match.
+  ///
+  /// 16.5, down from 19. Nineteen was set for a reply you read like a message:
+  /// one block, a few paragraphs, nothing else on the screen. A working session
+  /// is not that — it is a short line, a tool row, another short line — and at
+  /// nineteen four of those filled a phone. The size that reads well for one
+  /// paragraph reads as shouting for eight.
   static TextStyle get prose => const TextStyle(
         fontFamily: serif,
         fontFamilyFallback: serifFallback,
-        fontSize: 19,
-        height: 1.55,
+        fontSize: 16.5,
+        height: 1.5,
         letterSpacing: 0.1,
         color: text,
       );

@@ -15,11 +15,18 @@ class ActStep {
       this.color = T.text,
       this.edit,
       this.detail,
-      this.output});
+      this.output,
+      this.aside = false});
   final IconData icon;
   final String label;
   final Color color;
   final EditInfo? edit;
+
+  /// Something the run said on its way to the next call, rather than something
+  /// it did. Kept in the block so the sentence is not lost, and left out of the
+  /// summary: "read 2 files, used 3 tools" where three of them are sentences
+  /// describes work that never happened.
+  final bool aside;
 
   /// The tool's full input (command, path, task) shown in the drill-in.
   final String? detail;
@@ -55,13 +62,14 @@ class Activity {
   int get added => steps.fold(0, (s, e) => s + (e.edit?.added ?? 0));
   int get removed => steps.fold(0, (s, e) => s + (e.edit?.removed ?? 0));
   int get edits => steps.where((s) => s.edit != null).length;
-  int get tools => steps.where((s) => s.edit == null).length;
+  int get tools => steps.where((s) => s.edit == null && !s.aside).length;
 
   /// Enumerates the distinct actions taken, like Claude's "Edited a file, ran a
   /// command, read a file".
   String get summary {
     final counts = <String, int>{};
     for (final s in steps) {
+      if (s.aside) continue; // said, not done
       final k = s.edit != null ? 'edit' : _verbKey(s.label);
       counts[k] = (counts[k] ?? 0) + 1;
     }
@@ -128,6 +136,41 @@ List<Event> withoutLiveSetup(List<Event> events, String setup) {
       .toList();
 }
 
+/// How long a line may be and still be a preamble rather than an answer.
+///
+/// "Let me check the room file to understand how the scene is structured:" is
+/// 71 characters. A real answer to anything is longer, and the cost of getting
+/// it wrong is one-directional: a mistaken fold hides a sentence behind a
+/// disclosure triangle, where a missed one puts a heading-sized card in front
+/// of every tool call.
+const _preambleMax = 160;
+
+/// Whether the text at [i] is the run announcing its next tool call.
+///
+/// Two conditions, both needed. Short, and immediately followed by a tool or an
+/// edit — with the bookkeeping events that carry nothing skipped, because a
+/// usage counter between the sentence and the call does not make the sentence
+/// an answer.
+bool _isPreamble(List<Event> events, int i) {
+  final text = events[i].data.trim();
+  if (text.isEmpty || text.length > _preambleMax) return false;
+  for (var j = i + 1; j < events.length; j++) {
+    switch (events[j].baseKind) {
+      case 'usage':
+      case 'tool-result':
+      case 'ask':
+      case 'answer':
+        continue; // bookkeeping; keep looking
+      case 'tool':
+      case 'edit':
+        return true;
+      default:
+        return false;
+    }
+  }
+  return false; // nothing followed: it was the last thing said, so it is the answer
+}
+
 List<Object> buildTimeline(List<Event> events, {bool running = false}) {
   final out = <Object>[];
   Activity? cur;
@@ -145,7 +188,8 @@ List<Object> buildTimeline(List<Event> events, {bool running = false}) {
   // can be attached to it for the drill-in view.
   ActStep? awaiting;
 
-  for (final e in events) {
+  for (var i = 0; i < events.length; i++) {
+    final e = events[i];
     // Background shells live in the tasks sheet; only surface a line when one
     // finishes, so the conversation shows "Ran a shell command".
     if (e.isShell) {
@@ -160,6 +204,18 @@ List<Object> buildTimeline(List<Event> events, {bool running = false}) {
       continue;
     }
     switch (e.baseKind) {
+      // A line written only to announce the call that follows it. Folded into
+      // the run rather than breaking it: a model that says "Let me check the
+      // room file:" before each of six reads used to turn one collapsible
+      // "Read six files" into six cards and six rows. The sentence is kept —
+      // it expands with the step — it just stops being a headline.
+      case 'text' when _isPreamble(events, i):
+        (cur ??= Activity()).steps.add(ActStep(
+            icon: Icons.chat_bubble_outline,
+            label: _trim(e.data.trim()),
+            detail: e.data,
+            color: T.textFaint,
+            aside: true));
       case 'prompt':
       case 'text':
       case 'review':

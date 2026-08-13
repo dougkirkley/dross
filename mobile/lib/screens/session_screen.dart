@@ -329,13 +329,12 @@ class _SessionScreenState extends State<SessionScreen> {
         );
         break;
       case 'text':
-        // The orb leads the agent's turn, sitting on the agent's rule.
+        // The rule says whose turn this is, and that is enough. The orb that
+        // used to lead it said the same thing a second time, once per block —
+        // and a run that writes a line before each tool call turns that into a
+        // column of markers down a screen of two-line paragraphs.
         content = SpeakerTurn(
           speaker: Speaker.agent,
-          leading: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text('◉', style: T.termBody.copyWith(color: T.accentHi)),
-          ),
           child: ProseText(e.data),
         );
         break;

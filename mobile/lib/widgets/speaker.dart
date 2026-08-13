@@ -25,18 +25,20 @@ extension _SpeakerColor on Speaker {
       };
 }
 
-/// A turn with a coloured rule down its left saying who is speaking.
+/// A turn, marked as its speaker's only where the marking earns its space.
 ///
-/// This replaced two different ideas that were doing the same job badly. On a
-/// phone a prompt was a bubble pushed to the right margin; on a desktop it was
-/// a "▸ you" prefix; in the terminal it was a rule. Three answers to one
-/// question, so a session open in two of them at once looked like two products.
+/// There used to be a coloured rule down the left of every turn, chosen over a
+/// right-aligned bubble and a "▸ you" prefix because it is the one marker that
+/// survives every window width. That reasoning was sound and the conclusion
+/// still wrong, for a reason a wide window does not show: on a phone, a working
+/// session is mostly short turns, and a rule down each of them is a column of
+/// coloured dashes beside two lines of text — the marker taking as much of the
+/// eye as the thing marked, over and over.
 ///
-/// The rule won because it is the only one of the three that survives every
-/// width. A right-aligned bubble puts a request and the reply it produced at
-/// opposite edges of a wide window, and a glyph prefix disappears into a long
-/// paragraph — but a rule runs the full height of the turn however tall the
-/// turn is, which is exactly the thing being marked.
+/// So nothing is drawn for the agent, which is the overwhelming majority of the
+/// turns and needs no marking to be understood as the reply. A prompt keeps its
+/// [tinted] wash, which says "you said this" without a second element: it is
+/// the same trick a message thread uses, and it costs no width.
 class SpeakerTurn extends StatelessWidget {
   const SpeakerTurn({
     super.key,
@@ -74,45 +76,36 @@ class SpeakerTurn extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(child: child),
           ]);
-    // No outer margin: every caller already spaces its rows, and a turn that
-    // padded itself as well left the rule floating short of its own text.
+    // No outer margin: every caller already spaces its rows.
+    //
+    // No IntrinsicHeight either, which the rule needed and nothing else does. A
+    // transcript row is laid out with an unbounded height, so a Row stretching
+    // its children into it asked for an infinite one — a crash rather than a
+    // tall rule — and measuring the text twice to avoid that was the price of
+    // the rule alone.
     return DecoratedBox(
       decoration: BoxDecoration(
         color: tinted ? T.surfaceAlt.withValues(alpha: 0.5) : null,
-        // Square on the rule side so the wash reads as belonging to it rather
-        // than floating beside it.
-        borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+        // Rounded on both sides now. It was square on the left so the wash read
+        // as belonging to the rule beside it; with no rule there, a square edge
+        // is just a bubble with a corner missing.
+        borderRadius: BorderRadius.circular(10),
       ),
-      // IntrinsicHeight, not stretch alone. A transcript row is laid out with
-      // an unbounded height — that is what a ListView gives its children — and
-      // a Row that stretches its children into an unbounded constraint asks
-      // for an infinite one, which is a crash rather than a tall rule. This
-      // measures the text first, then gives the rule that height.
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Padding(
+        // A tinted turn is a bubble and needs room inside it. An untinted one
+        // is the reply, and pads to nothing so prose runs the full width.
+        padding: EdgeInsets.symmetric(
+            vertical: tinted ? 10 : 0, horizontal: tinted ? 12 : 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(width: 2, color: speaker.color),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                    vertical: tinted ? 8 : 0, horizontal: tinted ? 4 : 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (label != null && label!.isNotEmpty) ...[
-                      Text(label!,
-                          style: T.termMeta.copyWith(
-                              color: speaker.color,
-                              fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 3),
-                    ],
-                    body,
-                  ],
-                ),
-              ),
-            ),
+            if (label != null && label!.isNotEmpty) ...[
+              Text(label!,
+                  style: T.termMeta.copyWith(
+                      color: speaker.color, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 3),
+            ],
+            body,
           ],
         ),
       ),
