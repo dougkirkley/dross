@@ -191,7 +191,7 @@ func TestAProjectsOwnScratchpadDirectoryWins(t *testing.T) {
 	}
 	w.scratch = filepath.Join(t.TempDir(), "scratchpad")
 
-	got, err := w.readFile("scratchpad/real.txt")
+	got, err := w.readFile("scratchpad/real.txt", readWindow{})
 	if err != nil || !strings.Contains(got, "theirs") {
 		t.Fatalf("the project's own scratchpad/ should be read: %v %q", err, got)
 	}

@@ -21,7 +21,7 @@ func TestReadManyInOneCall(t *testing.T) {
 		"c.go": "package c\n",
 	})
 
-	out, err := w.readFiles([]string{"a.go", "b.go", "c.go"})
+	out, err := w.readFiles([]string{"a.go", "b.go", "c.go"}, readWindow{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,11 +40,11 @@ func TestReadManyInOneCall(t *testing.T) {
 // every existing caller's output changes for no reason.
 func TestOneFileReadsExactlyAsBefore(t *testing.T) {
 	w, _ := ws(t, map[string]string{"a.go": "package a\n"})
-	many, err := w.readFiles([]string{"a.go"})
+	many, err := w.readFiles([]string{"a.go"}, readWindow{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	one, err := w.readFile("a.go")
+	one, err := w.readFile("a.go", readWindow{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestOneFileReadsExactlyAsBefore(t *testing.T) {
 func TestUnreadableFileDoesNotSinkTheCall(t *testing.T) {
 	w, _ := ws(t, map[string]string{"a.go": "package a\n"})
 
-	out, err := w.readFiles([]string{"a.go", "gone.go"})
+	out, err := w.readFiles([]string{"a.go", "gone.go"}, readWindow{})
 	if err != nil {
 		t.Fatalf("one bad path should not fail the call: %v", err)
 	}
@@ -74,10 +74,10 @@ func TestUnreadableFileDoesNotSinkTheCall(t *testing.T) {
 // rather than a result with notes.
 func TestAllUnreadableIsAnError(t *testing.T) {
 	w, _ := ws(t, map[string]string{})
-	if _, err := w.readFiles([]string{"x.go", "y.go"}); err == nil {
+	if _, err := w.readFiles([]string{"x.go", "y.go"}, readWindow{}); err == nil {
 		t.Fatal("want an error when nothing could be read")
 	}
-	if _, err := w.readFiles(nil); err == nil {
+	if _, err := w.readFiles(nil, readWindow{}); err == nil {
 		t.Fatal("want an error for no paths at all")
 	}
 }
@@ -90,7 +90,7 @@ func TestReadIsBounded(t *testing.T) {
 	for i := range many {
 		many[i] = "a.go"
 	}
-	_, err := w.readFiles(many)
+	_, err := w.readFiles(many, readWindow{})
 	if err == nil {
 		t.Fatal("want an error past the limit")
 	}

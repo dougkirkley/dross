@@ -668,7 +668,12 @@ func toolDefs(hasWorker, hasPublish, hasAsker, hasADR bool) []provider.ToolDef {
 				"when you mean to read twenty-eight costs five extra round trips. " +
 				"read is for content you need; it is not how you find things. To learn WHICH file " +
 				"contains something, grep — one call searches the whole tree, where reading your way " +
-				"to the same answer costs a round trip per batch.",
+				"to the same answer costs a round trip per batch. " +
+				"Pass offset and limit to read a slice instead of the whole file: that is how to open " +
+				"a file too big to read whole, and how to look at line 2400 of a 3000-line file " +
+				"without the 2399 in front of it. A NEGATIVE offset reads from the end — offset -200 " +
+				"is the last 200 lines, which is where a log says why it died. The reply says how many " +
+				"lines are left and what offset continues from.",
 			Properties: map[string]any{
 				"path": strProp("File path relative to the workspace root."),
 				"paths": map[string]any{
@@ -676,6 +681,10 @@ func toolDefs(hasWorker, hasPublish, hasAsker, hasADR bool) []provider.ToolDef {
 					"items":       map[string]any{"type": "string"},
 					"description": "Several file paths to read at once, relative to the workspace root.",
 				},
+				"offset": map[string]any{"type": "integer",
+					"description": "First line to return, counting from 1. Negative counts from the end: -200 is the last 200 lines. Default 1. Applies to every file in the call."},
+				"limit": map[string]any{"type": "integer",
+					"description": "How many lines to return from offset. Default: the whole file, or as much of a large one as fits."},
 			},
 		},
 		{

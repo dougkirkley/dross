@@ -18,7 +18,7 @@ func TestUnsandboxedReachesOutside(t *testing.T) {
 	}
 	w, _ := ws(t, map[string]string{"in.txt": "inside\n"})
 
-	got, err := w.readFile(sibling)
+	got, err := w.readFile(sibling, readWindow{})
 	if err != nil {
 		t.Fatalf("an unsandboxed session should read an absolute path: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestUnsandboxedReachesOutside(t *testing.T) {
 		t.Fatalf("content = %q", got)
 	}
 	// Relative paths still mean the workspace, so the common case is unchanged.
-	if _, err := w.readFile("in.txt"); err != nil {
+	if _, err := w.readFile("in.txt", readWindow{}); err != nil {
 		t.Fatalf("a relative path should still resolve against the root: %v", err)
 	}
 	if _, err := w.resolve("../" + filepath.Base(outside)); err != nil {
@@ -53,7 +53,7 @@ func TestSandboxedStaysPut(t *testing.T) {
 			t.Errorf("a sandboxed session resolved %q", bad)
 		}
 	}
-	if _, err := w.readFile(secret); err == nil {
+	if _, err := w.readFile(secret, readWindow{}); err == nil {
 		t.Error("a sandboxed session read a file outside its workspace")
 	}
 	// And it says why, so the model does not keep trying.

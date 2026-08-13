@@ -588,6 +588,8 @@ type Agent struct {
 	// later call never re-sends a file the model is already holding. Repeating
 	// content it has is the one way widening could cost more than it saves.
 	readReturned  map[string]bool
+	sliceReads    map[string]int      // slices taken of each file, for the walking hint
+	hintedSlice   bool                // the walking hint has been given once
 	filesRead     int                 // files opened this run, for the search hint
 	searched      bool                // grep or glob has been used, so the search hint is moot
 	hintedSearch  bool                // the search hint has been given once
@@ -1988,6 +1990,9 @@ func (a *Agent) report(ctx context.Context, tc provider.ToolCall, content string
 		if hint := a.searchHint(n); hint != "" {
 			content += hint
 		}
+		if hint := a.walkHint(tc); hint != "" {
+			content += hint
+		}
 		// After compaction, not before. The outline was appended in the
 		// dispatch and a 137 KB read of tui.go was elided on the way back,
 		// taking the outline off the end with it — the function was right and
@@ -2126,6 +2131,55 @@ func (a *Agent) batchingHint(tc provider.ToolCall) string {
 		a.readCalls, a.readFiles, avg, maxReadPaths)
 }
 
+// slicesBeforeWalkHint is how many slices of one file a run may take before it
+// is asked whether it means to read the whole thing this way.
+//
+// Three, because two is a run that looked at a section and then the next one,
+// which is reading. Three in a row down the same file is a strategy, and on a
+// 4000-line log it is a strategy that runs out of turns before it runs out of
+// file.
+const slicesBeforeWalkHint = 3
+
+// walkHint interrupts a run walking a large file from the top.
+//
+// The failure this is for, traced end to end: a 300 KB log, a first read
+// refused for being too big, then eight slices of 500 lines from line 1 —
+// eight round trips, a quarter of a megabyte of context, and the run ended
+// two hundred lines short of the FATAL line that was the answer. Both cheaper
+// routes were available the whole time and neither was tried.
+//
+// The refusal message now leads with grep and names the negative offset, which
+// is where this should be fixed. This is the second line of defence, for the
+// run that has already committed to the walk: it arrives on the slice that
+// makes the habit visible, and once only.
+func (a *Agent) walkHint(tc provider.ToolCall) string {
+	if a.resolveToolName(tc.Name, tc.Input) != "read" {
+		return ""
+	}
+	var in struct {
+		Path   string `json:"path"`
+		Offset int    `json:"offset"`
+		Limit  int    `json:"limit"`
+	}
+	_ = json.Unmarshal(tc.Input, &in)
+	// A tail is not a walk — it is the shortcut this hint exists to recommend.
+	if in.Path == "" || in.Offset <= 0 && in.Limit <= 0 || in.Offset < 0 {
+		return ""
+	}
+	if a.sliceReads == nil {
+		a.sliceReads = map[string]int{}
+	}
+	a.sliceReads[in.Path]++
+	if a.hintedSlice || a.sliceReads[in.Path] < slicesBeforeWalkHint {
+		return ""
+	}
+	a.hintedSlice = true
+	return fmt.Sprintf("\n\n[You have taken %d slices of %s, working down it from the top. "+
+		"If you are looking for something in particular, grep finds it in one call wherever it is. "+
+		"If you want the end of it — where a log says why it stopped — read it with a negative "+
+		"offset: read(path=%q, offset=-200).]", a.sliceReads[in.Path], in.Path, in.Path)
+}
+
 // filesReadBeforeSearchHint is how many files a run may open before it is asked
 // whether it meant to search instead.
 //
@@ -2234,8 +2288,10 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 	switch tc.Name {
 	case "read":
 		var in struct {
-			Path  string   `json:"path"`
-			Paths []string `json:"paths"`
+			Path   string   `json:"path"`
+			Paths  []string `json:"paths"`
+			Offset int      `json:"offset"`
+			Limit  int      `json:"limit"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
@@ -2254,7 +2310,7 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			}
 			a.readReturned[p] = true
 		}
-		return orErr(a.ws.readFiles(paths))
+		return orErr(a.ws.readFiles(paths, readWindow{Offset: in.Offset, Limit: in.Limit}))
 	case "write":
 		var in struct {
 			Path    string `json:"path"`

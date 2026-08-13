@@ -977,8 +977,38 @@ func (w *workspace) checkNoEscapeViaSymlink(abs string) error {
 
 const maxReadBytes = 256 * 1024
 
+// readWindow bounds a read to a range of lines.
+//
+// Without one, a file over maxReadBytes was a refusal that sent the model to
+// bash for a sed one-liner: a round trip, and output with no line numbers on
+// it, from a tool the run then has to be talked out of using for everything
+// else. A window keeps the big file inside the tool that already knows how to
+// present it — and makes line 2400 of a 3000-line file worth asking for
+// without the 2399 in front of it.
+type readWindow struct {
+	// Offset is the first line to return, 1-based; 0 reads from the start.
+	// Negative counts from the end — -200 is the last 200 lines.
+	//
+	// The negative form exists because the end of a file is not reachable any
+	// other way: an offset has to be a line number, and you cannot know the
+	// last line number of a file you have not read. A traced run given a 300 KB
+	// log walked it from line 1 in 500-line slices, eight round trips, and ran
+	// out of turns two hundred lines short of the FATAL that was the answer.
+	// The end of a log is where its answer usually is, and it was the one place
+	// the tool could not go.
+	Offset int
+	Limit  int // how many lines to return; 0 means as many as fit. Ignored when Offset is negative.
+}
+
+func (r readWindow) empty() bool { return r.Offset == 0 && r.Limit <= 0 }
+
+// maxSliceLines caps a windowed read that named an offset and no limit. Long
+// enough to be a real look at a file, short enough that "start at 1" on a
+// 200,000-line log is not the whole log.
+const maxSliceLines = 2000
+
 // readFile returns line-numbered content so the model can reason about ranges.
-func (w *workspace) readFile(path string) (string, error) {
+func (w *workspace) readFile(path string, win readWindow) (string, error) {
 	abs, err := w.resolve(path)
 	if err != nil {
 		return "", err
@@ -987,8 +1017,19 @@ func (w *workspace) readFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if !win.empty() {
+		return w.readSlice(path, abs, win)
+	}
 	if info.Size() > maxReadBytes {
-		return "", fmt.Errorf("file is %d bytes; too large to read (limit %d) — use bash (sed/grep) to view a slice", info.Size(), maxReadBytes)
+		// The order of these is the whole message. An earlier version led with
+		// "read it in slices (offset 1 limit 500, then offset 501)" and a run
+		// followed it literally: eight slices down a log whose answer was in
+		// the last six lines. Search first, the end second, and the walk from
+		// the top last, because it is last in usefulness.
+		return "", fmt.Errorf("file is %d bytes; too large to read whole (limit %d) — grep it for what "+
+			"you want, or read the end with offset -200 (a log's answer is usually at the end), or "+
+			"walk it in slices (offset 1 limit 200, then offset 201)",
+			info.Size(), maxReadBytes)
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
@@ -998,6 +1039,73 @@ func (w *workspace) readFile(path string) (string, error) {
 	var b strings.Builder
 	for i, line := range lines {
 		fmt.Fprintf(&b, "%6d\t%s\n", i+1, line)
+	}
+	return b.String(), nil
+}
+
+// readSlice returns the requested lines of a file, numbered as they are in it.
+//
+// It streams rather than reading the file in, because the files this exists for
+// are the ones too big to hold. It keeps counting past the end of the slice so
+// the footer can say how much is left and where to resume: a slice that stops
+// without saying what follows it is how a run concludes it has seen a file it
+// has seen a fifth of.
+func (w *workspace) readSlice(rel, abs string, win readWindow) (string, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	if win.Offset < 0 {
+		return tailLines(rel, f, -win.Offset)
+	}
+
+	start := win.Offset
+	if start <= 0 {
+		start = 1
+	}
+	limit := win.Limit
+	if limit <= 0 {
+		limit = maxSliceLines
+	}
+
+	br := bufio.NewReader(f)
+	var b strings.Builder
+	total, shown := 0, 0
+	full := false // the slice ran out of budget before it ran out of lines
+	for {
+		line, rerr := br.ReadString('\n')
+		if line != "" || rerr == nil {
+			total++
+			if total >= start && shown < limit && !full {
+				text := strings.TrimSuffix(line, "\n")
+				if b.Len()+len(text) > maxReadBytes {
+					full = true
+				} else {
+					fmt.Fprintf(&b, "%6d\t%s\n", total, text)
+					shown++
+				}
+			}
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	if shown == 0 {
+		if total == 0 {
+			return "", fmt.Errorf("%s is empty", rel)
+		}
+		return "", fmt.Errorf("offset %d is past the end of %s, which has %d lines", start, rel, total)
+	}
+
+	next := start + shown
+	if next <= total {
+		reason := fmt.Sprintf("%d more lines (%d in the file)", total-next+1, total)
+		if full {
+			reason += fmt.Sprintf("; the slice stopped at the %d byte limit", maxReadBytes)
+		}
+		fmt.Fprintf(&b, "\n[… %s; continue with read(path=%q, offset=%d).]\n", reason, rel, next)
 	}
 	return b.String(), nil
 }
@@ -1022,7 +1130,7 @@ const maxReadPaths = 20
 // A file that cannot be read is reported in place rather than failing the call,
 // because the other three were fine and re-asking for them is the round trip
 // this is trying to avoid.
-func (w *workspace) readFiles(paths []string) (string, error) {
+func (w *workspace) readFiles(paths []string, win readWindow) (string, error) {
 	if len(paths) == 0 {
 		return "", fmt.Errorf("no path given")
 	}
@@ -1031,12 +1139,12 @@ func (w *workspace) readFiles(paths []string) (string, error) {
 			len(paths), maxReadPaths)
 	}
 	if len(paths) == 1 {
-		return w.readFile(paths[0])
+		return w.readFile(paths[0], win)
 	}
 	var b strings.Builder
 	failed := 0
 	for _, p := range paths {
-		out, err := w.readFile(p)
+		out, err := w.readFile(p, win)
 		fmt.Fprintf(&b, "=== %s ===\n", p)
 		if err != nil {
 			failed++
@@ -1049,6 +1157,57 @@ func (w *workspace) readFiles(paths []string) (string, error) {
 	if failed == len(paths) {
 		// Nothing came back; that is a failed call, not a result with notes.
 		return "", fmt.Errorf("none of the %d paths could be read:\n%s", len(paths), b.String())
+	}
+	return b.String(), nil
+}
+
+// tailLines returns the last want lines of r, numbered as they are in the file.
+//
+// A ring of want strings rather than the file: the whole point is that the file
+// does not fit. The count is only known at the end, so the numbers are assigned
+// after the scan, and the header says how much came before — a tail with no
+// idea what it is the tail of leaves the run unable to ask for the rest.
+func tailLines(rel string, r io.Reader, want int) (string, error) {
+	if want <= 0 {
+		return "", fmt.Errorf("asked for %d lines from the end of %s", want, rel)
+	}
+	br := bufio.NewReader(r)
+	ring := make([]string, want)
+	total := 0
+	for {
+		line, rerr := br.ReadString('\n')
+		if line != "" || rerr == nil {
+			ring[total%want] = strings.TrimSuffix(line, "\n")
+			total++
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	if total == 0 {
+		return "", fmt.Errorf("%s is empty", rel)
+	}
+	first := total - want
+	if first < 0 {
+		first = 0
+	}
+	// Backwards, so a tail too big for the budget loses its oldest lines rather
+	// than its newest — the end is the part that was asked for.
+	spent := 0
+	for i := total - 1; i >= first; i-- {
+		spent += len(ring[i%want]) + 8
+		if spent > maxReadBytes {
+			first = i + 1
+			break
+		}
+	}
+	var b strings.Builder
+	if first > 0 {
+		fmt.Fprintf(&b, "[the last %d lines of %s; %d lines come before them.]\n",
+			total-first, rel, first)
+	}
+	for i := first; i < total; i++ {
+		fmt.Fprintf(&b, "%6d\t%s\n", i+1, ring[i%want])
 	}
 	return b.String(), nil
 }

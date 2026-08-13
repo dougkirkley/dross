@@ -33,7 +33,7 @@ func TestSymlinkCannotEscapeWorkspace(t *testing.T) {
 	}
 
 	// Reading and writing through the link must fail, not just resolve.
-	if out, err := w.readFile("leak"); err == nil {
+	if out, err := w.readFile("leak", readWindow{}); err == nil {
 		t.Errorf("readFile followed the symlink and returned %q", out)
 	}
 	if _, err := w.writeFile("dir/planted.txt", "x"); err == nil {
