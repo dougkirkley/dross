@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'modal.dart';
 import 'readable.dart';
 import '../util/nav.dart';
 
@@ -458,14 +459,6 @@ class ActivityBlock extends StatefulWidget {
 }
 
 class _ActivityBlockState extends State<ActivityBlock> {
-  /// Null until somebody taps. A run with a failure in it opens itself: the
-  /// error is the reason anybody is reading this, and leaving it behind a
-  /// chevron is how a model's summary of what went wrong becomes the only
-  /// account of it on screen.
-  bool? _tapped;
-
-  bool get _open => _tapped ?? widget.activity.failed;
-
   @override
   Widget build(BuildContext context) {
     final a = widget.activity;
@@ -473,7 +466,7 @@ class _ActivityBlockState extends State<ActivityBlock> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         InkWell(
-          onTap: () => setState(() => _tapped = !_open),
+          onTap: () => showActivitySheet(context, a),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
@@ -497,8 +490,7 @@ class _ActivityBlockState extends State<ActivityBlock> {
                 ],
                 const SizedBox(width: 4),
                 // Points down when open: the content is below, not elsewhere.
-                Icon(_open ? Icons.expand_more : Icons.chevron_right,
-                    size: 18, color: T.textFaint),
+                const Icon(Icons.chevron_right, size: 18, color: T.textFaint),
               ],
             ),
           ),
@@ -513,24 +505,6 @@ class _ActivityBlockState extends State<ActivityBlock> {
         // The shape that leaves is the one worth having, and it is the one
         // Claude Code arrives at: substantive text at full size, one grey line
         // per run of tool calls, nothing else competing.
-        if (_open)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final s in a.steps)
-                  if (s.aside)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 2, bottom: 6),
-                      child: Text(s.label,
-                          style: metaFor(context).copyWith(color: T.textDim)),
-                    )
-                  else
-                    _InlineStep(s),
-              ],
-            ),
-          ),
       ],
     );
   }
@@ -582,9 +556,6 @@ class _InlineStepState extends State<_InlineStep> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // The gutter from the terminal: this line belongs to the one
-                // above it.
-                const Text('└ ', style: TextStyle(color: T.textFaint)),
                 Icon(s.failed ? Icons.error_outline : s.icon,
                     size: 16, color: s.failed ? T.danger : s.color),
                 const SizedBox(width: 8),
@@ -795,6 +766,64 @@ class EditDiffLines extends StatelessWidget {
           const SizedBox(width: 12),
           Text(line, style: T.mono.copyWith(color: fg, height: 1.4)),
         ],
+      ),
+    );
+  }
+}
+
+/// The steps behind a summary line, as a sheet over the conversation.
+///
+/// They used to expand in place, and on a phone that was the wrong move twice
+/// over: a run of fifteen calls pushed the conversation off the screen, and
+/// every row had to be clipped to one line to fit the column it was expanding
+/// inside — "Let me check what…", "Ran go get github.…", a list of truncations.
+///
+/// A sheet has the width to say the whole line and closes without losing your
+/// place in the transcript. Which is where Claude Code puts it, for what look
+/// like the same two reasons.
+Future<void> showActivitySheet(BuildContext context, Activity a) =>
+    showResponsiveModal<void>(
+      context: context,
+      maxWidth: 560,
+      builder: (_, dialog) => _ActivitySheet(activity: a, dialog: dialog),
+    );
+
+class _ActivitySheet extends StatelessWidget {
+  const _ActivitySheet({required this.activity, this.dialog = false});
+  final Activity activity;
+  final bool dialog;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+        decoration: modalDecoration(dialog),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          shrinkWrap: true,
+          children: [
+            Row(children: [
+              CircleIconButton(
+                  icon: Icons.close, onTap: () => Navigator.pop(context)),
+              Expanded(
+                  child: Text(activity.summary,
+                      style: T.title, textAlign: TextAlign.center)),
+              const SizedBox(width: 44),
+            ]),
+            const SizedBox(height: 12),
+            for (final s in activity.steps)
+              if (s.aside)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(s.label,
+                      style: metaFor(context).copyWith(color: T.textDim)),
+                )
+              else
+                _InlineStep(s),
+          ],
+        ),
       ),
     );
   }
