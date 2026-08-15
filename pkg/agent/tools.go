@@ -1007,6 +1007,19 @@ func (r readWindow) empty() bool { return r.Offset == 0 && r.Limit <= 0 }
 // 200,000-line log is not the whole log.
 const maxSliceLines = 2000
 
+// maxScanBytes bounds what a windowed read will stream.
+//
+// A window skips the whole-file size check, which is the point of it, and for a
+// while skipped every other bound with it. Reading a 3 GiB file with
+// offset=1 limit=5 spent two and a half seconds pulling the entire thing
+// through ReadString and held it in memory, because a file with no newline in
+// it is one line and ReadString returns lines.
+//
+// 32 MiB is 128 times what a whole read returns and larger than any log worth
+// paging through a screen at a time. Past that, grep and `bash tail` are the
+// honest answers, and the refusal says so rather than trying.
+const maxScanBytes = 32 << 20
+
 // readFile returns line-numbered content so the model can reason about ranges.
 func (w *workspace) readFile(path string, win readWindow) (string, error) {
 	abs, err := w.resolve(path)
@@ -1018,6 +1031,11 @@ func (w *workspace) readFile(path string, win readWindow) (string, error) {
 		return "", err
 	}
 	if !win.empty() {
+		if info.Size() > maxScanBytes {
+			return "", fmt.Errorf("%s is %d bytes; too large to page through (limit %d) — "+
+				"grep it for what you want, or run `tail -n 200 %s` with bash for the end",
+				path, info.Size(), maxScanBytes, path)
+		}
 		return w.readSlice(path, abs, win)
 	}
 	if info.Size() > maxReadBytes {
@@ -1080,11 +1098,26 @@ func (w *workspace) readSlice(rel, abs string, win readWindow) (string, error) {
 			total++
 			if total >= start && shown < limit && !full {
 				text := strings.TrimSuffix(line, "\n")
-				if b.Len()+len(text) > maxReadBytes {
-					full = true
-				} else {
+				switch {
+				case b.Len()+len(text) <= maxReadBytes:
 					fmt.Fprintf(&b, "%6d\t%s\n", total, text)
 					shown++
+				case shown == 0:
+					// One line longer than the entire budget: a minified
+					// bundle, a one-line JSON dump. Returning nothing for it
+					// reported the file as shorter than it is — "offset 1 is
+					// past the end of bundle.js, which has 3 lines", a sentence
+					// that contradicts itself and stops the model asking again.
+					// The prefix plus a note about the rest is the useful
+					// answer, and it is what elide does with oversized output
+					// everywhere else here.
+					fmt.Fprintf(&b, "%6d\t%s\n[line %d truncated: %d of %d bytes shown]\n",
+						total, text[:validPrefix(text, maxReadBytes-64)],
+						total, validPrefix(text, maxReadBytes-64), len(text))
+					shown++
+					full = true
+				default:
+					full = true
 				}
 			}
 		}
@@ -1093,10 +1126,18 @@ func (w *workspace) readSlice(rel, abs string, win readWindow) (string, error) {
 		}
 	}
 	if shown == 0 {
-		if total == 0 {
+		switch {
+		case total == 0:
 			return "", fmt.Errorf("%s is empty", rel)
+		case start > total:
+			return "", fmt.Errorf("offset %d is past the end of %s, which has %d lines", start, rel, total)
+		default:
+			// The lines exist and none of them fit. Defensive: the truncating
+			// branch above shows the first one whatever its size, so this is
+			// unreachable — and an accurate error beats an inaccurate one if
+			// that ever stops being true.
+			return "", fmt.Errorf("no lines of %s fit the reply budget from offset %d", rel, start)
 		}
-		return "", fmt.Errorf("offset %d is past the end of %s, which has %d lines", start, rel, total)
 	}
 
 	next := start + shown
@@ -1161,6 +1202,24 @@ func (w *workspace) readFiles(paths []string, win readWindow) (string, error) {
 	return b.String(), nil
 }
 
+// validPrefix is the largest n <= max where s[:n] ends on a rune boundary.
+//
+// Cutting a line at a byte offset lands mid-rune about three times in four for
+// non-ASCII text, and the replacement character that produces is indistinguishable
+// from the file actually containing one.
+func validPrefix(s string, max int) int {
+	if max >= len(s) {
+		return len(s)
+	}
+	if max < 0 {
+		return 0
+	}
+	for max > 0 && !utf8.ValidString(s[:max]) {
+		max--
+	}
+	return max
+}
+
 // tailLines returns the last want lines of r, numbered as they are in the file.
 //
 // A ring of want strings rather than the file: the whole point is that the file
@@ -1170,6 +1229,14 @@ func (w *workspace) readFiles(paths []string, win readWindow) (string, error) {
 func tailLines(rel string, r io.Reader, want int) (string, error) {
 	if want <= 0 {
 		return "", fmt.Errorf("asked for %d lines from the end of %s", want, rel)
+	}
+	// The ring is sized from the request, so an unbounded request sizes it
+	// without reference to the file: offset -5000000 on a three-line file
+	// allocated 76 MB, and the same arithmetic at -2000000000 asks for 32 GB
+	// and takes the process with it. Nothing legitimate wants more of the end
+	// than a forward slice would give, so it is the same cap.
+	if want > maxSliceLines {
+		want = maxSliceLines
 	}
 	br := bufio.NewReader(r)
 	ring := make([]string, want)

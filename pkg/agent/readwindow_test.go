@@ -3,8 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/dougkirkley/dross/pkg/provider"
 )
@@ -386,4 +391,116 @@ func tail(s string) string {
 		return s
 	}
 	return "…" + s[len(s)-400:]
+}
+
+// --- what an adversarial pass over the window turned up -------------------
+//
+// The three below are regressions, not hypotheses: each failed against the
+// code as first shipped. They share a cause — a window skips the whole-file
+// size check, which is its purpose, and for a while skipped every other bound
+// with it.
+
+// TestLongLineIsTruncatedNotDenied: a line bigger than the whole reply budget
+// used to return "offset 1 is past the end of bundle.js, which has 3 lines" —
+// a sentence that contradicts itself, about a file whose first line plainly
+// exists. A model told the file is shorter than it is does not ask again.
+func TestLongLineIsTruncatedNotDenied(t *testing.T) {
+	long := strings.Repeat("x", 400*1024) // over the 256 KB display budget
+	w, _ := ws(t, map[string]string{"bundle.js": long + "\nsecond\nthird\n"})
+
+	out, err := w.readFile("bundle.js", readWindow{Offset: 1, Limit: 3})
+	if err != nil {
+		t.Fatalf("line 1 exists; reading it should return content: %v", err)
+	}
+	if !strings.Contains(out, "     1\txxx") {
+		t.Errorf("wanted the start of the long line:\n%.200s", out)
+	}
+	if !strings.Contains(out, "truncated") || !strings.Contains(out, "409600 bytes") {
+		t.Errorf("a truncated line must say so, and say by how much:\n%.400s", tail(out))
+	}
+	if len(out) > maxReadBytes+1024 {
+		t.Errorf("truncation returned %d bytes, over the %d budget", len(out), maxReadBytes)
+	}
+	// The short lines after it are unaffected.
+	rest, err := w.readFile("bundle.js", readWindow{Offset: 2, Limit: 2})
+	if err != nil || !strings.Contains(rest, "second") {
+		t.Errorf("line 2 is short and must read normally: %v\n%s", err, rest)
+	}
+}
+
+// TestLongLineTruncatesOnARuneBoundary: cutting at a byte offset lands mid-rune
+// most of the time for non-ASCII, and the replacement character that produces
+// cannot be told from one the file really contains.
+func TestLongLineTruncatesOnARuneBoundary(t *testing.T) {
+	// Three-byte runes, so a byte-offset cut is wrong two times in three.
+	w, _ := ws(t, map[string]string{"wide.txt": strings.Repeat("あ", 200*1024) + "\n"})
+
+	out, err := w.readFile("wide.txt", readWindow{Offset: 1, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(out) {
+		t.Error("truncation cut a rune in half")
+	}
+}
+
+// TestTailRingIsSizedByTheFileNotTheRequest: the ring is allocated from the
+// requested line count, so an unbounded request sized it with no reference to
+// the file — 76 MB to tail three lines, and the same arithmetic at -2000000000
+// asks for 32 GB and takes the process with it.
+func TestTailRingIsSizedByTheFileNotTheRequest(t *testing.T) {
+	w, _ := ws(t, map[string]string{"tiny.txt": "a\nb\nc\n"})
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	out, err := w.readFile("tiny.txt", readWindow{Offset: -5_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&after)
+
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 8<<20 {
+		t.Errorf("allocated %d MB to tail a three-line file", grew>>20)
+	}
+	if !strings.Contains(out, "a") || !strings.Contains(out, "c") {
+		t.Errorf("capping the request must not lose the file:\n%s", out)
+	}
+}
+
+// TestWindowedReadOfAHugeFileIsRefused: a window skips the size check by
+// design. Reading 3 GiB with offset=1 limit=5 then spent two and a half seconds
+// pulling the whole file through ReadString and holding it — a file with no
+// newline in it is one line, and ReadString returns lines.
+func TestWindowedReadOfAHugeFileIsRefused(t *testing.T) {
+	_, dir := ws(t, map[string]string{})
+	f, err := os.Create(filepath.Join(dir, "huge.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sparse: stat says 3 GiB, the disk holds nothing.
+	if err := f.Truncate(3 << 30); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	w, _ := newWorkspace(dir, false)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := w.readFile("huge.bin", readWindow{Offset: 1, Limit: 5})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a 3 GiB file should not be paged through")
+		}
+		for _, want := range []string{"grep", "tail"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal should name %q as the way on: %v", want, err)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still reading after 5s — the scan is unbounded")
+	}
 }

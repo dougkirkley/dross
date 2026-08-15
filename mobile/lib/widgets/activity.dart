@@ -154,7 +154,12 @@ const _preambleMax = 160;
 bool _isPreamble(List<Event> events, int i) {
   final text = events[i].data.trim();
   if (text.isEmpty || text.length > _preambleMax) return false;
-  for (var j = i + 1; j < events.length; j++) {
+  // Bounded, because buildTimeline runs on every event of a live session and
+  // this runs per text event within it. Unbounded, a transcript whose tail is
+  // all bookkeeping made each scan walk to the end, on every frame. The call a
+  // preamble announces is one or two events away; four is slack, not a budget.
+  final end = (i + 5) < events.length ? i + 5 : events.length;
+  for (var j = i + 1; j < end; j++) {
     switch (events[j].baseKind) {
       case 'usage':
       case 'tool-result':
