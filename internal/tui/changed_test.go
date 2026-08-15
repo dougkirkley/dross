@@ -117,16 +117,19 @@ func TestUserTurnIsRuledOnEveryLine(t *testing.T) {
 	m.width, m.height = 100, 40
 	m.appendTurn(youGutter, "", "first line\nsecond line\nthird line")
 
-	if len(m.lines) != 3 {
-		t.Fatalf("got %d feed lines, want one per line of the turn", len(m.lines))
+	// The masthead is written above the first turn (see ensureBanner), so the
+	// turn's own lines start after it.
+	turn := m.lines[bannerHeight(m):]
+	if len(turn) != 3 {
+		t.Fatalf("got %d feed lines, want one per line of the turn", len(turn))
 	}
-	for i, l := range m.lines {
+	for i, l := range turn {
 		if !strings.Contains(l, gutterMark) {
 			t.Errorf("line %d has no rule: %q", i+1, stripANSI(l))
 		}
 	}
-	if !strings.Contains(stripANSI(m.lines[2]), "third line") {
-		t.Errorf("text lost: %q", stripANSI(m.lines[2]))
+	if !strings.Contains(stripANSI(turn[2]), "third line") {
+		t.Errorf("text lost: %q", stripANSI(turn[2]))
 	}
 }
 

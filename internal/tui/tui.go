@@ -457,6 +457,10 @@ type Model struct {
 	streamStart int
 	streamBuf   string
 
+	// bannerDone records that the logo masthead has been written to the top of
+	// the transcript. See ensureBanner.
+	bannerDone bool
+
 	// /mcp management modal (mirrors the skills modal), with live status probing.
 	mcpViewOpen    bool
 	mcpDetail      bool
@@ -3557,7 +3561,12 @@ func (m *Model) applyEvent(e agent.Event) {
 	}
 	// A non-tool block (message, review, ask, …) ends any open tool group and gets
 	// a blank line before it. Tool calls collapse into one summary line instead.
-	if !worker {
+	// A short line written mid-run is the model announcing its next call, not
+	// telling the user anything, and ending the group for it is what turned one
+	// "searched 3 patterns" into three "searched 1 pattern" lines with a
+	// sentence between each. Folded is what the group is for.
+	folded := !worker && kind == "text" && m.groupLine >= 0 && isPreamble(e.Data)
+	if !worker && !folded {
 		switch kind {
 		case "text", "review", "answer", "ask", "checkpoint", "error", "edit":
 			m.closeToolGroup()
@@ -3610,6 +3619,15 @@ func (m *Model) applyEvent(e agent.Event) {
 		lines := renderMarkdown(data, width)
 		if len(lines) == 0 {
 			lines = []string{""}
+		}
+		// A folded preamble sits under the group summary it belongs to, dim and
+		// indented: kept, because throwing away something the model said is not
+		// this feature's business, but not dressed as a turn of its own.
+		if folded {
+			for _, l := range wrap(oneLine(data), m.width-8) {
+				m.append(indent + "    " + metaStyle.Render(l))
+			}
+			break
 		}
 		bar := agentGutter.Render(gutterMark)
 		if !worker {
@@ -3748,6 +3766,25 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.append(indent + errStyle.Render(prefix+l))
 		}
 	}
+}
+
+// preambleMax is how long a message may be and still be the model announcing
+// its next call rather than telling the user something.
+//
+// The same 160 the phone client uses, for the same reason: "Let me check the
+// room file to understand how the scene is structured:" is 71 characters, and
+// an answer to anything is longer than that.
+const preambleMax = 160
+
+// isPreamble reports whether a text block is the run narrating its next move.
+//
+// Only consulted with a tool group already open, which is most of what keeps it
+// honest — a short line arriving mid-run is a preamble, where the same line
+// arriving cold is a reply. It can still be wrong about a very short final
+// answer, and the cost of that is one dim paragraph instead of one bright one.
+func isPreamble(s string) bool {
+	t := strings.TrimSpace(s)
+	return t != "" && len([]rune(t)) <= preambleMax
 }
 
 // closeToolGroup ends the current collapsed tool-call group so the next tool
@@ -3911,10 +3948,41 @@ func (m *Model) appendTurn(bar lipgloss.Style, label, text string) {
 }
 
 func (m *Model) append(line string) {
+	m.ensureBanner()
 	m.lines = append(m.lines, line)
 	m.lineTurn = append(m.lineTurn, m.blocks)
 	m.setBody()
 	m.vp.GotoBottom()
+}
+
+// ensureBanner puts the logo at the head of the transcript, once.
+//
+// The empty-state splash used to be an alternative body: shown while there was
+// nothing to show, and gone the instant the first line arrived. So the one
+// moment the session identified itself was the moment before anything happened,
+// and a screenshot of real work had nothing on it saying what had done the
+// work.
+//
+// Written into the line buffer rather than drawn above the viewport, so it
+// scrolls away like everything else — it is the top of the conversation, not a
+// header pinned over it. Line indices stay consistent with the selection
+// machinery because it goes in before the first real line, never after.
+func (m *Model) ensureBanner() {
+	if m.bannerDone {
+		return
+	}
+	m.bannerDone = true
+	for _, l := range strings.Split(m.banner(), "\n") {
+		m.lines = append(m.lines, l)
+		m.lineTurn = append(m.lineTurn, m.blocks)
+	}
+}
+
+// banner is the transcript's masthead: the logo, where it is running, and what
+// it is running on. The splash's content without the splash's vertical spread,
+// because this one has a conversation under it.
+func (m Model) banner() string {
+	return lipgloss.JoinVertical(lipgloss.Left, m.wLogo(), "", m.wDir(), m.wModel(), "")
 }
 
 // truncate cuts the feed back to n lines, keeping the turn index in step.

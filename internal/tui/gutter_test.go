@@ -16,7 +16,7 @@ func TestOnlyTheFocusedBlockWearsTheBar(t *testing.T) {
 	m.appendTurn(youGutter, "", "second question")
 
 	body := m.body()
-	lines := strings.Split(body, "\n")
+	lines := turnLines(m)
 	if len(lines) != 2 {
 		t.Fatalf("want 2 lines, got %d: %q", len(lines), body)
 	}
@@ -35,7 +35,7 @@ func TestUnfocusedLinesKeepTheirAlignment(t *testing.T) {
 	m.appendTurn(youGutter, "", "older")
 	m.appendTurn(youGutter, "", "newer")
 
-	lines := strings.Split(m.body(), "\n")
+	lines := turnLines(m)
 	a := len([]rune(stripANSI(lines[0])))
 	b := len([]rune(stripANSI(lines[1])))
 	if a != b {
@@ -49,15 +49,17 @@ func TestClickingAnOlderBlockFocusesIt(t *testing.T) {
 	m := New("dross", "m", "p", nil)
 	m.appendTurn(youGutter, "", "first")
 	m.appendTurn(youGutter, "", "second")
-	if m.curTurn != m.lineTurn[1] {
+	// Line indices are into the whole feed, which starts with the masthead.
+	off := bannerHeight(m)
+	if m.curTurn != m.lineTurn[off+1] {
 		t.Fatalf("the newest block should start focused")
 	}
 
-	m.focusBlockAt(0)
-	if m.curTurn != m.lineTurn[0] {
-		t.Fatalf("clicking line 0 did not focus its block")
+	m.focusBlockAt(off)
+	if m.curTurn != m.lineTurn[off] {
+		t.Fatalf("clicking the first turn's line did not focus its block")
 	}
-	lines := strings.Split(m.body(), "\n")
+	lines := turnLines(m)
 	if !strings.Contains(lines[0], gutterMark) {
 		t.Errorf("the clicked block should now wear the bar: %q", lines[0])
 	}
@@ -76,8 +78,8 @@ func TestABlockIsFocusedAsAWhole(t *testing.T) {
 	m.appendTurn(youGutter, "", "one\ntwo\nthree")
 	m.appendTurn(youGutter, "", "later")
 
-	m.focusBlockAt(1) // the middle line of the first block
-	lines := strings.Split(m.body(), "\n")
+	m.focusBlockAt(bannerHeight(m) + 1) // the middle line of the first block
+	lines := turnLines(m)
 	for i := 0; i < 3; i++ {
 		if !strings.Contains(lines[i], gutterMark) {
 			t.Errorf("line %d of the focused block has no bar: %q", i, lines[i])
@@ -169,7 +171,10 @@ func TestYourOwnTurnsKeepAThinRail(t *testing.T) {
 	m.append(agentGutter.Render(gutterMark) + " an answer")
 	m.appendTurn(youGutter, "", "a follow-up")
 
-	lines := strings.Split(stripANSI(m.body()), "\n")
+	lines := turnLines(m)
+	for i := range lines {
+		lines[i] = stripANSI(lines[i])
+	}
 	if !strings.HasPrefix(lines[0], gutterRail) {
 		t.Errorf("your blurred turn should keep a rail: %q", lines[0])
 	}
@@ -196,4 +201,23 @@ func runeIndex(s string, want rune) int {
 		}
 	}
 	return -1
+}
+
+// The masthead sits at the top of every transcript (see ensureBanner), so the
+// turns these tests are about start below it. Measured rather than hardcoded:
+// the logo's height is a rendering detail and not what any of them assert.
+func bannerHeight(m Model) int {
+	if !m.bannerDone {
+		return 0
+	}
+	return len(strings.Split(m.banner(), "\n"))
+}
+
+// turnLines is the body with the masthead dropped, keeping styling intact.
+func turnLines(m Model) []string {
+	lines := strings.Split(m.body(), "\n")
+	if n := bannerHeight(m); n <= len(lines) {
+		return lines[n:]
+	}
+	return lines
 }
