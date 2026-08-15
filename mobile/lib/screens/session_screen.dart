@@ -364,7 +364,7 @@ class _SessionScreenState extends State<SessionScreen> {
         content = _mono(e.data, T.textFaint);
         break;
       case 'error':
-        content = _errorRow(e.data);
+        content = _ErrorRow(e.data);
         break;
       case 'done':
         // A run stopped by the user closes as "cancelled" — a normal ending,
@@ -379,29 +379,6 @@ class _SessionScreenState extends State<SessionScreen> {
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6).add(indent),
         child: content);
-  }
-
-  /// An error: the sentence in red, the context under it in grey.
-  ///
-  /// The whole thing used to be red, and the messages that carry context carry
-  /// a lot of it — a failed edit quotes the region it could not match, so a run
-  /// that tried to rewrite a README whole filled the screen with alarm-coloured
-  /// markdown. What went wrong is one line; the rest is evidence, and evidence
-  /// is not urgent.
-  Widget _errorRow(String data) {
-    final cut = data.indexOf('\n');
-    if (cut < 0) return _mono('✗ $data', T.danger);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _mono('✗ ${data.substring(0, cut)}', T.danger),
-        const SizedBox(height: 4),
-        // Bounded, with the rest a tap away in the raw event if it is ever
-        // wanted: the agent already caps what it quotes, and this is the
-        // backstop for a message from somewhere that does not.
-        _mono(data.substring(cut + 1), T.textFaint, max: 14),
-      ],
-    );
   }
 
   Widget _mono(String text, Color color, {int? max}) => Text(
@@ -709,4 +686,81 @@ class _StartingPanel extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// Strips the fences a quoted region arrives wrapped in.
+///
+/// They are for the model: they keep leading whitespace intact through its own
+/// formatting. Nothing renders markdown in this row, so they arrive as two
+/// stray lines of backticks around the quote.
+String _unfenced(String s) => s
+    .split('\n')
+    .where((l) => l.trimRight() != '```')
+    .join('\n')
+    .trim();
+
+/// A tool error: one red line, the rest behind a triangle.
+///
+/// These messages carry their evidence with them — a failed edit quotes the
+/// region it could not match — so printing them whole put a dozen lines of file
+/// in the middle of the conversation for something the run usually recovered
+/// from on its next call. What went wrong is one line. Whether you want to see
+/// why is a question, and a question deserves a control rather than an answer
+/// nobody asked for.
+///
+/// Not auto-opened. The activity block opens itself on a failure because a
+/// failed command is often where a run ends; a failed edit is a retry, and this
+/// is the one that repeats.
+class _ErrorRow extends StatefulWidget {
+  const _ErrorRow(this.data);
+  final String data;
+
+  @override
+  State<_ErrorRow> createState() => _ErrorRowState();
+}
+
+class _ErrorRowState extends State<_ErrorRow> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cut = widget.data.indexOf('\n');
+    final head = (cut < 0 ? widget.data : widget.data.substring(0, cut)).trim();
+    final rest = cut < 0 ? '' : _unfenced(widget.data.substring(cut + 1));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: rest.isEmpty ? null : () => setState(() => _open = !_open),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.warning_amber_rounded,
+                    size: 16, color: T.danger),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(head,
+                    style: T.mono.copyWith(color: T.danger),
+                    maxLines: _open ? null : 3,
+                    overflow:
+                        _open ? TextOverflow.clip : TextOverflow.ellipsis),
+              ),
+              if (rest.isNotEmpty)
+                Icon(_open ? Icons.expand_more : Icons.chevron_right,
+                    size: 18, color: T.textFaint),
+            ],
+          ),
+        ),
+        if (_open && rest.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 6),
+            child: Text(rest, style: T.mono.copyWith(color: T.textFaint)),
+          ),
+      ],
+    );
+  }
 }
