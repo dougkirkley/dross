@@ -291,7 +291,7 @@ func TestSingleQuestionAnswersWithTheChoiceAlone(t *testing.T) {
 	m.layout()
 	st := &askState{
 		questions: []agent.AskQuestion{{
-			Header: "bash", Question: "Allow this bash?", Options: []string{"Allow", "Deny"},
+			Header: "bash", Question: "Allow this bash?", Options: []agent.AskOption{{Label: "Allow"}, {Label: "Deny"}},
 		}},
 		sel:    [][]bool{{true, false}},
 		cursor: []int{0},
@@ -312,8 +312,8 @@ func TestMultiQuestionKeepsItsLabels(t *testing.T) {
 	m.layout()
 	st := &askState{
 		questions: []agent.AskQuestion{
-			{Header: "lang", Options: []string{"Go", "Rust"}},
-			{Header: "tests", Options: []string{"Yes", "No"}},
+			{Header: "lang", Options: []agent.AskOption{{Label: "Go"}, {Label: "Rust"}}},
+			{Header: "tests", Options: []agent.AskOption{{Label: "Yes"}, {Label: "No"}}},
 		},
 		sel:    [][]bool{{true, false}, {false, true}},
 		cursor: []int{0, 0},

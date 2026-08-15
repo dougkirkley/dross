@@ -53,7 +53,7 @@ func TestGatedCommandFromRemoteIsAnsweredRemotely(t *testing.T) {
 				req := agent.AskRequest{Questions: []agent.AskQuestion{{
 					Header:   "bash",
 					Question: "Allow this bash?\nrm -rf build/",
-					Options:  []string{"Allow", "Deny"},
+					Options: []agent.AskOption{{Label: "Allow"}, {Label: "Deny"}},
 				}}}
 				payload, _ := json.Marshal(req)
 				ans, err := askFn(string(payload))
@@ -199,7 +199,7 @@ func TestDeniedGateReachesTheRun(t *testing.T) {
 			Prompt: func(_, _ string) {
 				req := agent.AskRequest{Questions: []agent.AskQuestion{{
 					Header: "bash", Question: "Allow this bash?\nrm -rf /",
-					Options: []string{"Allow", "Deny"},
+					Options: []agent.AskOption{{Label: "Allow"}, {Label: "Deny"}},
 				}}}
 				payload, _ := json.Marshal(req)
 				ans, err := askFn(string(payload))

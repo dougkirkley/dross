@@ -358,10 +358,17 @@ func DemoAskView(width, height int) string {
 	m.layout()
 	m.append(youLabel.Render("you") + "  review the branch before I merge")
 	qs := []agent.AskQuestion{
-		{Header: "Scope", Question: "How should I scope the review?", Options: []string{
-			"Post-merge commits only", "Whole MR, 367 files", "Risky judgment calls only"}},
-		{Header: "Lenses", Question: "Which review lenses?", MultiSelect: true, Options: []string{
-			"Correctness", "Security", "Performance"}},
+		{Header: "Scope", Question: "How should I scope the review?", Options: []agent.AskOption{
+			{Label: "Post-merge commits only",
+				Description: "The 14 commits added since the branch point. Fastest, and misses anything the branch inherited."},
+			{Label: "Whole MR, 367 files",
+				Description: "Everything the merge would land. Thorough, and most of it is vendored."},
+			{Label: "Risky judgment calls only",
+				Description: "Auth, migrations and the retry logic. Skips the mechanical churn."}}},
+		{Header: "Lenses", Question: "Which review lenses?", MultiSelect: true, Options: []agent.AskOption{
+			{Label: "Correctness", Description: "Does it do what it says, and what happens at the edges."},
+			{Label: "Security", Description: "Input handling, authz, and anything reachable from a request."},
+			{Label: "Performance", Description: "Allocation and query count on the hot path."}}},
 	}
 	st := &askState{
 		questions: qs,

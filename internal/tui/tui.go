@@ -1801,6 +1801,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			onWriteIn := func() bool {
 				return a.tab < nq && a.cursor[a.tab] == writeInRow()
 			}
+			// One row below the write-in: decline the question rather than
+			// answer it. A write-in answers in your own words; this says the
+			// options are the wrong options.
+			escapeRow := func() int { return writeInRow() + 1 }
+			onEscape := func() bool {
+				return a.tab < nq && a.cursor[a.tab] == escapeRow()
+			}
 			pick := func(i int) {
 				if a.tab >= nq || i >= len(a.sel[a.tab]) {
 					return
@@ -1868,12 +1875,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "down", "j":
-				if a.tab < nq && a.cursor[a.tab] < writeInRow() {
+				if a.tab < nq && a.cursor[a.tab] < escapeRow() {
 					a.cursor[a.tab]++
 				}
 				return m, nil
 			case " ":
 				if a.tab < nq {
+					if onEscape() {
+						return m, nil
+					}
 					if onWriteIn() {
 						a.editing = true
 					} else {
@@ -1883,6 +1893,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if a.tab < nq {
+					if onEscape() {
+						// Straight out, without visiting the other tabs: the
+						// point of it is that the question was not answerable
+						// as put, so making it answer the rest first would be
+						// the same mistake twice.
+						m.declineAsk()
+						return m, nil
+					}
 					if onWriteIn() {
 						// Start editing the write-in field.
 						a.editing = true
@@ -3175,7 +3193,7 @@ func (a *askState) chosen(i int) []string {
 	var out []string
 	for j, v := range a.sel[i] {
 		if v {
-			out = append(out, a.questions[i].Options[j])
+			out = append(out, a.questions[i].Options[j].Label)
 		}
 	}
 	if i < len(a.writeIn) {
@@ -3369,11 +3387,19 @@ func (m Model) renderPicker() string {
 					box = "[x] "
 				}
 			}
-			line := cur + style.Render(box+fmt.Sprintf("%d. %s", i+1, opt))
+			line := cur + style.Render(box+fmt.Sprintf("%d. %s", i+1, opt.Label))
 			if i == 0 {
 				line += metaStyle.Render("  (recommended)")
 			}
 			b.WriteString(line + "\n")
+			// The reason to pick it, under the label it belongs to. Indented
+			// past the box so the labels still read as a column: this is a
+			// footnote to a choice, not another choice.
+			if opt.Description != "" {
+				for _, l := range wrap(opt.Description, m.width-14) {
+					b.WriteString("      " + metaStyle.Render(l) + "\n")
+				}
+			}
 		}
 		// Write-in row: always shown below options.
 		writeInRow := len(q.Options)
@@ -3391,6 +3417,14 @@ func (m Model) renderPicker() string {
 		} else {
 			b.WriteString(wiCur + metaStyle.Render("✎ write in…") + "\n")
 		}
+		// The way out that is not an answer. Below the write-in, because it is
+		// the last thing to reach for, and worded as the thing it does.
+		escRow := len(q.Options) + 1
+		escCur, escStyle := "  ", metaStyle
+		if a.cursor[a.tab] == escRow {
+			escCur, escStyle = promptMark.Render("› "), agentText
+		}
+		b.WriteString(escCur + escStyle.Render("⤺ none of these — let's talk it through") + "\n")
 		hint := "←→ tabs · ↑↓ move · enter next/edit"
 		if q.MultiSelect {
 			hint = "←→ tabs · ↑↓ move · space toggle · enter next/edit"
@@ -4506,4 +4540,32 @@ func splitDropped(s string) ([]string, bool) {
 		out = append(out, cur.String())
 	}
 	return out, true
+}
+
+// declineText is what a declined question answers with.
+//
+// Phrased as the user rather than as a status, because it goes back to the
+// model as their reply. "(declined)" reads as a system event the model has to
+// interpret; a sentence tells it what to do next.
+const declineText = "None of those options fit. Explain the trade-offs and let's talk it through before I choose."
+
+// declineAsk ends the picker without answering it.
+//
+// A write-in answers the question in your own words. This says the question
+// was the wrong question — the options missed the choice you actually face —
+// and there was no way to say that: every path out of the picker was a pick or
+// a cancel, and cancel loses the turn. Claude Code's picker carries the same
+// escape, which is where the idea came from.
+//
+// Answers on behalf of every question, not just the one in view. Declining the
+// framing and then being made to answer the rest of it would be the same
+// mistake twice.
+func (m *Model) declineAsk() {
+	a := m.pendingAsk
+	if a == nil {
+		return
+	}
+	m.appendTurn(youGutter, "", agentText.Render("→ let's talk it through"))
+	a.reply <- declineText
+	m.pendingAsk = nil
 }

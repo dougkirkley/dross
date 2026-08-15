@@ -217,13 +217,45 @@ func WithMaxParallel(n int) Option {
 	}
 }
 
+// AskOption is one choice, and optionally the reason to pick it.
+//
+// The description is the difference between a question you can answer and one
+// you can only guess at. Comparing the picker against Claude Code's on the same
+// prompt, both drew a tidy list; Claude's said "SQLite (embedded) — real DB,
+// ACID, query support, still no external server" where this one said
+// "Correctness". A label is enough when the choice is already understood, and
+// the questions worth asking are the other kind.
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// UnmarshalJSON accepts an option written either as an object or as a bare
+// string, for the same reason AskQuestion does: the older shape was a plain
+// string, models still send that, and a string carries no ambiguity — it is
+// the label.
+func (o *AskOption) UnmarshalJSON(b []byte) error {
+	var text string
+	if err := json.Unmarshal(b, &text); err == nil {
+		*o = AskOption{Label: text}
+		return nil
+	}
+	type plain AskOption
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*o = AskOption(p)
+	return nil
+}
+
 // AskQuestion is one question in an ask_user request. Options makes it a
 // single-choice pick; empty Options means free text.
 type AskQuestion struct {
-	Header      string   `json:"header"`
-	Question    string   `json:"question"`
-	Options     []string `json:"options"`
-	MultiSelect bool     `json:"multiSelect"`
+	Header      string      `json:"header"`
+	Question    string      `json:"question"`
+	Options     []AskOption `json:"options"`
+	MultiSelect bool        `json:"multiSelect"`
 }
 
 // UnmarshalJSON accepts a question written either as an object or as a bare
@@ -249,6 +281,18 @@ func (q *AskQuestion) UnmarshalJSON(b []byte) error {
 	}
 	*q = AskQuestion(p)
 	return nil
+}
+
+// labelled turns plain choices into options. The gate and the plan prompt ask
+// about things the user already understands — "Allow", "Deny", "Keep planning"
+// — so they carry no descriptions, and the type should not make them invent
+// any.
+func labelled(opts []string) []AskOption {
+	out := make([]AskOption, len(opts))
+	for i, o := range opts {
+		out[i] = AskOption{Label: o}
+	}
+	return out
 }
 
 // AskRequest is one or more questions posed to the user at once (Claude-style
@@ -1776,7 +1820,7 @@ func (a *Agent) approve(tc provider.ToolCall, allowSession bool) bool {
 	ans, err := a.asker(AskRequest{Questions: []AskQuestion{{
 		Header:   tc.Name,
 		Question: "Allow this " + tc.Name + "?\n" + gateSummary(tc),
-		Options:  opts,
+		Options:  labelled(opts),
 	}}})
 	if err != nil {
 		return false
@@ -2510,8 +2554,8 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 		var in struct {
 			Questions []AskQuestion `json:"questions"`
 			// single-question convenience form
-			Question string   `json:"question"`
-			Options  []string `json:"options"`
+			Question string      `json:"question"`
+			Options  []AskOption `json:"options"`
 		}
 		if err := json.Unmarshal(tc.Input, &in); err != nil {
 			return err.Error(), true
@@ -3063,7 +3107,7 @@ func (a *Agent) exitPlanMode(plan string) (string, bool) {
 		ans, err := a.asker(AskRequest{Questions: []AskQuestion{{
 			Header:   "plan",
 			Question: plan,
-			Options:  []string{planAccept, "Keep planning"},
+			Options:  labelled([]string{planAccept, "Keep planning"}),
 		}}})
 		if err != nil || !strings.EqualFold(strings.TrimSpace(ans), planAccept) {
 			// Not a failure: the plan was read and turned down, and the session

@@ -880,9 +880,27 @@ func toolDefs(hasWorker, hasPublish, hasAsker, hasADR bool) []provider.ToolDef {
 							"header":   strProp("Short tab label (<=12 chars)."),
 							"question": strProp("The full question."),
 							"options": map[string]any{
-								"type":        "array",
-								"items":       map[string]any{"type": "string"},
-								"description": "Distinct choices; put the recommended one first.",
+								"type": "array",
+								// Either shape. A bare string is the label — that is what
+								// the schema used to be and what models still send — and
+								// the object form carries the reason to pick it.
+								"items": map[string]any{
+									"anyOf": []any{
+										map[string]any{"type": "string"},
+										map[string]any{
+											"type": "object",
+											"properties": map[string]any{
+												"label":       strProp("The choice itself, in a few words."),
+												"description": strProp("Why you would pick this one, in one line: the trade it makes."),
+											},
+											"required": []string{"label"},
+										},
+									},
+								},
+								"description": "Distinct choices; put the recommended one first. Give each a " +
+									"description unless the choice is obvious from its name — a bare list of labels " +
+									"asks the user to already know what they are choosing between, which is rarely " +
+									"true of a question worth asking.",
 							},
 							"multiSelect": map[string]any{
 								"type":        "boolean",
