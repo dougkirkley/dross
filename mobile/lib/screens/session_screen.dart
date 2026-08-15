@@ -364,7 +364,7 @@ class _SessionScreenState extends State<SessionScreen> {
         content = _mono(e.data, T.textFaint);
         break;
       case 'error':
-        content = _mono('✗ ${e.data}', T.danger);
+        content = _errorRow(e.data);
         break;
       case 'done':
         // A run stopped by the user closes as "cancelled" — a normal ending,
@@ -379,6 +379,29 @@ class _SessionScreenState extends State<SessionScreen> {
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6).add(indent),
         child: content);
+  }
+
+  /// An error: the sentence in red, the context under it in grey.
+  ///
+  /// The whole thing used to be red, and the messages that carry context carry
+  /// a lot of it — a failed edit quotes the region it could not match, so a run
+  /// that tried to rewrite a README whole filled the screen with alarm-coloured
+  /// markdown. What went wrong is one line; the rest is evidence, and evidence
+  /// is not urgent.
+  Widget _errorRow(String data) {
+    final cut = data.indexOf('\n');
+    if (cut < 0) return _mono('✗ $data', T.danger);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _mono('✗ ${data.substring(0, cut)}', T.danger),
+        const SizedBox(height: 4),
+        // Bounded, with the rest a tap away in the raw event if it is ever
+        // wanted: the agent already caps what it quotes, and this is the
+        // backstop for a message from somewhere that does not.
+        _mono(data.substring(cut + 1), T.textFaint, max: 14),
+      ],
+    );
   }
 
   Widget _mono(String text, Color color, {int? max}) => Text(

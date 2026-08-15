@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -362,5 +363,43 @@ func TestEmptyOldStrNamesTheRightKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "`edits`") {
 		t.Errorf("the error should name the real key: %v", err)
+	}
+}
+
+// TestNoMatchQuoteIsBounded: the region echoed back used to be sized from the
+// model's own old_str, so a model that passed a forty-line block got forty
+// lines of the file back. A run that tried to rewrite a README whole filled a
+// phone screen and a half with red — the message exists to re-anchor the next
+// attempt, not to read the file aloud.
+func TestNoMatchQuoteIsBounded(t *testing.T) {
+	var body strings.Builder
+	for i := 1; i <= 60; i++ {
+		fmt.Fprintf(&body, "line %d of the readme\n", i)
+	}
+	w, _ := ws(t, map[string]string{"README.md": body.String()})
+
+	// An old_str that anchors on line 1 and then diverges, 40 lines long.
+	var stale strings.Builder
+	stale.WriteString("line 1 of the readme\n")
+	for i := 2; i <= 40; i++ {
+		fmt.Fprintf(&stale, "wrong line %d\n", i)
+	}
+	_, err := w.editFile("README.md", stale.String(), "replacement")
+	if err == nil {
+		t.Fatal("that old_str does not match; the edit should fail")
+	}
+
+	msg := err.Error()
+	if n := strings.Count(msg, "of the readme"); n > maxQuotedLines {
+		t.Errorf("quoted %d lines of the file, cap is %d:\n%s", n, maxQuotedLines, msg)
+	}
+	if !strings.Contains(msg, "first 12 lines of 4") {
+		t.Errorf("a truncated quote should say what it left out:\n%s", msg)
+	}
+	// And it still says the thing that lets the model fix it.
+	for _, want := range []string{"starts at line 1", "Copy that block exactly"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the message lost %q:\n%s", want, msg)
+		}
 	}
 }

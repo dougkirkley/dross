@@ -1718,9 +1718,13 @@ func noMatchMessage(path, text, oldStr string, i, of int) string {
 	// the same memory that just failed it.
 	if _, n, ok := findIgnoringIndent(text, oldStr); ok {
 		want := strings.Count(oldStr, "\n") + 1
-		return fmt.Sprintf("%s. It starts at line %d, but the rest does not match. The file has:\n%s\n"+
+		shown, note := want, ""
+		if shown > maxQuotedLines {
+			shown, note = maxQuotedLines, fmt.Sprintf(" (the first %d lines of %d)", maxQuotedLines, want)
+		}
+		return fmt.Sprintf("%s. It starts at line %d, but the rest does not match. The file has%s:\n%s\n"+
 			"Copy that block exactly, including leading whitespace, and change only what you mean to.",
-			msg, n, quoteLines(regionAt(text, n, want)))
+			msg, n, note, quoteLines(regionAt(text, n, shown)))
 	}
 	if strings.Contains(text, strings.TrimSpace(oldStr)) {
 		return msg + " — but a trimmed version of old_str does appear. The surrounding" +
@@ -1735,6 +1739,16 @@ func noMatchMessage(path, text, oldStr string, i, of int) string {
 	}
 	return msg + "; it must match the file exactly, including whitespace. Read the file and copy the region."
 }
+
+// maxQuotedLines caps the region echoed back when an edit does not match.
+//
+// The quote used to be sized from the model's own old_str, so a model that
+// passed a forty-line block got forty lines of the file back — and a run that
+// tried to rewrite a README whole filled a phone screen and a half with red.
+// The message exists to re-anchor the next attempt, and a dozen lines does
+// that; past there the model should read the file rather than have the error
+// read it aloud.
+const maxQuotedLines = 12
 
 // commonWords are the words whose absence from a file says nothing. Reporting
 // that "return" is missing would be noise; reporting that "Clamp" is would be

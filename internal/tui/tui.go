@@ -3765,13 +3765,25 @@ func (m *Model) applyEvent(e agent.Event) {
 	case "checkpoint":
 		m.append(indent + orbDone.Render(drossOrbGlyph) + " " + resultStyle.Render(e.Data))
 	case "error":
-		// Wrap the full error (don't truncate) so it's readable and selectable.
-		for i, l := range wrap(e.Data, m.width-4) {
+		// The first line is the error. Everything after it is context the
+		// message quotes — usually a block of the file — and colouring that red
+		// too turned a quoted README into a screen and a half of alarm. The
+		// sentence wears the colour; the quote is dim. Still whole, still
+		// selectable: an error is the reason somebody is reading a transcript.
+		head, rest, _ := strings.Cut(e.Data, "\n")
+		for i, l := range wrap(head, m.width-4) {
 			prefix := "  "
 			if i == 0 {
 				prefix = "✗ "
 			}
 			m.append(indent + errStyle.Render(prefix+l))
+		}
+		if rest != "" {
+			for _, l := range strings.Split(rest, "\n") {
+				for _, w := range wrap(l, m.width-6) {
+					m.append(indent + "  " + metaStyle.Render(w))
+				}
+			}
 		}
 	}
 }
