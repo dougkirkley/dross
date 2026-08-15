@@ -9,6 +9,18 @@ phone, or an HTTP API.
 Written in Go. MIT licensed. Named for Dross, the spirit-of-pure-intellect
 companion from the *Cradle* series.
 
+## Demo
+
+![dross solving a bug from a 300 KB log, on a local model](docs/demo.gif)
+
+One of the benchmark tasks (`read-a-big-log`), start to finish on
+`qwen3-coder:30b` running on a homelab GPU — no API cost. The prompt is the way
+a person actually reports a failure: *"last night's run died and left run.log
+behind. work out what it was complaining about and change the code so it
+wouldn't happen again."* The answer is one FATAL line at the end of a log too
+big to read in one call, so the agent reads the tail, finds the retry budget it
+asked for, and changes the code to match.
+
 ## Why
 
 - **Cost-aware multi-model orchestration.** A coding task is a tree of subtasks
