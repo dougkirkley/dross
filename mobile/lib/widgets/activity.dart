@@ -215,9 +215,14 @@ List<Object> buildTimeline(List<Event> events, {bool running = false}) {
       // "Read six files" into six cards and six rows. The sentence is kept —
       // it expands with the step — it just stops being a headline.
       case 'text' when _isPreamble(events, i):
+        // Not run through _trim. That caps a label at 56 characters for the
+        // one-line tool rows, and applying it here cut sentences mid-word —
+        // "what files we have in the workspace to und…" — while the row was
+        // free to wrap anyway. A preamble is short by construction
+        // (_preambleMax), so it can be given whole and left to wrap.
         (cur ??= Activity()).steps.add(ActStep(
             icon: Icons.chat_bubble_outline,
-            label: _trim(e.data.trim()),
+            label: e.data.trim().replaceAll(RegExp(r'\s+'), ' '),
             detail: e.data,
             color: T.textFaint,
             aside: true));
@@ -461,8 +466,13 @@ class _ActivityBlockState extends State<ActivityBlock> {
             child: Row(
               children: [
                 Flexible(
+                  // Two lines, because the counts and the chevron eat the end
+                  // of the first and "edited a file, ran 3 shell commands,
+                  // used 2 to…" stops on the word that says what it used.
                   child: Text(a.summary,
-                      style: metaFor(context), overflow: TextOverflow.ellipsis),
+                      style: metaFor(context),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
                 ),
                 if (a.added > 0 || a.removed > 0) ...[
                   const SizedBox(width: 8),
@@ -495,7 +505,11 @@ class _ActivityBlockState extends State<ActivityBlock> {
             Padding(
               padding: const EdgeInsets.only(left: 2, bottom: 6),
               child: Text(s.label,
-                  style: metaFor(context).copyWith(color: T.textDim)),
+                  style: metaFor(context).copyWith(color: T.textDim),
+                  // Two lines is the whole budget: enough for a sentence that
+                  // wraps, short of a paragraph reasserting itself as a card.
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
             ),
         if (_open)
           Padding(
