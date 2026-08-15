@@ -61,7 +61,7 @@ func TestAPreambleDoesNotBreakTheToolGroup(t *testing.T) {
 	grep()
 	m.applyEvent(agent.Event{Kind: "text", Data: "Let me check the other files for retry logic."})
 	grep()
-	m.applyEvent(agent.Event{Kind: "text", Data: "Checking whether anything else configures this."})
+	m.applyEvent(agent.Event{Kind: "text", Data: "Now let's see what else configures this:"})
 	grep()
 
 	body := stripANSI(m.body())
@@ -89,5 +89,36 @@ func TestARealReplyStillEndsTheGroup(t *testing.T) {
 	// Two groups, because a real reply came between them.
 	if n := strings.Count(body, "Searched 1 pattern"); n != 2 {
 		t.Errorf("a real reply should end the group, giving two of them, got %d:\n%s", n, body)
+	}
+}
+
+// TestAShortFindingIsNotAPreamble is the other half, and the one that matters
+// more. Folding by length alone swallowed the useful line: "Now a test pinning
+// the cap." is twenty-seven characters and is the best thing said in its turn,
+// where "Let me check the other files" is longer and says nothing the tool row
+// beneath it does not. Grammar tells them apart; size does not.
+func TestAShortFindingIsNotAPreamble(t *testing.T) {
+	m := New("dross", "m", "p", nil)
+	m.width, m.height = 100, 40
+	m.applyEvent(agent.Event{Kind: "tool", Data: `grep {"pattern":"retry"}`})
+
+	for _, finding := range []string{
+		"Now a test pinning the cap.",
+		"Off by one — the count is 41, not 40.",
+		"MaxRetries is 3 where the log asked for 5.",
+	} {
+		if isPreamble(finding) {
+			t.Errorf("a finding was taken for an announcement: %q", finding)
+		}
+	}
+	for _, announcement := range []string{
+		"Let me check the other files for retry logic.",
+		"Now let's create the registry:",
+		"I'll start by reading the log.",
+		"Checking the config file:",
+	} {
+		if !isPreamble(announcement) {
+			t.Errorf("an announcement was taken for a finding: %q", announcement)
+		}
 	}
 }

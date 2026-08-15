@@ -137,13 +137,23 @@ List<Event> withoutLiveSetup(List<Event> events, String setup) {
 }
 
 /// How long a line may be and still be a preamble rather than an answer.
-///
-/// "Let me check the room file to understand how the scene is structured:" is
-/// 71 characters. A real answer to anything is longer, and the cost of getting
-/// it wrong is one-directional: a mistaken fold hides a sentence behind a
-/// disclosure triangle, where a missed one puts a heading-sized card in front
-/// of every tool call.
 const _preambleMax = 160;
+
+/// The shapes an announcement takes.
+///
+/// Length alone was the wrong test and folded the wrong things. "Now a test
+/// pinning the cap." is twenty-seven characters and is the most useful line in
+/// its turn; "Let me check what files we have in the workspace" is forty-eight
+/// and says nothing the tool row underneath it does not. The difference is not
+/// size, it is grammar: one reports, the other announces.
+///
+/// An announcement either opens with an intention — let me, let's, I'll, I'm
+/// going to, first/next/now let's — or ends in a colon, which is a sentence
+/// pointing at what comes after it. A conclusion does neither.
+final _announces = RegExp(
+  r"^(ok(ay)?[,.]?\s+)?(now\s+)?(let me\b|let's\b|lets\b|i'll\b|i will\b|i'm going to\b|i am going to\b|first[,.]?\s+let|next[,.]?\s+let)",
+  caseSensitive: false,
+);
 
 /// Whether the text at [i] is the run announcing its next tool call.
 ///
@@ -154,6 +164,9 @@ const _preambleMax = 160;
 bool _isPreamble(List<Event> events, int i) {
   final text = events[i].data.trim();
   if (text.isEmpty || text.length > _preambleMax) return false;
+  // Short is necessary and nowhere near sufficient: it has to read as an
+  // announcement, or a one-line finding gets folded away as though it were one.
+  if (!_announces.hasMatch(text) && !text.endsWith(':')) return false;
   // Bounded, because buildTimeline runs on every event of a live session and
   // this runs per text event within it. Unbounded, a transcript whose tail is
   // all bookkeeping made each scan walk to the end, on every frame. The call a
@@ -490,33 +503,32 @@ class _ActivityBlockState extends State<ActivityBlock> {
             ),
           ),
         ),
-        // What the run said on its way through, always shown. Folding these
-        // into the expander alongside the tool calls was a mistake with an
-        // obvious symptom: a session that edited seven files and ran eight
-        // commands rendered as two grey lines and a red one, with no account
-        // anywhere of what it was doing or why. The cards these replaced were
-        // too heavy; invisible is worse than heavy.
+        // Asides stay behind the chevron. Showing them dim under the summary
+        // was a correction to folding too much, and the folding is what got
+        // fixed instead: a line only counts as an aside now if it reads as an
+        // announcement, so what lands here is "let me check the other files"
+        // and nothing that answers anything. A findings line stays prose and
+        // renders as prose.
         //
-        // Dim and one line each, which is the weight they should always have
-        // had — the same treatment the terminal gives them under its own group
-        // summary.
-        if (!_open)
-          for (final s in a.steps.where((s) => s.aside))
-            Padding(
-              padding: const EdgeInsets.only(left: 2, bottom: 6),
-              child: Text(s.label,
-                  style: metaFor(context).copyWith(color: T.textDim),
-                  // Two lines is the whole budget: enough for a sentence that
-                  // wraps, short of a paragraph reasserting itself as a card.
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis),
-            ),
+        // The shape that leaves is the one worth having, and it is the one
+        // Claude Code arrives at: substantive text at full size, one grey line
+        // per run of tool calls, nothing else competing.
         if (_open)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [for (final s in a.steps) _InlineStep(s)],
+              children: [
+                for (final s in a.steps)
+                  if (s.aside)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 2, bottom: 6),
+                      child: Text(s.label,
+                          style: metaFor(context).copyWith(color: T.textDim)),
+                    )
+                  else
+                    _InlineStep(s),
+              ],
             ),
           ),
       ],

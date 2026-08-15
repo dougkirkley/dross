@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"os/exec"
 	"strings"
 	"time"
@@ -3796,15 +3797,29 @@ func (m *Model) applyEvent(e agent.Event) {
 // an answer to anything is longer than that.
 const preambleMax = 160
 
+// announces matches a line that opens with an intention rather than a finding.
+//
+// Length alone was the wrong test. "Now a test pinning the cap." is
+// twenty-seven characters and is the most useful line in its turn; "Let me
+// check what files we have in the workspace" is forty-eight and says nothing
+// the tool row under it does not. The difference is grammar, not size: one
+// reports, the other announces.
+var announces = regexp.MustCompile(
+	`(?i)^(ok(ay)?[,.]?\s+)?(now\s+)?(let me\b|let's\b|lets\b|i'll\b|i will\b|i'm going to\b|i am going to\b|first[,.]?\s+let|next[,.]?\s+let)`)
+
 // isPreamble reports whether a text block is the run narrating its next move.
 //
-// Only consulted with a tool group already open, which is most of what keeps it
-// honest — a short line arriving mid-run is a preamble, where the same line
-// arriving cold is a reply. It can still be wrong about a very short final
-// answer, and the cost of that is one dim paragraph instead of one bright one.
+// Three conditions. Short, reads as an announcement — either an opening
+// intention or a colon, which is a sentence pointing at what follows it — and
+// (at the call site) a tool group already open. A conclusion trips none of
+// them and stays prose, which is the whole point: the fold is for the line
+// that duplicates the tool row beneath it, not for anything that answers.
 func isPreamble(s string) bool {
 	t := strings.TrimSpace(s)
-	return t != "" && len([]rune(t)) <= preambleMax
+	if t == "" || len([]rune(t)) > preambleMax {
+		return false
+	}
+	return announces.MatchString(t) || strings.HasSuffix(t, ":")
 }
 
 // closeToolGroup ends the current collapsed tool-call group so the next tool
