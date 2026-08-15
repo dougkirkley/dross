@@ -504,3 +504,54 @@ func TestWindowedReadOfAHugeFileIsRefused(t *testing.T) {
 		t.Fatal("still reading after 5s — the scan is unbounded")
 	}
 }
+
+// TestTooLargeIsGuidanceNotAnError: the refusal is instructions for the model,
+// and the run it produces goes to plan — a traced session was redirected and
+// had the answer one call later. Emitting it as an error put a red cross in
+// the transcript for a step that worked, which reads as a broken run.
+//
+// Both halves matter. The text must still reach the model, or the redirect
+// teaches it nothing; and no error event may be emitted, or the user sees a
+// failure that did not happen.
+func TestTooLargeIsGuidanceNotAnError(t *testing.T) {
+	big := strings.Repeat("a line of filler to make this file large\n", 8000)
+	_, dir := ws(t, map[string]string{"run.log": big})
+	prov := &scriptedProvider{steps: []provider.Response{
+		{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{
+			toolCall("1", "read", map[string]any{"path": "run.log"}),
+		}},
+		{StopReason: provider.StopEndTurn, Text: "read it"},
+	}}
+	ag, err := New(Config{Name: "t", Model: "m", Workdir: dir}, prov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errors, results []string
+	ag.SetEventHook(func(e Event) {
+		switch e.Kind {
+		case "error":
+			errors = append(errors, e.Data)
+		case "tool-result":
+			results = append(results, e.Data)
+		}
+	})
+	if _, err := ag.Run(context.Background(), "what died"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, e := range errors {
+		if strings.Contains(e, "too large") {
+			t.Errorf("the redirect was emitted as an error:\n%s", e)
+		}
+	}
+	if len(results) == 0 || !strings.Contains(results[0], "too large") {
+		t.Fatalf("the redirect should arrive as ordinary tool output:\n%v", results)
+	}
+	// And the model has to be told, or it learns nothing from being turned down.
+	last := prov.last.seen()
+	for _, want := range []string{"too large", "grep", "offset -200"} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the model never saw %q:\n%s", want, last)
+		}
+	}
+}

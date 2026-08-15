@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/format"
 	"html"
@@ -1007,6 +1008,30 @@ func (r readWindow) empty() bool { return r.Offset == 0 && r.Limit <= 0 }
 // 200,000-line log is not the whole log.
 const maxSliceLines = 2000
 
+// redirect is a tool declining a call and naming what to do instead.
+//
+// It is not a failure and must not be shown as one. Nothing has gone wrong: the
+// model asked for something the tool will not do, was told exactly how to get
+// it, and the next call is normally the right one — a traced run read a 300 KB
+// log, was redirected, and had the answer one call later. Reported as an error
+// that sequence puts a red cross in the transcript for a step that went to
+// plan, which is the user reading a failure into a working run.
+//
+// The distinction is who the text is for. An error is for the person: something
+// they may have to fix. A redirect is for the model: instructions it acts on
+// without anyone needing to know.
+type redirect struct{ error }
+
+func redirectf(format string, a ...any) error {
+	return redirect{fmt.Errorf(format, a...)}
+}
+
+// isRedirect reports whether err is guidance rather than a failure.
+func isRedirect(err error) bool {
+	var r redirect
+	return errors.As(err, &r)
+}
+
 // maxScanBytes bounds what a windowed read will stream.
 //
 // A window skips the whole-file size check, which is the point of it, and for a
@@ -1032,7 +1057,7 @@ func (w *workspace) readFile(path string, win readWindow) (string, error) {
 	}
 	if !win.empty() {
 		if info.Size() > maxScanBytes {
-			return "", fmt.Errorf("%s is %d bytes; too large to page through (limit %d) — "+
+			return "", redirectf("%s is %d bytes; too large to page through (limit %d) — "+
 				"grep it for what you want, or run `tail -n 200 %s` with bash for the end",
 				path, info.Size(), maxScanBytes, path)
 		}
@@ -1044,7 +1069,7 @@ func (w *workspace) readFile(path string, win readWindow) (string, error) {
 		// followed it literally: eight slices down a log whose answer was in
 		// the last six lines. Search first, the end second, and the walk from
 		// the top last, because it is last in usefulness.
-		return "", fmt.Errorf("file is %d bytes; too large to read whole (limit %d) — grep it for what "+
+		return "", redirectf("file is %d bytes; too large to read whole (limit %d) — grep it for what "+
 			"you want, or read the end with offset -200 (a log's answer is usually at the end), or "+
 			"walk it in slices (offset 1 limit 200, then offset 201)",
 			info.Size(), maxReadBytes)

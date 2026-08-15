@@ -2310,7 +2310,14 @@ func (a *Agent) dispatchTool(ctx context.Context, tc provider.ToolCall, res *Res
 			}
 			a.readReturned[p] = true
 		}
-		return orErr(a.ws.readFiles(paths, readWindow{Offset: in.Offset, Limit: in.Limit}))
+		out, err := a.ws.readFiles(paths, readWindow{Offset: in.Offset, Limit: in.Limit})
+		if isRedirect(err) {
+			// Not a failure, so not reported as one. The tool declined and said
+			// how to get the thing instead; that text is for the model, which
+			// acts on it and carries on. See redirect in tools.go.
+			return err.Error(), false
+		}
+		return orErr(out, err)
 	case "write":
 		var in struct {
 			Path    string `json:"path"`
