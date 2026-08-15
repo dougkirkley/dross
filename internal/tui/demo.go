@@ -357,19 +357,7 @@ func DemoAskView(width, height int) string {
 	m.width, m.height = width, height
 	m.layout()
 	m.append(youLabel.Render("you") + "  review the branch before I merge")
-	qs := []agent.AskQuestion{
-		{Header: "Scope", Question: "How should I scope the review?", Options: []agent.AskOption{
-			{Label: "Post-merge commits only",
-				Description: "The 14 commits added since the branch point. Fastest, and misses anything the branch inherited."},
-			{Label: "Whole MR, 367 files",
-				Description: "Everything the merge would land. Thorough, and most of it is vendored."},
-			{Label: "Risky judgment calls only",
-				Description: "Auth, migrations and the retry logic. Skips the mechanical churn."}}},
-		{Header: "Lenses", Question: "Which review lenses?", MultiSelect: true, Options: []agent.AskOption{
-			{Label: "Correctness", Description: "Does it do what it says, and what happens at the edges."},
-			{Label: "Security", Description: "Input handling, authz, and anything reachable from a request."},
-			{Label: "Performance", Description: "Allocation and query count on the hot path."}}},
-	}
+	qs := demoAskQuestions()
 	st := &askState{
 		questions: qs,
 		sel:       make([][]bool, len(qs)),
@@ -385,4 +373,50 @@ func DemoAskView(width, height int) string {
 	st.sel[1][1] = true
 	m.pendingAsk = st
 	return m.View()
+}
+
+// DemoAskModel is DemoAskView's state, as a live model rather than one frame.
+//
+// A picker is the one widget a screenshot cannot judge. Whether the
+// descriptions crowd the labels, whether the escape row reads as a way out or
+// as a fourth option, whether tabbing between two questions keeps its place —
+// all of that is motion, and the --render family only ever produced stills.
+//
+// No model and no workspace: the questions are fixed, and answering them
+// prints the reply the agent would have received and quits.
+func DemoAskModel(width, height int) *Model {
+	m := New("dross", "claude-opus-5", "anthropic · ollama", nil)
+	m.width, m.height = width, height
+	m.layout()
+	m.append(youLabel.Render("you") + "  review the branch before I merge")
+	qs := demoAskQuestions()
+	st := &askState{
+		questions: qs,
+		sel:       make([][]bool, len(qs)),
+		cursor:    make([]int, len(qs)),
+		writeIn:   make([]string, len(qs)),
+		reply:     make(chan string, 1),
+	}
+	for i, q := range qs {
+		st.sel[i] = make([]bool, len(q.Options))
+	}
+	m.pendingAsk = st
+	return &m
+}
+
+// demoAskQuestions is the fixed question set both ask demos pose.
+func demoAskQuestions() []agent.AskQuestion {
+	return []agent.AskQuestion{
+		{Header: "Scope", Question: "How should I scope the review?", Options: []agent.AskOption{
+			{Label: "Post-merge commits only",
+				Description: "The 14 commits added since the branch point. Fastest, and misses anything the branch inherited."},
+			{Label: "Whole MR, 367 files",
+				Description: "Everything the merge would land. Thorough, and most of it is vendored."},
+			{Label: "Risky judgment calls only",
+				Description: "Auth, migrations and the retry logic. Skips the mechanical churn."}}},
+		{Header: "Lenses", Question: "Which review lenses?", MultiSelect: true, Options: []agent.AskOption{
+			{Label: "Correctness", Description: "Does it do what it says, and what happens at the edges."},
+			{Label: "Security", Description: "Input handling, authz, and anything reachable from a request."},
+			{Label: "Performance", Description: "Allocation and query count on the hot path."}}},
+	}
 }

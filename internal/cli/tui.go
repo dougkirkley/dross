@@ -31,6 +31,7 @@ import (
 func newTUICmd() *cobra.Command {
 	var (
 		render, welcome, running, ask, sessions, shortcuts bool
+		demoAsk                                            bool
 		shimmer                                            int
 		subagents, subagentFocus, shells, bang             bool
 		models, slash, usage, toolsv, provs, skillsv       bool
@@ -52,6 +53,16 @@ func newTUICmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if theme != "" {
 				tui.SetTheme(theme) // flag overrides the config theme
+			}
+			// An interactive ask picker with no model behind it. --render prints
+			// one frame, and a picker is the widget a frame cannot judge:
+			// whether tabbing keeps its place, whether the escape row reads as
+			// a way out or a fourth option, is all motion.
+			if demoAsk {
+				mdl := tui.DemoAskModel(width, height)
+				p := tea.NewProgram(mdl, tea.WithAltScreen(), tea.WithMouseCellMotion())
+				_, err := p.Run()
+				return err
 			}
 			if render {
 				// --render pipes to a file (not a TTY), so lipgloss would strip
@@ -602,6 +613,7 @@ func newTUICmd() *cobra.Command {
 	f.StringVar(&resume, "resume", "", "resume a session by id (see the hint printed on exit)")
 	f.StringVar(&theme, "theme", "", "color theme: crystal|ember|matrix|grape|mono|tokyonight|catppuccin|gruvbox|dracula|nord|onedark|rose-pine|solarized")
 	f.BoolVar(&render, "render", false, "print a populated demo view and exit (no model)")
+	f.BoolVar(&demoAsk, "demo-ask", false, "drive the ask_user picker interactively with no model behind it")
 	f.BoolVar(&welcome, "welcome", false, "with --render, show the empty-state logo splash")
 	f.BoolVar(&running, "running", false, "with --render, show a mid-run frame (spinner, phrase, tokens)")
 	f.BoolVar(&subagents, "subagents", false, "with --render, show the live subagent tree")

@@ -2357,6 +2357,9 @@ func (m Model) View() string {
 	}
 	m.vp.Height = bodyH
 	body := m.vp.View()
+	// Set by the ask branch below: a docked view that takes its height from
+	// the transcript rather than scrolling inside it.
+	picker := ""
 	if m.workerFocus != "" {
 		m.vp.SetContent(m.renderWorkerFocus())
 		m.vp.GotoBottom()
@@ -2386,11 +2389,22 @@ func (m Model) View() string {
 	} else if len(m.lines) == 0 && !m.running && m.pendingAsk == nil {
 		body = m.welcome()
 	} else if m.pendingAsk != nil && !m.pendingAsk.freeText {
-		content := m.transcriptContent()
-		if content != "" {
-			content += "\n"
+		// The picker is its own view docked above the input, not a block
+		// appended to the transcript.
+		//
+		// Inside the transcript it scrolled with the conversation and sat
+		// wherever the last line happened to leave it — usually halfway up,
+		// with the rest of the screen empty beneath it — and a question you
+		// have to answer should not be somewhere you might have to scroll to.
+		// Docked, it is always the thing directly above the cursor, which is
+		// where the answer is going.
+		picker = m.renderPicker()
+		// Take the room out of the transcript, or the two of them together
+		// are taller than the screen and the input drops off the bottom.
+		if h := lipgloss.Height(picker); h < bodyH {
+			m.vp.Height = bodyH - h
 		}
-		m.vp.SetContent(content + m.renderPicker())
+		m.vp.SetContent(m.transcriptContent())
 		if !m.scrolledUp {
 			m.vp.GotoBottom()
 		}
@@ -2419,11 +2433,11 @@ func (m Model) View() string {
 		}
 		body = m.vp.View()
 	}
-	return strings.Join([]string{
-		m.header(),
-		body,
-		footer,
-	}, "\n")
+	parts := []string{m.header(), body}
+	if picker != "" {
+		parts = append(parts, picker)
+	}
+	return strings.Join(append(parts, footer), "\n")
 }
 
 // welcome is the empty-state splash. Layout variants (SetWelcomeStyle):
@@ -3424,7 +3438,7 @@ func (m Model) renderPicker() string {
 		if a.cursor[a.tab] == escRow {
 			escCur, escStyle = promptMark.Render("› "), agentText
 		}
-		b.WriteString(escCur + escStyle.Render("⤺ none of these — let's talk it through") + "\n")
+		b.WriteString(escCur + escStyle.Render("↩ none of these — let's talk it through") + "\n")
 		hint := "←→ tabs · ↑↓ move · enter next/edit"
 		if q.MultiSelect {
 			hint = "←→ tabs · ↑↓ move · space toggle · enter next/edit"
