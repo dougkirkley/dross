@@ -3633,9 +3633,17 @@ func (m *Model) applyEvent(e agent.Event) {
 		if !worker {
 			m.newTurn()
 		}
-		m.append(indent + bar + " " + drossBullet.Render(drossOrbGlyph) + " " + lines[0])
+		// The gutter alone. An orb here as well was two marks saying the same
+		// thing — this is the agent talking — and the gutter says it better,
+		// because it runs the height of the block where the orb sat on the
+		// first line of a paragraph that wraps to six.
+		//
+		// Activity lines keep theirs. There the glyph is not decoration: it is
+		// what tells "read 5 files" from "edited retry.go" at a glance, and a
+		// gutter can mark a span but cannot carry a kind.
+		m.append(indent + bar + " " + lines[0])
 		for _, l := range lines[1:] {
-			m.append(indent + bar + "   " + l)
+			m.append(indent + bar + " " + l)
 		}
 	case "tool":
 		name, args, _ := strings.Cut(e.Data, " ")
