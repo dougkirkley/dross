@@ -92,7 +92,9 @@ class _SessionScreenState extends State<SessionScreen> {
               ? null
               : CircleIconButton(
                   icon: Icons.chevron_left, onTap: () => backOrHome(context)),
-          trailing: sess == null ? null : _sessionMenu(context, sess),
+          trailing: sess == null
+              ? null
+              : _sessionMenu(context, sess, changedFiles(s.events)),
         ),
         // Same signal at the top of the window the session owns, so a run
         // is visible without going back to the list to see its card.
@@ -127,12 +129,6 @@ class _SessionScreenState extends State<SessionScreen> {
               if (sess?.isRunning ?? false) _runningRow(s),
               if (runningShells > 0) _tasksLink(context, shells, runningShells),
             ];
-            // What the session has touched, at the head of the conversation
-            // rather than pinned above it.
-            final changed = changedFiles(s.events);
-            final leading = <Widget>[
-              if (changed.isNotEmpty) _changedStrip(context, changed),
-            ];
             return RefreshIndicator(
               onRefresh: () => context.read<AppState>().reloadCurrent(),
               color: T.accent,
@@ -141,11 +137,8 @@ class _SessionScreenState extends State<SessionScreen> {
                 child: ListView.builder(
                   controller: _follow.controller,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  itemCount:
-                      leading.length + timeline.length + trailing.length,
-                  itemBuilder: (_, i) {
-                    if (i < leading.length) return leading[i];
-                    final j = i - leading.length;
+                  itemCount: timeline.length + trailing.length,
+                  itemBuilder: (_, j) {
                     if (j >= timeline.length) {
                       return trailing[j - timeline.length];
                     }
@@ -183,44 +176,29 @@ class _SessionScreenState extends State<SessionScreen> {
     ));
   }
 
-  /// What the session has touched, at the head of the transcript:
-  /// "3 files +81 −12".
-  ///
-  /// It used to be pinned between the header and the transcript, on the
-  /// argument that how much is uncommitted is worth seeing without asking —
-  /// which the terminal's bottom bar gets right and this did not. A pinned
-  /// strip with no band behind it is a pill the conversation slides under, and
-  /// the line passing beneath it is clipped mid-glyph: correct layout that
-  /// reads as a broken one, every time you scroll.
-  ///
-  /// So it scrolls with the conversation, at the top of it. The list itself is
-  /// still a tap away, which is the detail wanted occasionally rather than
-  /// continuously — and a run that wants the number back has it in the sheet.
-  Widget _changedStrip(BuildContext context, List<ChangedFile> files) =>
-      Padding(
-        // No Readable and no horizontal padding: it is a row of the transcript
-        // now, and the list is already inside both.
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: ChangedFilesChip(
-            files: files,
-            onTap: () => showChangedFilesSheet(context, files),
-          ),
-        ),
-      );
-
   /// The session's own menu, top right of the page it belongs to.
-  Widget _sessionMenu(BuildContext context, Session sess) =>
+  ///
+  /// Changed files live here now. They were a chip pinned above the
+  /// transcript, then the transcript's first row — and a first row does not
+  /// scroll away on a short session, which is most of them, so it read as
+  /// something stuck to the screen. It is a lookup you want occasionally, and
+  /// this is where occasional lookups belong. The count is still one tap away,
+  /// and the sheet still totals it.
+  Widget _sessionMenu(BuildContext context, Session sess, List<ChangedFile> changed) =>
       PopupMenuButton<String>(
         icon: const Icon(Icons.more_horiz, color: T.text),
         color: T.surface,
         position: PopupMenuPosition.under,
         onSelected: (v) {
-          if (v == 'rename') showRenameDialog(context, sess);
+          switch (v) {
+            case 'rename':
+              showRenameDialog(context, sess);
+            case 'changed':
+              showChangedFilesSheet(context, changed);
+          }
         },
-        itemBuilder: (_) => const [
-          PopupMenuItem(
+        itemBuilder: (_) => [
+          const PopupMenuItem(
             value: 'rename',
             child: Row(children: [
               Icon(Icons.drive_file_rename_outline, size: 18, color: T.textDim),
@@ -228,6 +206,16 @@ class _SessionScreenState extends State<SessionScreen> {
               Text('Rename', style: T.body),
             ]),
           ),
+          if (changed.isNotEmpty)
+            PopupMenuItem(
+              value: 'changed',
+              child: Row(children: [
+                const Icon(Icons.difference_outlined,
+                    size: 18, color: T.textDim),
+                const SizedBox(width: 10),
+                Text('Changed files (${changed.length})', style: T.body),
+              ]),
+            ),
         ],
       );
 

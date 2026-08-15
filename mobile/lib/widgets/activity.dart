@@ -480,6 +480,23 @@ class _ActivityBlockState extends State<ActivityBlock> {
             ),
           ),
         ),
+        // What the run said on its way through, always shown. Folding these
+        // into the expander alongside the tool calls was a mistake with an
+        // obvious symptom: a session that edited seven files and ran eight
+        // commands rendered as two grey lines and a red one, with no account
+        // anywhere of what it was doing or why. The cards these replaced were
+        // too heavy; invisible is worse than heavy.
+        //
+        // Dim and one line each, which is the weight they should always have
+        // had — the same treatment the terminal gives them under its own group
+        // summary.
+        if (!_open)
+          for (final s in a.steps.where((s) => s.aside))
+            Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 6),
+              child: Text(s.label,
+                  style: metaFor(context).copyWith(color: T.textDim)),
+            ),
         if (_open)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
